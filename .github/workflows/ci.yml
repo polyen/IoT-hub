@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  UV_VERSION: "0.11.8"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    name: Lint (ruff + black)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: ruff check
+        run: uv run ruff check hub/ training/ tests/
+
+      - name: black --check
+        run: uv run black --check hub/ training/ tests/
+
+  typecheck:
+    name: Type-check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: mypy
+        run: uv run mypy hub/
+
+  unit:
+    name: Unit tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: pytest
+        run: uv run pytest tests/unit --tb=short -q
+
+  docker-build:
+    name: Docker build (multi-arch dry-run)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: backend
+            dockerfile: hub/backend/Dockerfile
+            context: .
+          - name: edge
+            dockerfile: hub/edge/Dockerfile
+            context: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service.name }} (linux/amd64 + linux/arm64)
+        uses: docker/build-push-action@v6
+        # Only attempt if Dockerfile exists (may not exist yet in early tasks)
+        continue-on-error: ${{ !hashFiles(matrix.service.dockerfile) }}
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/iot-hub-${{ matrix.service.name }}:pr-${{ github.event.number }}

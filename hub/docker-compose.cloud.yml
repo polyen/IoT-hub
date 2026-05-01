@@ -1,0 +1,133 @@
+name: iot-hub-cloud
+
+services:
+  # ---------------------------------------------------------------------------
+  # MQTT bridge (connects to edge Mosquitto via mTLS, T3.5)
+  # ---------------------------------------------------------------------------
+  mosquitto-bridge:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto-bridge
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/bridge.conf:/mosquitto/config/bridge.conf:ro
+    networks:
+      - iot-cloud
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_pub -h localhost -t '$$SYS/health' -m '' -q 0 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL replica (non-sensitive aggregations only — T0/T1 tier data)
+  # ---------------------------------------------------------------------------
+  postgres-replica:
+    image: timescale/timescaledb-ha:pg16-latest
+    container_name: postgres-replica
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-iothub}
+      POSTGRES_USER: ${POSTGRES_USER:-iothub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata-cloud:/home/postgres/pgdata/data
+    networks:
+      - iot-cloud
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-iothub}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Telegram bot (stub — T2.x)
+  # ---------------------------------------------------------------------------
+  telegram-bot:
+    build:
+      context: ..
+      dockerfile: hub/backend/Dockerfile
+    container_name: telegram-bot
+    restart: unless-stopped
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:?TELEGRAM_TOKEN is required}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres-replica:5432/${POSTGRES_DB:-iothub}
+      MQTT_HOST: mosquitto-bridge
+      MQTT_PORT: "1883"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres-replica:
+        condition: service_healthy
+      mosquitto-bridge:
+        condition: service_healthy
+    networks:
+      - iot-cloud
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Grafana (cloud dashboards — non-sensitive metrics only)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana-oss:11.6.1
+    container_name: grafana-cloud
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - iot-cloud
+
+  # ---------------------------------------------------------------------------
+  # ntfy (cloud relay for push notifications)
+  # ---------------------------------------------------------------------------
+  ntfy:
+    image: binwiederhier/ntfy:v2.11.0
+    container_name: ntfy-cloud
+    restart: unless-stopped
+    command: serve
+    environment:
+      NTFY_BASE_URL: ${NTFY_BASE_URL:?NTFY_BASE_URL is required}
+      NTFY_BEHIND_PROXY: "true"
+    volumes:
+      - ntfy-data:/var/cache/ntfy
+      - ntfy-etc:/etc/ntfy
+    ports:
+      - "8080:80"
+    networks:
+      - iot-cloud
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -q 'ok'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+# -----------------------------------------------------------------------------
+# Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  pgdata-cloud:
+  mosquitto-data:
+  mosquitto-log:
+  grafana-data:
+  ntfy-data:
+  ntfy-etc:
+
+# -----------------------------------------------------------------------------
+# Networks
+# -----------------------------------------------------------------------------
+networks:
+  iot-cloud:
+    internal: false
