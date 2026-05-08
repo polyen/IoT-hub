@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql+asyncpg://iothub:iothub@localhost:5432/iothub",
-)
+from hub.backend.config import settings
+
+DATABASE_URL = settings.database_url
 
 engine = create_async_engine(
     DATABASE_URL,

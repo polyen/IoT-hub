@@ -1,0 +1,11 @@
+# OS junk
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+
+# DVC intermediate cache (auto-managed)
+.dvc/tmp/

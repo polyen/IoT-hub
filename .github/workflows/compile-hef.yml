@@ -1,0 +1,122 @@
+name: Compile HEF
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model name (e.g. fire_smoke)"
+        required: true
+        type: string
+      version:
+        description: "Model version tag (e.g. v1.4)"
+        required: true
+        type: string
+  repository_dispatch:
+    types: [mlflow-model-registered]
+
+jobs:
+  compile:
+    runs-on: ubuntu-22.04
+    env:
+      MODEL_NAME: ${{ github.event.inputs.model || github.event.client_payload.model }}
+      MODEL_VERSION: ${{ github.event.inputs.version || github.event.client_payload.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dev deps
+        run: uv sync --extra dev --frozen
+
+      - name: Pull calibration subset via DVC
+        env:
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+        run: uv run dvc pull datasets/${{ env.MODEL_NAME }}/calibration/ --run-cache
+
+      - name: Download ONNX from MLflow registry
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_TOKEN: ${{ secrets.MLFLOW_TOKEN }}
+        run: |
+          uv run python - <<'EOF'
+          import mlflow, os, pathlib
+          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+          client = mlflow.tracking.MlflowClient()
+          model_name = os.environ["MODEL_NAME"]
+          version = os.environ["MODEL_VERSION"]
+          mv = client.get_model_version(model_name, version)
+          local_path = mlflow.artifacts.download_artifacts(
+              artifact_uri=f"{mv.source}/model.onnx",
+              dst_path="onnx_artifacts",
+          )
+          pathlib.Path("onnx_path.txt").write_text(local_path)
+          EOF
+
+      - name: Cache Hailo DFC Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.hailo-dfc-cache
+          key: hailo-dfc-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: hailo-dfc-${{ runner.os }}-
+
+      - name: Run ONNX -> HAR -> HEF conversion via Hailo DFC
+        env:
+          MODEL_NAME: ${{ env.MODEL_NAME }}
+          MODEL_VERSION: ${{ env.MODEL_VERSION }}
+        run: |
+          ONNX_PATH="$(cat onnx_path.txt)"
+          mkdir -p hef_output
+          docker run --rm \
+            -v "$(pwd)/onnx_artifacts:/onnx_artifacts:ro" \
+            -v "$(pwd)/hef_output:/hef_output" \
+            -v "$(pwd)/training:/training:ro" \
+            hailo/hailo_dfc:latest \
+            python /training/convert_to_hef.py \
+              --onnx "/onnx_artifacts/$(basename "${ONNX_PATH}")" \
+              --out /hef_output \
+              --model-name "${MODEL_NAME}" \
+              --ci
+
+      - name: Upload HEF to MLflow
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_TOKEN: ${{ secrets.MLFLOW_TOKEN }}
+        run: |
+          uv run python - <<'EOF'
+          import mlflow, os, glob
+          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+          hef_files = glob.glob("hef_output/*.hef")
+          if not hef_files:
+              raise FileNotFoundError("No .hef files found in hef_output/")
+          with mlflow.start_run(run_name=f"hef-{os.environ['MODEL_NAME']}-{os.environ['MODEL_VERSION']}"):
+              for hef in hef_files:
+                  mlflow.log_artifact(hef, artifact_path="hef")
+          EOF
+
+      - name: Push HEF as OCI artifact to GHCR
+        env:
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        run: |
+          echo "${GHCR_PAT}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          HEF_TAG="ghcr.io/${{ github.repository_owner }}/iot-hub-models:${MODEL_NAME}-${MODEL_VERSION}"
+          for hef in hef_output/*.hef; do
+            oras push "${HEF_TAG}" "${hef}:application/octet-stream"
+          done
+
+      - name: Notify edge for watchtower pull
+        env:
+          EDGE_DISPATCH_TOKEN: ${{ secrets.EDGE_DISPATCH_TOKEN }}
+        run: |
+          curl -fsSL -X POST \
+            -H "Authorization: token ${EDGE_DISPATCH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d "{\"event_type\":\"hef-updated\",\"client_payload\":{\"model\":\"${MODEL_NAME}\",\"version\":\"${MODEL_VERSION}\"}}"

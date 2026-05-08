@@ -1,23 +1,32 @@
-# hub/backend/Dockerfile — stub (populated in T1.x)
-FROM python:3.11-slim
+# Stage 1: build virtualenv
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Non-root user
-RUN useradd --create-home --shell /bin/bash appuser
+RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
+RUN uv sync --no-dev --frozen
+
+# Stage 2: runtime image
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+RUN useradd --create-home --shell /bin/bash appuser && \
+    apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/.venv /app/.venv
 COPY hub/ hub/
 
-RUN pip install --no-cache-dir uv && \
-    uv pip install --system --no-cache ".[dev]"
+ENV PATH="/app/.venv/bin:$PATH"
 
 USER appuser
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-    CMD curl -sf http://localhost:8000/health || exit 1
+    CMD curl -sf http://localhost:8000/health/live || exit 1
 
-# Placeholder entrypoint — replaced in T1.x with real FastAPI app
-CMD ["python", "-c", "import http.server, os; http.server.HTTPServer(('', 8000), http.server.BaseHTTPRequestHandler).serve_forever()"]
+CMD ["uvicorn", "hub.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

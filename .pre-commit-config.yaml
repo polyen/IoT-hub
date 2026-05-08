@@ -24,3 +24,12 @@ repos:
     hooks:
       - id: black
         language_version: python3.11
+
+  - repo: local
+    hooks:
+      - id: no-raw-datasets
+        name: Block raw files in datasets/
+        language: python
+        entry: python scripts/check_datasets.py
+        pass_filenames: true
+        types: [file]
