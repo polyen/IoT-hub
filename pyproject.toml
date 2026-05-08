@@ -17,6 +17,10 @@ dependencies = [
     "pydantic-settings>=2.5.0",
     "redis[hiredis]>=5.0.0",
     "aiomqtt>=2.3.0",
+    "prometheus-client>=0.20.0",
+    "jsonschema>=4.22.0",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -93,8 +97,74 @@ module = ["aiomqtt.*", "redis.*", "hiredis"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["hailo_sdk_client.*"]
+module = ["hailo_platform.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["faster_whisper.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["soundfile.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["cv2.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["prometheus_client.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["jsonschema.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["optimum.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["hub.edge.agent.router"]
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["yaml.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["bytetracker.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["mlflow.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["openwakeword.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["torch.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sounddevice.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["numpy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "hub.edge.cv.tracker",
+    "hub.edge.cv.pose",
+    "hub.edge.cv.face",
+    "hub.edge.voice.vad",
+    "hub.edge.voice.wake_word",
+]
+warn_unused_ignores = false
 
 # ---------------------------------------------------------------------------
 # pytest

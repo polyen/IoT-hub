@@ -1,0 +1,4 @@
+root ::= "{" ws "\"title\":" ws string "," ws "\"message\":" ws string ("," ws "\"priority\":" ws priority)? "}"
+priority ::= "\"default\"" | "\"high\"" | "\"urgent\""
+string ::= "\"" [^"]* "\""
+ws     ::= [ \t\n]*

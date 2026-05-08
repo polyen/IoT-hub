@@ -6,6 +6,7 @@ repos:
         exclude: "^.*\\.md$"
       - id: end-of-file-fixer
       - id: check-yaml
+        args: ["--unsafe"]
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files

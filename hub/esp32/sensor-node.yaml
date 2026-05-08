@@ -1,0 +1,142 @@
+substitutions:
+  room_name: "living_room"
+
+esphome:
+  name: "sensor-node-${room_name}"
+  friendly_name: "Sensor Node ${room_name}"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  level: INFO
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "SensorNode-${room_name}"
+    password: "fallback1234"
+
+captive_portal:
+
+mqtt:
+  broker: !secret mqtt_broker
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  client_id: "esp32_${room_name}"
+  on_connect:
+    then:
+      - lambda: |-
+          // Replay buffered messages on reconnect
+          while (!id(msg_buffer).empty()) {
+            std::string msg = id(msg_buffer).front();
+            id(msg_buffer).pop_front();
+            id(mqtt_client).publish("home/${room_name}/sensors", msg.c_str());
+          }
+  on_message:
+    - topic: "home/${room_name}/cmd"
+      then:
+        - lambda: |-
+            ESP_LOGI("mqtt", "Received command: %s", x.c_str());
+
+globals:
+  - id: msg_buffer
+    type: std::deque<std::string>
+    restore_value: no
+    initial_value: "std::deque<std::string>()"
+
+dht:
+  pin: GPIO4
+  model: DHT22
+  temperature:
+    id: temperature_sensor
+    name: "${room_name} Temperature"
+  humidity:
+    id: humidity_sensor
+    name: "${room_name} Humidity"
+  update_interval: 10s
+
+adc:
+  - pin: GPIO34
+    id: gas_adc
+    name: "${room_name} Gas ADC Raw"
+    attenuation: 11db
+    update_interval: 10s
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO14
+      mode: INPUT_PULLDOWN
+    id: pir_sensor
+    name: "${room_name} PIR"
+    device_class: motion
+    on_press:
+      then:
+        - lambda: |-
+            std::string payload = "{\"room\":\"${room_name}\","
+                                  "\"event\":\"motion_detected\","
+                                  "\"tier\":1}";
+            id(mqtt_client).publish("home/${room_name}/alert", payload.c_str());
+
+switch:
+  - platform: gpio
+    pin: GPIO26
+    id: relay_switch
+    name: "${room_name} Relay"
+    restore_mode: RESTORE_DEFAULT_OFF
+
+sensor:
+  - platform: template
+    id: gas_ppm
+    name: "${room_name} Gas PPM"
+    lambda: |-
+      float voltage = id(gas_adc).state;
+      // MQ-2 voltage-to-ppm approximation (calibrate per sensor)
+      return (voltage / 3.3f) * 1000.0f;
+    update_interval: 10s
+    unit_of_measurement: "ppm"
+    on_value_range:
+      - above: 600.0
+        then:
+          - lambda: |-
+              char payload[256];
+              snprintf(payload, sizeof(payload),
+                "{\"room\":\"${room_name}\","
+                "\"event\":\"gas_alert\","
+                "\"gas_ppm\":%.1f,"
+                "\"tier\":1}",
+                x);
+              id(mqtt_client).publish("home/${room_name}/alert", payload);
+
+interval:
+  - interval: 10s
+    then:
+      - lambda: |-
+          char payload[512];
+          snprintf(payload, sizeof(payload),
+            "{\"room\":\"${room_name}\","
+            "\"temperature\":%.1f,"
+            "\"humidity\":%.1f,"
+            "\"gas_ppm\":%.1f,"
+            "\"pir\":%s,"
+            "\"tier\":1}",
+            id(temperature_sensor).state,
+            id(humidity_sensor).state,
+            id(gas_ppm).state,
+            id(pir_sensor).state ? "true" : "false");
+
+          std::string msg(payload);
+
+          // Buffer for NVS replay — ring buffer capped at 100 messages
+          if (id(msg_buffer).size() >= 100) {
+            id(msg_buffer).pop_front();
+          }
+          id(msg_buffer).push_back(msg);
+
+          if (id(mqtt_client).is_connected()) {
+            id(mqtt_client).publish("home/${room_name}/sensors", msg.c_str());
+          }

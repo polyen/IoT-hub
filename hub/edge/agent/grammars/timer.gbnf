@@ -1,0 +1,4 @@
+root   ::= "{" ws "\"tool\":" ws "\"set_timer\"" "," ws "\"duration_sec\":" ws duration ("," ws "\"label\":" ws string)? "}"
+duration ::= ([1-9][0-9]* )
+string ::= "\"" [^"]* "\""
+ws     ::= [ \t\n]*

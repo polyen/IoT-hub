@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     mqtt_host: str = "mosquitto"
     mqtt_port: int = 1883
     log_level: str = "info"
+    llm_url: str = "http://llm:8001"
+    ntfy_url: str = "http://ntfy"
 
 
 settings = Settings()

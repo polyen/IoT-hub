@@ -1,0 +1,48 @@
+prototypes:
+  deterministic:
+    - text: "увімкни світло на кухні"
+      label: "light_on"
+    - text: "вимкни телевізор"
+      label: "device_off"
+    - text: "відкрий жалюзі у вітальні"
+      label: "blinds_open"
+    - text: "закрий двері гаражу"
+      label: "door_close"
+    - text: "перемкни вентилятор"
+      label: "relay_toggle"
+
+  structured:
+    - text: "встанови таймер на 20 хвилин на піцу"
+      label: "timer_set"
+    - text: "збільш гучність до 60 відсотків"
+      label: "volume_set"
+    - text: "встанови температуру 22 градуси"
+      label: "temp_set"
+    - text: "нагадай мені через годину"
+      label: "reminder_set"
+    - text: "встанови яскравість 40 відсотків"
+      label: "brightness_set"
+
+  creative:
+    - text: "що цікавого сталось сьогодні"
+      label: "daily_summary"
+    - text: "розкажи що робилось вчора вдома"
+      label: "yesterday_summary"
+    - text: "чому спрацювала сигналізація"
+      label: "alert_explain"
+    - text: "підготуй тижневий звіт"
+      label: "weekly_report"
+    - text: "що відбувалось поки мене не було"
+      label: "absence_summary"
+
+  unknown:
+    - text: "вступай у торгові переговори з сусідами"
+      label: "nonsense_1"
+    - text: "напиши вірш про холодильник"
+      label: "nonsense_2"
+    - text: "explain quantum entanglement"
+      label: "off_topic"
+    - text: "хто виграв матч вчора"
+      label: "external_info"
+    - text: "купи мені піцу"
+      label: "external_action"

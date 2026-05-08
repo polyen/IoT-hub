@@ -1,0 +1,5 @@
+root   ::= "{" ws "\"topic\":" ws string "," ws "\"payload\":" ws relay-payload "}"
+relay-payload ::= "{" ws "\"cmd\":" ws cmd "}"
+cmd    ::= "\"relay_on\"" | "\"relay_off\"" | "\"relay_toggle\""
+string ::= "\"" [^"]* "\""
+ws     ::= [ \t\n]*

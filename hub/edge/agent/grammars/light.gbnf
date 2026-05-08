@@ -1,0 +1,6 @@
+root   ::= "{" ws "\"topic\":" ws string "," ws "\"payload\":" ws light-payload "}"
+light-payload ::= "{" ws "\"state\":" ws state ("," ws "\"brightness\":" ws brightness)? "}"
+state  ::= "\"on\"" | "\"off\"" | "\"toggle\""
+brightness ::= ([0-9] | [1-9][0-9] | "100")
+string ::= "\"" [^"]* "\""
+ws     ::= [ \t\n]*
