@@ -2,7 +2,7 @@ import { useWebSocket } from "../hooks/useWebSocket";
 import AlertCard from "../components/AlertCard";
 
 export default function EventsFeed() {
-  const { events, connected } = useWebSocket();
+  const { events, connected, missedCount, clearMissed } = useWebSocket();
 
   return (
     <div>
@@ -16,6 +16,21 @@ export default function EventsFeed() {
           {connected ? "● підключено" : "○ з'єднання..."}
         </span>
       </div>
+
+      {missedCount > 0 && (
+        <div className="flex items-center justify-between bg-blue-900 border border-blue-700 rounded-lg px-4 py-2 mb-4">
+          <span className="text-sm text-blue-200">
+            {missedCount} подій пропущено під час офлайн
+          </span>
+          <button
+            onClick={clearMissed}
+            className="text-blue-400 hover:text-white text-sm ml-4"
+          >
+            Закрити
+          </button>
+        </div>
+      )}
+
       {events.length === 0 ? (
         <p className="text-slate-400 text-center py-12">Немає подій</p>
       ) : (

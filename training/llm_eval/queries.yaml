@@ -1,0 +1,845 @@
+# LLM Tool Accuracy Evaluation Queries
+# 100 queries: 25 per category
+# Categories: deterministic, structured, creative, unknown
+# Mixed Ukrainian/English (bilingual household simulation)
+
+# ──────────────────────────────────────────────────────────────
+# DETERMINISTIC (25) — direct actuator commands
+# Expected tools: mqtt_publish, set_timer
+# ──────────────────────────────────────────────────────────────
+
+- id: "det_001"
+  category: "deterministic"
+  text: "Turn off the living room lights"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/living_room/light"
+    payload: '{"state": "off"}'
+  notes: "Direct actuator command — lights off"
+
+- id: "det_002"
+  category: "deterministic"
+  text: "Увімкни світло на кухні"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/kitchen/light"
+    payload: '{"state": "on"}'
+  notes: "Ukrainian: turn on kitchen light"
+
+- id: "det_003"
+  category: "deterministic"
+  text: "Set the bedroom thermostat to 22 degrees"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/bedroom/thermostat"
+    payload: '{"temperature": 22}'
+  notes: "Temperature set command"
+
+- id: "det_004"
+  category: "deterministic"
+  text: "Встанови температуру у вітальні на 20 градусів"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/living_room/thermostat"
+    payload: '{"temperature": 20}'
+  notes: "Ukrainian: set living room temp"
+
+- id: "det_005"
+  category: "deterministic"
+  text: "Lock the front door"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/front_door/lock"
+    payload: '{"state": "locked"}'
+  notes: "Door lock command"
+
+- id: "det_006"
+  category: "deterministic"
+  text: "Замкни задні двері"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/back_door/lock"
+    payload: '{"state": "locked"}'
+  notes: "Ukrainian: lock back door"
+
+- id: "det_007"
+  category: "deterministic"
+  text: "Arm the security alarm"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/alarm/control"
+    payload: '{"state": "armed"}'
+  notes: "Alarm arm command"
+
+- id: "det_008"
+  category: "deterministic"
+  text: "Вимкни сигналізацію"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/alarm/control"
+    payload: '{"state": "disarmed"}'
+  notes: "Ukrainian: disarm alarm"
+
+- id: "det_009"
+  category: "deterministic"
+  text: "Turn on relay 3 in the garage"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/garage/relay_3"
+    payload: '{"state": "on"}'
+  notes: "Relay control command"
+
+- id: "det_010"
+  category: "deterministic"
+  text: "Вимкни реле 1 у підвалі"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/basement/relay_1"
+    payload: '{"state": "off"}'
+  notes: "Ukrainian: turn off basement relay 1"
+
+- id: "det_011"
+  category: "deterministic"
+  text: "Set a timer for 30 minutes"
+  expected_tool: "set_timer"
+  expected_args:
+    duration_s: 1800
+  notes: "Timer set — 30 min"
+
+- id: "det_012"
+  category: "deterministic"
+  text: "Постав таймер на 10 хвилин"
+  expected_tool: "set_timer"
+  expected_args:
+    duration_s: 600
+  notes: "Ukrainian: 10-minute timer"
+
+- id: "det_013"
+  category: "deterministic"
+  text: "Turn off all lights in the house"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/all/light"
+    payload: '{"state": "off"}'
+  notes: "All lights off"
+
+- id: "det_014"
+  category: "deterministic"
+  text: "Увімкни вентилятор у ванній"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/bathroom/fan"
+    payload: '{"state": "on"}'
+  notes: "Ukrainian: bathroom fan on"
+
+- id: "det_015"
+  category: "deterministic"
+  text: "Unlock the front door"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/front_door/lock"
+    payload: '{"state": "unlocked"}'
+  notes: "Door unlock"
+
+- id: "det_016"
+  category: "deterministic"
+  text: "Dim the office light to 50%"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/office/light"
+    payload: '{"brightness": 50}'
+  notes: "Brightness control"
+
+- id: "det_017"
+  category: "deterministic"
+  text: "Встанови яскравість у спальні на 30%"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/bedroom/light"
+    payload: '{"brightness": 30}'
+  notes: "Ukrainian: bedroom brightness"
+
+- id: "det_018"
+  category: "deterministic"
+  text: "Turn on the garden irrigation"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/garden/irrigation"
+    payload: '{"state": "on"}'
+  notes: "Irrigation control"
+
+- id: "det_019"
+  category: "deterministic"
+  text: "Вимкни зрошення у саду"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/garden/irrigation"
+    payload: '{"state": "off"}'
+  notes: "Ukrainian: garden irrigation off"
+
+- id: "det_020"
+  category: "deterministic"
+  text: "Set hallway light to warm white"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/hallway/light"
+    payload: '{"color_temp": "warm"}'
+  notes: "Color temperature"
+
+- id: "det_021"
+  category: "deterministic"
+  text: "Постав будильник на 7 ранку"
+  expected_tool: "set_timer"
+  expected_args:
+    label: "alarm"
+  notes: "Ukrainian: set 7am alarm"
+
+- id: "det_022"
+  category: "deterministic"
+  text: "Enable night mode"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/system/mode"
+    payload: '{"mode": "night"}'
+  notes: "Night mode activation"
+
+- id: "det_023"
+  category: "deterministic"
+  text: "Вимкни нічний режим"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/system/mode"
+    payload: '{"mode": "normal"}'
+  notes: "Ukrainian: disable night mode"
+
+- id: "det_024"
+  category: "deterministic"
+  text: "Turn off the TV in the bedroom"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/bedroom/tv"
+    payload: '{"state": "off"}'
+  notes: "TV off"
+
+- id: "det_025"
+  category: "deterministic"
+  text: "Відкрий жалюзі у вітальні"
+  expected_tool: "mqtt_publish"
+  expected_args:
+    topic: "home/living_room/blinds"
+    payload: '{"state": "open"}'
+  notes: "Ukrainian: open living room blinds"
+
+# ──────────────────────────────────────────────────────────────
+# STRUCTURED (25) — information retrieval queries
+# Expected tools: get_home_state, query_events_db
+# ──────────────────────────────────────────────────────────────
+
+- id: "str_001"
+  category: "structured"
+  text: "What's the temperature in the bedroom?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "bedroom"
+    sensor: "temperature"
+  notes: "State query — temperature"
+
+- id: "str_002"
+  category: "structured"
+  text: "Яка температура на кухні зараз?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "kitchen"
+    sensor: "temperature"
+  notes: "Ukrainian: kitchen temperature"
+
+- id: "str_003"
+  category: "structured"
+  text: "Show me the last 3 alerts"
+  expected_tool: "query_events_db"
+  expected_args:
+    event_type: "alert"
+    limit: 3
+  notes: "DB query — recent alerts"
+
+- id: "str_004"
+  category: "structured"
+  text: "Покажи останні 5 подій руху"
+  expected_tool: "query_events_db"
+  expected_args:
+    event_type: "motion"
+    limit: 5
+  notes: "Ukrainian: last 5 motion events"
+
+- id: "str_005"
+  category: "structured"
+  text: "Is anyone home right now?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "occupancy"
+  notes: "Presence check"
+
+- id: "str_006"
+  category: "structured"
+  text: "Хтось є вдома?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "occupancy"
+  notes: "Ukrainian: is anyone home"
+
+- id: "str_007"
+  category: "structured"
+  text: "What time did the last motion event happen?"
+  expected_tool: "query_events_db"
+  expected_args:
+    event_type: "motion"
+    limit: 1
+  notes: "Last motion timestamp"
+
+- id: "str_008"
+  category: "structured"
+  text: "Коли востаннє спрацював датчик диму?"
+  expected_tool: "query_events_db"
+  expected_args:
+    event_type: "smoke"
+    limit: 1
+  notes: "Ukrainian: last smoke detection"
+
+- id: "str_009"
+  category: "structured"
+  text: "Is the front door locked?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "front_door"
+    sensor: "lock"
+  notes: "Door state query"
+
+- id: "str_010"
+  category: "structured"
+  text: "Чи зачинені задні двері?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "back_door"
+    sensor: "lock"
+  notes: "Ukrainian: back door state"
+
+- id: "str_011"
+  category: "structured"
+  text: "What's the humidity in the bathroom?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "bathroom"
+    sensor: "humidity"
+  notes: "Humidity query"
+
+- id: "str_012"
+  category: "structured"
+  text: "Яка вологість у підвалі?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "basement"
+    sensor: "humidity"
+  notes: "Ukrainian: basement humidity"
+
+- id: "str_013"
+  category: "structured"
+  text: "Are all lights off?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "light"
+  notes: "All lights state"
+
+- id: "str_014"
+  category: "structured"
+  text: "Які вогні зараз увімкнені?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "light"
+  notes: "Ukrainian: which lights are on"
+
+- id: "str_015"
+  category: "structured"
+  text: "Show me fire detection events from today"
+  expected_tool: "query_events_db"
+  expected_args:
+    event_type: "fire"
+  notes: "DB query — today's fire events"
+
+- id: "str_016"
+  category: "structured"
+  text: "Скільки разів спрацьовував датчик руху сьогодні?"
+  expected_tool: "query_events_db"
+  expected_args:
+    event_type: "motion"
+  notes: "Ukrainian: motion count today"
+
+- id: "str_017"
+  category: "structured"
+  text: "What's the CO2 level in the living room?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "living_room"
+    sensor: "co2"
+  notes: "CO2 sensor query"
+
+- id: "str_018"
+  category: "structured"
+  text: "Який рівень CO2 у спальні?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "bedroom"
+    sensor: "co2"
+  notes: "Ukrainian: bedroom CO2"
+
+- id: "str_019"
+  category: "structured"
+  text: "Is the alarm armed?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "alarm"
+  notes: "Alarm state query"
+
+- id: "str_020"
+  category: "structured"
+  text: "Чи увімкнена сигналізація?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "alarm"
+  notes: "Ukrainian: alarm state"
+
+- id: "str_021"
+  category: "structured"
+  text: "Show the last fall detection event"
+  expected_tool: "query_events_db"
+  expected_args:
+    event_type: "fall"
+    limit: 1
+  notes: "Last fall event"
+
+- id: "str_022"
+  category: "structured"
+  text: "Покажи всі події за останню годину"
+  expected_tool: "query_events_db"
+  expected_args:
+    time_range: "1h"
+  notes: "Ukrainian: all events last hour"
+
+- id: "str_023"
+  category: "structured"
+  text: "What is the current power consumption?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "power"
+  notes: "Power consumption query"
+
+- id: "str_024"
+  category: "structured"
+  text: "Яке поточне споживання електрики?"
+  expected_tool: "get_home_state"
+  expected_args:
+    sensor: "power"
+  notes: "Ukrainian: power consumption"
+
+- id: "str_025"
+  category: "structured"
+  text: "How many people are in the living room?"
+  expected_tool: "get_home_state"
+  expected_args:
+    location: "living_room"
+    sensor: "occupancy_count"
+  notes: "Occupancy count query"
+
+# ──────────────────────────────────────────────────────────────
+# CREATIVE (25) — longer generation, summaries, explanations
+# Expected tools: summarize_period, send_push
+# ──────────────────────────────────────────────────────────────
+
+- id: "cre_001"
+  category: "creative"
+  text: "Summarize what happened in the last hour"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "1h"
+  notes: "Hourly summary"
+
+- id: "cre_002"
+  category: "creative"
+  text: "Напиши щоденний звіт про активність вдома"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "24h"
+  notes: "Ukrainian: daily activity report"
+
+- id: "cre_003"
+  category: "creative"
+  text: "Explain why the fire alarm triggered"
+  expected_tool: "summarize_period"
+  expected_args:
+    event_type: "fire"
+  notes: "Explanation of fire alarm"
+
+- id: "cre_004"
+  category: "creative"
+  text: "Поясни, чому спрацював датчик руху о 3 ранку"
+  expected_tool: "summarize_period"
+  expected_args:
+    event_type: "motion"
+  notes: "Ukrainian: explain 3am motion"
+
+- id: "cre_005"
+  category: "creative"
+  text: "Write a weekly energy consumption report"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "7d"
+    metric: "power"
+  notes: "Weekly energy report"
+
+- id: "cre_006"
+  category: "creative"
+  text: "Сформуй звіт про споживання електрики за тиждень"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "7d"
+    metric: "power"
+  notes: "Ukrainian: weekly power report"
+
+- id: "cre_007"
+  category: "creative"
+  text: "Send me a summary of today's security events"
+  expected_tool: "send_push"
+  expected_args:
+    message_type: "security_summary"
+  notes: "Push notification with summary"
+
+- id: "cre_008"
+  category: "creative"
+  text: "Надішли мені повідомлення з підсумком подій безпеки"
+  expected_tool: "send_push"
+  expected_args:
+    message_type: "security_summary"
+  notes: "Ukrainian: push security summary"
+
+- id: "cre_009"
+  category: "creative"
+  text: "Analyze the motion patterns in the last 24 hours"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "24h"
+    event_type: "motion"
+  notes: "Motion pattern analysis"
+
+- id: "cre_010"
+  category: "creative"
+  text: "Проаналізуй активність у будинку за останній день"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "24h"
+  notes: "Ukrainian: home activity analysis"
+
+- id: "cre_011"
+  category: "creative"
+  text: "Give me a bedtime report — what should I check before sleep?"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "evening"
+  notes: "Evening checklist summary"
+
+- id: "cre_012"
+  category: "creative"
+  text: "Склади вечірній звіт перед сном"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "evening"
+  notes: "Ukrainian: bedtime report"
+
+- id: "cre_013"
+  category: "creative"
+  text: "Explain the fall detection that happened at 14:30"
+  expected_tool: "summarize_period"
+  expected_args:
+    event_type: "fall"
+  notes: "Fall event explanation"
+
+- id: "cre_014"
+  category: "creative"
+  text: "Поясни виявлення падіння, яке сталось у 14:30"
+  expected_tool: "summarize_period"
+  expected_args:
+    event_type: "fall"
+  notes: "Ukrainian: fall detection explanation"
+
+- id: "cre_015"
+  category: "creative"
+  text: "Notify me with a daily home digest"
+  expected_tool: "send_push"
+  expected_args:
+    message_type: "daily_digest"
+  notes: "Daily digest push"
+
+- id: "cre_016"
+  category: "creative"
+  text: "Надішли мені щоденний дайджест активності"
+  expected_tool: "send_push"
+  expected_args:
+    message_type: "daily_digest"
+  notes: "Ukrainian: daily digest push"
+
+- id: "cre_017"
+  category: "creative"
+  text: "Summarize CO2 levels from the last 8 hours"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "8h"
+    metric: "co2"
+  notes: "CO2 summary"
+
+- id: "cre_018"
+  category: "creative"
+  text: "Склади огляд рівнів CO2 за останні 8 годин"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "8h"
+    metric: "co2"
+  notes: "Ukrainian: CO2 8h summary"
+
+- id: "cre_019"
+  category: "creative"
+  text: "Write a short paragraph about energy use this month"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "30d"
+    metric: "power"
+  notes: "Monthly energy narrative"
+
+- id: "cre_020"
+  category: "creative"
+  text: "Напиши короткий огляд споживання енергії за місяць"
+  expected_tool: "summarize_period"
+  expected_args:
+    period: "30d"
+    metric: "power"
+  notes: "Ukrainian: monthly energy overview"
+
+- id: "cre_021"
+  category: "creative"
+  text: "Send an alert summary to my phone"
+  expected_tool: "send_push"
+  expected_args:
+    message_type: "alert_summary"
+  notes: "Alert summary push"
+
+- id: "cre_022"
+  category: "creative"
+  text: "Відправ мені зведення тривог на телефон"
+  expected_tool: "send_push"
+  expected_args:
+    message_type: "alert_summary"
+  notes: "Ukrainian: alert summary push"
+
+- id: "cre_023"
+  category: "creative"
+  text: "Explain why humidity is high in the bathroom"
+  expected_tool: "summarize_period"
+  expected_args:
+    location: "bathroom"
+    metric: "humidity"
+  notes: "Humidity explanation"
+
+- id: "cre_024"
+  category: "creative"
+  text: "Поясни, чому вологість у ванній така висока"
+  expected_tool: "summarize_period"
+  expected_args:
+    location: "bathroom"
+    metric: "humidity"
+  notes: "Ukrainian: high humidity explanation"
+
+- id: "cre_025"
+  category: "creative"
+  text: "Summarize all detected persons from camera 1 today"
+  expected_tool: "summarize_period"
+  expected_args:
+    event_type: "person_detected"
+    source: "camera_1"
+  notes: "Person detection summary"
+
+# ──────────────────────────────────────────────────────────────
+# UNKNOWN (25) — ambiguous / unanswerable queries
+# Expected tools: ask_user or DENY
+# ──────────────────────────────────────────────────────────────
+
+- id: "unk_001"
+  category: "unknown"
+  text: "Order me a pizza"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: food ordering"
+
+- id: "unk_002"
+  category: "unknown"
+  text: "Замов мені піцу"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: order pizza — out of scope"
+
+- id: "unk_003"
+  category: "unknown"
+  text: "Play music on Spotify"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: media streaming"
+
+- id: "unk_004"
+  category: "unknown"
+  text: "Увімкни музику на Spotify"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: Spotify — out of scope"
+
+- id: "unk_005"
+  category: "unknown"
+  text: "What's the weather like today?"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: external weather API"
+
+- id: "unk_006"
+  category: "unknown"
+  text: "Яка погода сьогодні в Києві?"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: weather query — out of scope"
+
+- id: "unk_007"
+  category: "unknown"
+  text: "Call mom"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: phone call"
+
+- id: "unk_008"
+  category: "unknown"
+  text: "Зателефонуй мамі"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: call mom — out of scope"
+
+- id: "unk_009"
+  category: "unknown"
+  text: "Book a table at a restaurant for Saturday"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: restaurant reservation"
+
+- id: "unk_010"
+  category: "unknown"
+  text: "Забронюй стіл у ресторані на суботу"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: restaurant booking — out of scope"
+
+- id: "unk_011"
+  category: "unknown"
+  text: "What's the stock price of Apple?"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: stock market"
+
+- id: "unk_012"
+  category: "unknown"
+  text: "Яка ціна акцій Tesla зараз?"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: stock price — out of scope"
+
+- id: "unk_013"
+  category: "unknown"
+  text: "Set the mood"
+  expected_tool: "ask_user"
+  expected_args: {}
+  notes: "Ambiguous — needs clarification"
+
+- id: "unk_014"
+  category: "unknown"
+  text: "Зроби добре"
+  expected_tool: "ask_user"
+  expected_args: {}
+  notes: "Ukrainian: 'do something good' — ambiguous"
+
+- id: "unk_015"
+  category: "unknown"
+  text: "Navigate to the nearest supermarket"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: navigation/maps"
+
+- id: "unk_016"
+  category: "unknown"
+  text: "Прокласти маршрут до найближчого супермаркету"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: navigation — out of scope"
+
+- id: "unk_017"
+  category: "unknown"
+  text: "Translate this sentence to French"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: translation service"
+
+- id: "unk_018"
+  category: "unknown"
+  text: "Перекладіть цей текст на польську"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: translation request — out of scope"
+
+- id: "unk_019"
+  category: "unknown"
+  text: "I feel sad today"
+  expected_tool: "ask_user"
+  expected_args: {}
+  notes: "Emotional input — needs clarification or DENY"
+
+- id: "unk_020"
+  category: "unknown"
+  text: "Мені сьогодні сумно"
+  expected_tool: "ask_user"
+  expected_args: {}
+  notes: "Ukrainian: emotional — out of scope"
+
+- id: "unk_021"
+  category: "unknown"
+  text: "Search the internet for the best IoT devices"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: web search"
+
+- id: "unk_022"
+  category: "unknown"
+  text: "Знайди в інтернеті найкращі смарт-лампи"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Ukrainian: web search — out of scope"
+
+- id: "unk_023"
+  category: "unknown"
+  text: "Do something nice"
+  expected_tool: "ask_user"
+  expected_args: {}
+  notes: "Ambiguous command — needs clarification"
+
+- id: "unk_024"
+  category: "unknown"
+  text: "Придумай щось цікаве для вечора"
+  expected_tool: "ask_user"
+  expected_args: {}
+  notes: "Ukrainian: ambiguous creative request"
+
+- id: "unk_025"
+  category: "unknown"
+  text: "Buy me a new router on Amazon"
+  expected_tool: "DENY"
+  expected_args: {}
+  notes: "Out-of-scope: e-commerce purchase"

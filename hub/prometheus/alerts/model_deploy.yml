@@ -1,0 +1,13 @@
+groups:
+  - name: model_deploy
+    rules:
+      - alert: HighAlertRateAfterDeploy
+        expr: |
+          rate(iot_hub_cv_detections_total{class_name="fire"}[5m])
+          > 1.5 * avg_over_time(rate(iot_hub_cv_detections_total{class_name="fire"}[5m])[24h:5m])
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High fire detection rate after model deploy — possible FP regression"
+          description: "Current rate {{ $value }} > 1.5× 24h average. Consider rollback via /api/deploy/rollback."

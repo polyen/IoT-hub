@@ -9,13 +9,19 @@ services:
     container_name: mosquitto
     restart: unless-stopped
     ports:
-      - "1883:1883"   # plain (internal only — bind to 127.0.0.1 in prod)
+      # 1883 is intentionally NOT mapped to the host — the iot-internal Docker
+      # network is the security boundary for plain MQTT. Cross-host clients
+      # (ESP32 sensors, VPS bridge) MUST use 8883 with mTLS.
       - "8883:8883"   # mTLS (T3.1)
+    environment:
+      VPS_MQTT_HOST: ${VPS_MQTT_HOST:-vps.example.com}
     volumes:
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/acl.conf:/mosquitto/config/acl.conf:ro
+      - ./mosquitto/certs:/mosquitto/config/certs:ro
+      - ./mosquitto/conf.d:/mosquitto/config/conf.d:ro
     networks:
       - iot-internal
     healthcheck:
@@ -104,6 +110,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -289,4 +296,10 @@ volumes:
 # -----------------------------------------------------------------------------
 networks:
   iot-internal:
+    # internal:false (plan T0.4 originally said true) — required because the
+    # MQTT bridge must reach ${VPS_MQTT_HOST}, ntfy must reach the cloud relay,
+    # the LLM container downloads its GGUF from HuggingFace on first start, and
+    # backend egress to ntfy is needed for push. Privacy invariants are
+    # enforced at higher layers (LUKS for T0, PG publication WHERE filter for
+    # T1/T2, MQTT bridge topic allowlist) — not by network isolation.
     internal: false

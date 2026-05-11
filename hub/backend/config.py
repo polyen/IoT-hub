@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
     llm_url: str = "http://llm:8001"
     ntfy_url: str = "http://ntfy"
+    deploy_token: str = ""
 
 
 settings = Settings()

@@ -42,6 +42,7 @@ class Event(Base):
     tier: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     model_version: Mapped[str | None] = mapped_column(String(64))
+    user_consent_cloud: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     embedding: Mapped[EventEmbedding | None] = relationship(
         "EventEmbedding", back_populates="event", uselist=False, cascade="all, delete-orphan"

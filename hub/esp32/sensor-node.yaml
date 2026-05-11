@@ -27,6 +27,10 @@ mqtt:
   username: !secret mqtt_username
   password: !secret mqtt_password
   client_id: "esp32_${room_name}"
+  certificate_authority: !secret mqtt_ca_cert
+  client_certificate: !secret mqtt_client_cert
+  client_certificate_key: !secret mqtt_client_key
+  skip_cert_cn_check: false
   on_connect:
     then:
       - lambda: |-

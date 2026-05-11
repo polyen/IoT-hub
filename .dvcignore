@@ -9,3 +9,7 @@ __pycache__/
 
 # DVC intermediate cache (auto-managed)
 .dvc/tmp/
+
+# T0 data — biometric, never leaves edge/laptop. Hard exclusion (PROJECT §5).
+datasets/person_reid/
+datasets/person_reid/**

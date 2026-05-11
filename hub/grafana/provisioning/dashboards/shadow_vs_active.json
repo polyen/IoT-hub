@@ -1,0 +1,146 @@
+{
+  "uid": "shadow-vs-active",
+  "title": "Shadow vs Active Model",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "timezone": "browser",
+  "tags": ["mlops", "shadow", "cv"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "FPS — Active vs Shadow",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "fps",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "expr": "iot_hub_cv_fps",
+          "legendFormat": "Active FPS",
+          "refId": "A"
+        },
+        {
+          "expr": "iot_hub_shadow_fps{model_version=~\".+\"}",
+          "legendFormat": "Shadow FPS ({{model_version}})",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Detections / min — Active vs Shadow",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "expr": "rate(iot_hub_cv_detections_total[1m]) * 60",
+          "legendFormat": "Active {{label}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(iot_hub_shadow_detections_total[1m]) * 60",
+          "legendFormat": "Shadow {{model_version}} {{class_name}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Inference Latency p95 — Active vs Shadow",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(iot_hub_cv_inference_ms_bucket[5m]))",
+          "legendFormat": "Active p95 inference ms",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(iot_hub_shadow_inference_ms_bucket[5m]))",
+          "legendFormat": "Shadow p95 inference ms ({{model_version}})",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Active Pipeline — Total Detections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "sum(iot_hub_cv_detections_total)",
+          "legendFormat": "Active total detections",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Shadow Pipeline — Total Detections",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "expr": "sum(iot_hub_shadow_detections_total)",
+          "legendFormat": "Shadow total detections",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

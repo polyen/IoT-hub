@@ -1,0 +1,73 @@
+# DVC pipeline (T0.7) — dataset versioning + model training stages.
+#
+# Datasets are tracked via `dvc add` (which creates the `.dvc` files committed
+# to git, with the actual blobs synced to the configured gdrive remote).
+# The stages below describe reproducible commands; run `dvc repro` to execute.
+#
+# T0 data (`datasets/person_reid/`) is excluded from the remote — see
+# `.dvcignore` and `scripts/check_datasets.py` (pre-commit hook).
+
+stages:
+  # ---------------------------------------------------------------------------
+  # Wake-word training (T2.6) — runs on a CPU laptop in ~30 minutes.
+  # ---------------------------------------------------------------------------
+  train_wake_word:
+    cmd: >
+      uv run python -m training.wake_word.train_oww
+      --samples-dir datasets/voice/wake_word
+      --out models/versions/wake_word_xei_xata.tflite
+    deps:
+      - datasets/voice/wake_word
+      - training/wake_word/train_oww.py
+    outs:
+      - models/versions/wake_word_xei_xata.tflite
+
+  # ---------------------------------------------------------------------------
+  # Fire/smoke fine-tune (T4.3) — runs on Colab / Kaggle GPU.
+  # MLflow tracking server URL is read from MLFLOW_URI env (see params).
+  # ---------------------------------------------------------------------------
+  train_fire_smoke:
+    cmd: >
+      uv run python -m training.fire_smoke.train
+      --data datasets/fire_smoke/data.yaml
+      --base-model yolo11n.pt
+      --epochs ${train.fire_smoke.epochs}
+      --imgsz ${train.fire_smoke.imgsz}
+      --batch ${train.fire_smoke.batch}
+      --lr ${train.fire_smoke.lr}
+      --mlflow-uri ${train.fire_smoke.mlflow_uri}
+    deps:
+      - datasets/fire_smoke
+      - training/fire_smoke/train.py
+    params:
+      - train.fire_smoke
+    outs:
+      - runs/fire_smoke
+
+  # ---------------------------------------------------------------------------
+  # Hard-negative mining (T4.2) — runs only on edge (T0 frame access).
+  # Skip in CI; produces the next feedback_v{N}/ delta dataset.
+  # ---------------------------------------------------------------------------
+  mine_hard_negatives:
+    cmd: >
+      uv run python -m training.mining
+      --db-url ${mining.db_url}
+      --days ${mining.days}
+      --max-per-tag ${mining.max_per_tag}
+      --out-base datasets/fire_smoke
+    deps:
+      - training/mining.py
+    params:
+      - mining
+    always_changed: true
+    frozen: true
+
+  # ---------------------------------------------------------------------------
+  # Evaluation (T5.1) — wraps `make evaluate`.
+  # ---------------------------------------------------------------------------
+  evaluate:
+    cmd: make evaluate
+    deps:
+      - training/evaluation
+    outs:
+      - materials/evaluation_results

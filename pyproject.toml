@@ -21,6 +21,7 @@ dependencies = [
     "jsonschema>=4.22.0",
     "httpx>=0.27.0",
     "pyyaml>=6.0.0",
+    "python-telegram-bot>=21.0,<22",
 ]
 
 [project.optional-dependencies]
@@ -86,10 +87,21 @@ python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
-exclude = ["tests/", "training/"]
+exclude = [
+    "tests/",
+    "training/fire_smoke/",
+    "training/person_reid/",
+    "training/wake_word/",
+    "training/mining\\.py",
+    "training/convert_to_hef\\.py",
+]
 
 [[tool.mypy.overrides]]
 module = ["pgvector.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["telegram.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -173,3 +185,7 @@ warn_unused_ignores = false
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
+markers = [
+    "integration: tests that exercise multi-module flows (may use mocks for I/O)",
+    "chaos: failure-injection tests for offline-first scenarios",
+]

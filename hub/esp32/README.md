@@ -81,6 +81,47 @@ esphome run sensor-node.yaml --device <device-ip>
 
 Gas alert adds `"gas_ppm"` field.
 
+## TLS setup (mTLS, T3.1)
+
+The node connects over mTLS on port 8883. Each device needs its own client certificate signed by the hub CA.
+
+**1. Generate device certificate** (run from the repo root):
+
+```bash
+bash scripts/gen-mqtt-certs.sh --device esp32-living-001
+```
+
+This creates `hub/mosquitto/certs/esp32-living-001.key` and `.crt`.
+
+**2. Embed certs in secrets.yaml**
+
+Open `hub/mosquitto/certs/ca.crt`, `esp32-living-001.crt`, and `esp32-living-001.key` and paste their contents into `secrets.yaml` under the `mqtt_ca_cert`, `mqtt_client_cert`, and `mqtt_client_key` keys respectively. The indentation of the PEM block must be exactly 2 spaces under the key (ESPHome YAML multiline string).
+
+```yaml
+mqtt_ca_cert: |
+  -----BEGIN CERTIFICATE-----
+  MIIFn...
+  -----END CERTIFICATE-----
+mqtt_client_cert: |
+  -----BEGIN CERTIFICATE-----
+  MIIDq...
+  -----END CERTIFICATE-----
+mqtt_client_key: |
+  -----BEGIN RSA PRIVATE KEY-----
+  MIIEo...
+  -----END RSA PRIVATE KEY-----
+```
+
+**3. Update broker address** — set `mqtt_broker` to the hub IP and ensure port 8883 is reachable from the device.
+
+**4. Flash** the device as usual:
+
+```bash
+esphome run sensor-node.yaml
+```
+
+The CN in the device certificate (`esp32-living-001`) becomes the MQTT username via `use_identity_as_username true`, so the `mqtt_username` field in `secrets.yaml` must match the CN exactly.
+
 ## Offline buffering
 
 The node buffers up to 100 sensor messages in RAM while MQTT is disconnected and replays them on reconnect. Buffer is not persisted across power cycles.

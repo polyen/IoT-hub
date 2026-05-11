@@ -1,4 +1,5 @@
-.PHONY: help up-edge down-edge up-cloud down-cloud logs ps compose-check
+.PHONY: help up-edge down-edge up-cloud down-cloud logs ps compose-check \
+        evaluate evaluate-cv evaluate-stt evaluate-llm
 
 ENV_FILE ?= .env
 EDGE_COMPOSE = hub/docker-compose.edge.yml
@@ -59,3 +60,23 @@ typecheck: ## Run mypy
 
 test: ## Run unit tests
 	.venv/bin/pytest tests/unit -q
+
+# ---------------------------------------------------------------------------
+# Evaluation (T5.1 / T5.2)
+# ---------------------------------------------------------------------------
+EVAL_FLAGS ?=
+RESULTS_DIR ?= materials/evaluation_results
+
+evaluate: evaluate-cv evaluate-stt evaluate-llm ## Run full evaluation suite and aggregate report
+	uv run python -m training.evaluation.report $(EVAL_FLAGS)
+
+evaluate-cv: ## Run CV evaluation (fire/smoke mAP, fall F1, latency FPS)
+	uv run python -m training.evaluation.cv_fire_smoke --dataset datasets/fire_smoke/test --output $(RESULTS_DIR) $(EVAL_FLAGS)
+	uv run python -m training.evaluation.cv_fall --dataset datasets/fall_validation --output $(RESULTS_DIR) $(EVAL_FLAGS)
+	uv run python -m training.evaluation.cv_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
+
+evaluate-stt: ## Run STT latency benchmark (Hailo Whisper vs faster-whisper)
+	uv run python -m training.evaluation.stt_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
+
+evaluate-llm: ## Run LLM tool call accuracy evaluation
+	uv run python -m training.evaluation.agent_accuracy --queries training/llm_eval/queries.yaml --output $(RESULTS_DIR) $(EVAL_FLAGS)

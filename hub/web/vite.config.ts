@@ -20,12 +20,27 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        navigateFallback: "index.html",
         runtimeCaching: [
           {
-            urlPattern: /^http:\/\/localhost:8000\/api/,
+            // API responses: network-first, fallback to cache
+            urlPattern: /\/api\/.*/,
             handler: "NetworkFirst",
-            options: { cacheName: "api-cache" },
+            options: {
+              cacheName: "api-cache",
+              networkTimeoutSeconds: 5,
+              expiration: { maxEntries: 100, maxAgeSeconds: 86400 },
+            },
+          },
+          {
+            // Static assets: cache-first
+            urlPattern: /\.(js|css|png|svg|ico|woff2)$/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "static-cache",
+              expiration: { maxEntries: 100, maxAgeSeconds: 604800 },
+            },
           },
         ],
       },

@@ -1,32 +1,75 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Event } from "../types";
 
 const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/events`;
 
-export function useWebSocket() {
+// Duration (ms) after reconnect during which arriving events are counted as "missed"
+const REPLAY_WINDOW_MS = 2000;
+
+export function useWebSocket(): {
+  events: Event[];
+  connected: boolean;
+  missedCount: number;
+  clearMissed: () => void;
+} {
   const [events, setEvents] = useState<Event[]>([]);
   const [connected, setConnected] = useState(false);
+  const [missedCount, setMissedCount] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const lastIdRef = useRef<string | null>(null);
+  // Whether we are currently inside the replay window after a ?since= reconnect
+  const replayWindowRef = useRef(false);
+  const replayCountRef = useRef(0);
+  const replayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearMissed = useCallback(() => setMissedCount(0), []);
 
   useEffect(() => {
     function connect() {
-      const url = lastIdRef.current ? `${WS_URL}?since=${lastIdRef.current}` : WS_URL;
+      const isReconnect = lastIdRef.current !== null;
+      const url = isReconnect ? `${WS_URL}?since=${lastIdRef.current}` : WS_URL;
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
-      ws.onopen = () => setConnected(true);
+      ws.onopen = () => {
+        setConnected(true);
+        if (isReconnect) {
+          // Start replay-window: count events that arrive in the first 2 s
+          replayWindowRef.current = true;
+          replayCountRef.current = 0;
+          if (replayTimerRef.current) clearTimeout(replayTimerRef.current);
+          replayTimerRef.current = setTimeout(() => {
+            replayWindowRef.current = false;
+            const count = replayCountRef.current;
+            if (count > 0) setMissedCount(count);
+            replayCountRef.current = 0;
+          }, REPLAY_WINDOW_MS);
+        }
+      };
+
       ws.onclose = () => {
         setConnected(false);
+        if (replayTimerRef.current) {
+          clearTimeout(replayTimerRef.current);
+          replayTimerRef.current = null;
+        }
+        replayWindowRef.current = false;
         setTimeout(connect, 3000);
       };
+
       ws.onerror = () => ws.close();
+
       ws.onmessage = (e) => {
         try {
           const event: Event = JSON.parse(e.data as string);
           // ignore ping frames which don't have a proper id
           if (!event.id) return;
           lastIdRef.current = event.id;
+
+          if (replayWindowRef.current) {
+            replayCountRef.current += 1;
+          }
+
           setEvents((prev) => [event, ...prev].slice(0, 200));
           saveToIDB(event);
         } catch {
@@ -34,14 +77,19 @@ export function useWebSocket() {
         }
       };
     }
+
     loadFromIDB().then((cached) => {
       if (cached.length) setEvents(cached);
     });
     connect();
-    return () => wsRef.current?.close();
+
+    return () => {
+      if (replayTimerRef.current) clearTimeout(replayTimerRef.current);
+      wsRef.current?.close();
+    };
   }, []);
 
-  return { events, connected };
+  return { events, connected, missedCount, clearMissed };
 }
 
 // --- IndexedDB helpers ---

@@ -19,14 +19,23 @@ export default function AlertCard({ event }: Props) {
     setSending(true);
     const body: FeedbackPayload = { alert_id: event.id, user_label: label };
     if (tag) body.tag = tag;
+
     try {
-      await fetch("/api/feedback", {
+      const resp = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      setSent(true);
+      if (resp.ok) {
+        setSent(true);
+      } else {
+        throw new Error(`HTTP ${resp.status}`);
+      }
     } catch {
+      // Store for background sync — optimistic: mark as sent, will sync when online
+      await storePendingFeedback(body);
+      setSent(true);
+    } finally {
       setSending(false);
     }
   };
@@ -105,4 +114,24 @@ export default function AlertCard({ event }: Props) {
       {sent && <p className="text-xs text-green-400 mt-2">Дякуємо за оцінку!</p>}
     </div>
   );
+}
+
+// --- IndexedDB background-sync helpers ---
+
+async function storePendingFeedback(payload: FeedbackPayload): Promise<void> {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open("iot-feedback", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("pending", { autoIncrement: true });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const tx = db.transaction("pending", "readwrite");
+  tx.objectStore("pending").add(payload);
+  // Register background sync if supported
+  if ("serviceWorker" in navigator && "SyncManager" in window) {
+    const reg = await navigator.serviceWorker.ready;
+    await (reg as unknown as { sync: { register(tag: string): Promise<void> } }).sync.register(
+      "feedback-sync",
+    );
+  }
 }

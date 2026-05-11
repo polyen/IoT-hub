@@ -2,23 +2,23 @@ name: iot-hub-cloud
 
 services:
   # ---------------------------------------------------------------------------
-  # MQTT bridge (connects to edge Mosquitto via mTLS, T3.5)
+  # Mosquitto VPS broker — accepts mTLS bridge from edge (T3.4)
   # ---------------------------------------------------------------------------
-  mosquitto-bridge:
+  mosquitto:
     image: eclipse-mosquitto:2.0
-    container_name: mosquitto-bridge
+    container_name: mosquitto-cloud
     restart: unless-stopped
     ports:
-      - "1883:1883"
+      - "8883:8883"   # mTLS for edge bridge
     volumes:
-      - mosquitto-data:/mosquitto/data
-      - mosquitto-log:/mosquitto/log
-      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mosquitto/bridge.conf:/mosquitto/config/bridge.conf:ro
+      - mosquitto-cloud-data:/mosquitto/data
+      - mosquitto-cloud-log:/mosquitto/log
+      - ./mosquitto/mosquitto-cloud.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/certs:/mosquitto/config/certs:ro
     networks:
-      - iot-cloud
+      - cloud-internal
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_pub -h localhost -t '$$SYS/health' -m '' -q 0 || exit 1"]
+      test: ["CMD-SHELL", "mosquitto_pub -h 127.0.0.1 -t '_health' -m '' -q 0 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -27,7 +27,7 @@ services:
   # PostgreSQL replica (non-sensitive aggregations only — T0/T1 tier data)
   # ---------------------------------------------------------------------------
   postgres-replica:
-    image: timescale/timescaledb-ha:pg16-latest
+    image: timescale/timescaledb-ha:pg16
     container_name: postgres-replica
     restart: unless-stopped
     environment:
@@ -37,7 +37,7 @@ services:
     volumes:
       - pgdata-cloud:/home/postgres/pgdata/data
     networks:
-      - iot-cloud
+      - cloud-internal
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-iothub}"]
       interval: 10s
@@ -45,27 +45,31 @@ services:
       retries: 5
 
   # ---------------------------------------------------------------------------
-  # Telegram bot (stub — T2.x)
+  # Telegram bot (T4.1 — HITL feedback via inline keyboard)
   # ---------------------------------------------------------------------------
   telegram-bot:
     build:
       context: ..
-      dockerfile: hub/backend/Dockerfile
+      dockerfile: hub/cloud/Dockerfile
     container_name: telegram-bot
     restart: unless-stopped
+    ports:
+      - "8001:8001"
     environment:
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:?TELEGRAM_TOKEN is required}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:?TELEGRAM_WEBHOOK_URL is required}
+      EDGE_API_URL: ${EDGE_API_URL:-http://backend:8000}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres-replica:5432/${POSTGRES_DB:-iothub}
-      MQTT_HOST: mosquitto-bridge
-      MQTT_PORT: "1883"
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "8883"
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       postgres-replica:
         condition: service_healthy
-      mosquitto-bridge:
+      mosquitto:
         condition: service_healthy
     networks:
-      - iot-cloud
+      - cloud-internal
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8001/health || exit 1"]
       interval: 30s
@@ -88,7 +92,32 @@ services:
     ports:
       - "3000:3000"
     networks:
-      - iot-cloud
+      - cloud-internal
+
+  # ---------------------------------------------------------------------------
+  # MLflow tracking server (T4.3)
+  # ---------------------------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.0
+    container_name: mlflow
+    restart: unless-stopped
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres-replica:5432/${POSTGRES_DB:-iothub} --default-artifact-root /mlflow/artifacts
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: ""
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres-replica:
+        condition: service_healthy
+    networks:
+      - cloud-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   # ---------------------------------------------------------------------------
   # ntfy (cloud relay for push notifications)
@@ -107,7 +136,7 @@ services:
     ports:
       - "8080:80"
     networks:
-      - iot-cloud
+      - cloud-internal
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -q 'ok'"]
       interval: 30s
@@ -119,15 +148,16 @@ services:
 # -----------------------------------------------------------------------------
 volumes:
   pgdata-cloud:
-  mosquitto-data:
-  mosquitto-log:
+  mosquitto-cloud-data:
+  mosquitto-cloud-log:
   grafana-data:
   ntfy-data:
   ntfy-etc:
+  mlflow-artifacts:
 
 # -----------------------------------------------------------------------------
 # Networks
 # -----------------------------------------------------------------------------
 networks:
-  iot-cloud:
+  cloud-internal:
     internal: false
