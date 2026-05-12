@@ -30,11 +30,12 @@ stages:
     cmd: >
       uv run python -m training.fire_smoke.train
       --data datasets/fire_smoke/data.yaml
-      --base-model yolo11n.pt
+      --base-model ${train.fire_smoke.base_model}
       --epochs ${train.fire_smoke.epochs}
       --imgsz ${train.fire_smoke.imgsz}
       --batch ${train.fire_smoke.batch}
       --lr ${train.fire_smoke.lr}
+      --device ${train.fire_smoke.device}
       --mlflow-uri ${train.fire_smoke.mlflow_uri}
     deps:
       - datasets/fire_smoke

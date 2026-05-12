@@ -96,3 +96,10 @@ hub/mosquitto/passwd
 # web
 node_modules/
 dist/
+yolo11n.pt
+.dvc/tmp/btime
+.dvc/tmp/lock
+.dvc/tmp/rwlock
+.dvc/tmp/rwlock.lock
+runs
+yolo26n.pt

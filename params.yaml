@@ -3,11 +3,13 @@
 
 train:
   fire_smoke:
+    base_model: yolo26n.pt
     epochs: 50
     imgsz: 640
     batch: 16
     lr: 0.001
-    mlflow_uri: http://localhost:5000
+    device: mps
+    mlflow_uri: http://localhost:5001
 
 mining:
   db_url: postgresql+asyncpg://iothub:iothub@localhost:5432/iothub

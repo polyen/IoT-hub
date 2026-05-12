@@ -1,7 +1,12 @@
-"""Hailo-8 inference wrapper for YOLOv11n detection.
+"""Hailo-8 inference wrapper for YOLO detection (YOLO11n and YOLO26n).
 
 Requires HailoRT + hailo_platform installed on RPi5.
 On other platforms, raises ImportError with a clear message.
+
+YOLO26 note: pass nms_free=True when loading a YOLO26 HEF.  YOLO26 bakes NMS
+into the forward pass, so detect() must NOT apply a second NMS round.  The
+inference loop implementation (currently a stub) is responsible for honoring
+this flag — see hailo-rpi5-examples for the stream API reference.
 """
 
 from __future__ import annotations
@@ -116,9 +121,18 @@ COCO_CLASSES = [
 
 
 class HailoDetector:
-    """Batch=1 YOLOv11n inference on Hailo-8."""
+    """Batch=1 YOLO inference on Hailo-8 (supports YOLO11n and YOLO26n).
 
-    def __init__(self, hef_path: Path, confidence_threshold: float = 0.5) -> None:
+    Pass nms_free=True for YOLO26 HEFs: the inference loop must skip any
+    post-NMS step since suppression is already part of the graph.
+    """
+
+    def __init__(
+        self,
+        hef_path: Path,
+        confidence_threshold: float = 0.5,
+        nms_free: bool = False,
+    ) -> None:
         if not HAILO_AVAILABLE:
             raise ImportError(
                 "hailo_platform not installed — run on RPi5 with HailoRT. "
@@ -126,6 +140,7 @@ class HailoDetector:
             )
         self._hef_path = hef_path
         self._confidence_threshold = confidence_threshold
+        self._nms_free = nms_free
         self._device: Any = None
         self._network_group: Any = None
 

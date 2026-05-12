@@ -37,8 +37,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--base-model",
-        default="yolo11n.pt",
-        help="Path to .pt checkpoint or 'yolo11n.pt' to download",
+        default="yolo26n.pt",
+        help="Path to .pt checkpoint or 'yolo26n.pt' to download",
     )
     parser.add_argument("--epochs", type=int, default=50, help="Training epochs")
     parser.add_argument("--imgsz", type=int, default=640, help="Image size")
@@ -52,7 +52,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="cpu", help="Training device (cpu / 0 / 0,1 ...)")
     parser.add_argument(
         "--mlflow-uri",
-        default="http://localhost:5000",
+        default="http://localhost:5001",
         help="MLflow tracking server URI",
     )
     parser.add_argument(
@@ -136,10 +136,20 @@ def main(argv: list[str] | None = None) -> None:
         if best_pt_path.exists():
             mlflow.log_artifact(str(best_pt_path), artifact_path="model")
 
+            # Export best.pt → ONNX (opset 17, NMS-free for YOLO26)
+            onnx_path = best_pt_path.with_suffix(".onnx")
+            try:
+                best_model = YOLO(str(best_pt_path))
+                best_model.export(format="onnx", opset=17, dynamic=False, simplify=True)
+                if onnx_path.exists():
+                    mlflow.log_artifact(str(onnx_path), artifact_path="model")
+                    print(f"ONNX logged: {onnx_path}")
+            except Exception as exc:  # noqa: BLE001
+                print(f"ONNX export error (non-fatal): {exc}")
+
             # Optionally convert to HEF if convert_to_hef.py is present
             convert_script = Path(__file__).parents[1] / "convert_to_hef.py"
-            if convert_script.exists():
-                onnx_path = best_pt_path.with_suffix(".onnx")
+            if convert_script.exists() and onnx_path.exists():
                 hef_path = best_pt_path.with_suffix(".hef")
                 try:
                     proc = subprocess.run(

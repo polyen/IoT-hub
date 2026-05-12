@@ -62,7 +62,7 @@ def test_argparse_defaults() -> None:
     assert args.imgsz == 640
     assert args.batch == 16
     assert args.device == "cpu"
-    assert args.mlflow_uri == "http://localhost:5000"
+    assert args.mlflow_uri == "http://localhost:5001"
     assert args.experiment == "fire_smoke_finetune"
-    assert args.base_model == "yolo11n.pt"
+    assert args.base_model == "yolo26n.pt"
     assert args.resume is False
