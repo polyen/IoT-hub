@@ -47,6 +47,9 @@ async def run(redis_client: _RedisClient) -> None:
         except aiomqtt.MqttError as exc:
             logger.warning("MQTT connection lost: %s — reconnecting in 5s", exc)
             await asyncio.sleep(5)
+        except Exception as exc:
+            logger.error("MQTT subscriber crashed: %s — restarting in 5s", exc, exc_info=True)
+            await asyncio.sleep(5)
 
 
 async def _handle(
@@ -87,10 +90,17 @@ async def _handle(
         model_version=payload.get("model_version"),
     )
 
-    async with AsyncSessionLocal() as session:
-        session.add(event)
-        await session.commit()
-        await session.refresh(event)
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(event)
+            await session.commit()
+            await session.refresh(event)
+    except Exception as exc:
+        logger.error("DB write failed for topic %s: %s", topic_str, exc, exc_info=True)
+        MQTT_MSGS.labels(topic=type_, status="db_error").inc()
+        return
+
+    logger.info("Saved event id=%s type=%s room=%s", event.id, type_, room)
 
     # Publish to WebSocket subscribers
     await redis_client.publish(

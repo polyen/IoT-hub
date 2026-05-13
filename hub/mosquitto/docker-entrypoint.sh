@@ -37,4 +37,11 @@ if [[ ! -f "${CERTS}/broker.crt" ]]; then
     echo "[entrypoint] Self-signed certs ready. Replace with gen-mqtt-certs.sh for production."
 fi
 
+# Fix acl.conf permissions to suppress mosquitto warnings
+ACL=/mosquitto/config/acl.conf
+if [[ -f "${ACL}" ]]; then
+    chown mosquitto:mosquitto "${ACL}"
+    chmod 0700 "${ACL}"
+fi
+
 exec "$@"
