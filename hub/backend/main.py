@@ -15,6 +15,7 @@ from prometheus_client import make_asgi_app
 from hub.backend import mqtt_subscriber
 from hub.backend.config import settings
 from hub.backend.db import engine
+from hub.backend.routes.agent import router as agent_router
 from hub.backend.routes.confirm import router as confirm_router
 from hub.backend.routes.cv import router as cv_router
 from hub.backend.routes.deploy import router as deploy_router
@@ -22,6 +23,8 @@ from hub.backend.routes.devices import router as devices_router
 from hub.backend.routes.events import router as events_router
 from hub.backend.routes.floorplan import router as floorplan_router
 from hub.backend.routes.health import router as health_router
+from hub.backend.routes.policy import router as policy_router
+from hub.backend.routes.system import router as system_router
 from hub.edge.mlops.deploy import ModelStore, monitor_loop
 from hub.edge.storage.t0 import cleanup_old_frames
 
@@ -81,4 +84,7 @@ app.include_router(floorplan_router)
 app.include_router(confirm_router)
 app.include_router(cv_router)
 app.include_router(devices_router)
+app.include_router(agent_router)
+app.include_router(system_router)
+app.include_router(policy_router)
 app.mount("/metrics", make_asgi_app())
