@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-import re
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL, make_url
 
 # Import Base so Alembic can autogenerate migrations from our models.
 from hub.backend.models import Base  # noqa: F401  (registers all mapped classes)
@@ -19,18 +19,23 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# App uses asyncpg; alembic uses psycopg2 (sync) to avoid asyncio thread-pool
-# DNS failures that occur with Docker service names on some Linux configurations.
-_async_url = os.environ.get(
+# Parse the asyncpg URL and reconstruct it for psycopg2 using URL.create so
+# special characters in the password (e.g. "@") are handled correctly and don't
+# corrupt the host field.
+_raw = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://iothub:iothub@localhost:5432/iothub",
 )
-DATABASE_URL = re.sub(
-    r"postgresql\+asyncpg://",
-    "postgresql+psycopg2://",
-    _async_url,
-    count=1,
-).replace("?ssl=disable", "?sslmode=disable")
+_parsed = make_url(_raw)
+DATABASE_URL = URL.create(
+    drivername="postgresql+psycopg2",
+    username=_parsed.username,
+    password=_parsed.password,
+    host=_parsed.host,
+    port=_parsed.port or 5432,
+    database=_parsed.database,
+    query={"sslmode": "disable"},
+)
 
 
 def run_migrations_offline() -> None:
