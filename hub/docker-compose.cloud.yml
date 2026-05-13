@@ -27,7 +27,7 @@ services:
   # PostgreSQL replica (non-sensitive aggregations only — T0/T1 tier data)
   # ---------------------------------------------------------------------------
   postgres-replica:
-    image: timescale/timescaledb-ha:pg16
+    image: timescale/timescaledb-ha:pg17
     container_name: postgres-replica
     restart: unless-stopped
     environment:
@@ -80,7 +80,7 @@ services:
   # Grafana (cloud dashboards — non-sensitive metrics only)
   # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana-oss:11.6.1
+    image: grafana/grafana-oss:13.0.1
     container_name: grafana-cloud
     restart: unless-stopped
     environment:
@@ -98,7 +98,7 @@ services:
   # MLflow tracking server (T4.3)
   # ---------------------------------------------------------------------------
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.13.0
+    image: ghcr.io/mlflow/mlflow:v3.12.0
     container_name: mlflow
     restart: unless-stopped
     command: >
@@ -127,7 +127,7 @@ services:
   # ntfy (cloud relay for push notifications)
   # ---------------------------------------------------------------------------
   ntfy:
-    image: binwiederhier/ntfy:v2.11.0
+    image: binwiederhier/ntfy:v2.22.0
     container_name: ntfy-cloud
     restart: unless-stopped
     command: serve

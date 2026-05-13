@@ -34,7 +34,7 @@ services:
   # PostgreSQL (+ TimescaleDB + pgvector via T0.5)
   # ---------------------------------------------------------------------------
   postgres:
-    image: timescale/timescaledb-ha:pg16
+    image: timescale/timescaledb-ha:pg17
     container_name: postgres
     restart: unless-stopped
     environment:
@@ -55,7 +55,7 @@ services:
   # Redis (cache + pub/sub bridge buffer)
   # ---------------------------------------------------------------------------
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: redis
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
@@ -105,7 +105,7 @@ services:
   # Prometheus
   # ---------------------------------------------------------------------------
   prometheus:
-    image: prom/prometheus:v2.53.4
+    image: prom/prometheus:v3.5.0
     container_name: prometheus
     restart: unless-stopped
     volumes:
@@ -124,7 +124,7 @@ services:
   # Grafana
   # ---------------------------------------------------------------------------
   grafana:
-    image: grafana/grafana-oss:11.6.1
+    image: grafana/grafana-oss:13.0.1
     container_name: grafana
     restart: unless-stopped
     environment:
@@ -178,7 +178,7 @@ services:
   # Node exporter (host OS metrics for Prometheus)
   # ---------------------------------------------------------------------------
   node-exporter:
-    image: prom/node-exporter:v1.8.2
+    image: prom/node-exporter:v1.11.1
     container_name: node-exporter
     restart: unless-stopped
     pid: host
@@ -239,7 +239,7 @@ services:
   # ntfy (push notifications)
   # ---------------------------------------------------------------------------
   ntfy:
-    image: binwiederhier/ntfy:v2.11.0
+    image: binwiederhier/ntfy:v2.22.0
     container_name: ntfy
     restart: unless-stopped
     command: serve
@@ -263,7 +263,7 @@ services:
   # Web PWA (served via nginx)
   # ---------------------------------------------------------------------------
   web:
-    image: nginx:1.27-alpine
+    image: nginx:1.28-alpine
     container_name: web
     restart: unless-stopped
     volumes:
