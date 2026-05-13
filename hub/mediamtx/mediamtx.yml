@@ -1,0 +1,37 @@
+###############################################################################
+# MediaMTX — lightweight RTSP server for WiFi camera ingest
+# Receives RTSP push from sender device; CV pipeline reads from this server.
+#
+# Sender pushes to:  rtsp://RPI_IP:8554/camera
+# CV pipeline reads: rtsp://mediamtx:8554/camera  (via iot-internal network)
+###############################################################################
+
+logLevel: info
+logDestinations: [stdout]
+
+# Only RTSP needed; disable unused transports to reduce attack surface
+rtmpDisable: true
+hlsDisable: true
+webrtcDisable: true
+srtDisable: true
+
+rtspAddress: :8554
+
+# REST API — used by healthcheck; bound to container-local only
+api: true
+apiAddress: :9997
+
+# Accept connections from LAN only — enforced at Docker port mapping level
+# (only 0.0.0.0:8554 is exposed, not forwarded externally by default).
+# Authentication is intentionally omitted: stream is T1 tier (local LAN),
+# network boundary is the security perimeter per arch principle #2.
+
+paths:
+  camera:
+    # No source = wait for a publisher (sender device) to push.
+    # Any device on the LAN can publish to rtsp://RPI_IP:8554/camera.
+    # The CV pipeline reads the same path from within the Docker network.
+    readUser: ""
+    readPass: ""
+    publishUser: ""
+    publishPass: ""

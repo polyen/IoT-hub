@@ -196,6 +196,26 @@ services:
       - iot-internal
 
   # ---------------------------------------------------------------------------
+  # MediaMTX — RTSP server that receives WiFi camera push and re-streams it
+  # to the CV pipeline. Sender (laptop/phone) pushes to rtsp://RPI_IP:8554/camera.
+  # ---------------------------------------------------------------------------
+  mediamtx:
+    image: bluenviron/mediamtx:1.11.3
+    container_name: mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "8554:8554"   # RTSP — exposed to LAN so sender device can reach it
+    networks:
+      - iot-internal
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9997/v3/paths/list 2>/dev/null | grep -q 'items' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
   # CV pipeline (stub — T2.x)
   # ---------------------------------------------------------------------------
   cv:
@@ -205,11 +225,14 @@ services:
     container_name: cv
     restart: unless-stopped
     environment:
-      RTSP_URL: ${RTSP_URL:-rtsp://camera.local:554/stream}
+      # When RTSP_URL is not set, default to the mediamtx stream pushed by the
+      # WiFi camera sender (scripts/wifi_stream_sender.sh).
+      RTSP_URL: ${RTSP_URL:-rtsp://mediamtx:8554/camera}
     ports:
       - "8002:8002"
     depends_on:
       - mosquitto
+      - mediamtx
     networks:
       - iot-internal
 
