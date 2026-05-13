@@ -30,6 +30,14 @@ training = [
     "mlflow>=2.13.0",
     "opencv-python>=4.10.0",
 ]
+voice = [
+    "faster-whisper>=1.0.3",
+    "openwakeword>=0.6.0",
+    "sounddevice>=0.4.6",
+    "soundfile>=0.12.1",
+    "torch>=2.0.0",
+    "numpy>=1.26.0",
+]
 dev = [
     "ruff>=0.4.0",
     "black>=24.0.0",

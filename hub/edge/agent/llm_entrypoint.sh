@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf"
-# Use Qwen 3.5 4B when available; fallback to 2.5 3B for compatibility
+# Override MODEL_URL via env for bench/migration (see hub/docker-compose.bench.yml)
+MODEL_URL="${MODEL_URL:-https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf}"
 MODEL_DIR="$(dirname "${MODEL_PATH}")"
 
 mkdir -p "${MODEL_DIR}"

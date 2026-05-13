@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # edge-bootstrap.sh — idempotent installer for Raspberry Pi 5 + Hailo-8 HAT
+#
+# Storage layout:
+#   SD card  (/dev/mmcblk0p2) — OS only; do NOT write project data here
+#   SSD      (/dev/nvme0n1p3, /mnt/ssd) — all project files, models, Docker
+#
 # Run as root on the target device: sudo bash edge-bootstrap.sh
 set -euo pipefail
 
@@ -59,71 +64,99 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Setup NVMe partition
+# 5. Ensure SSD is mounted at /mnt/ssd
+#    The SSD (/dev/nvme0n1p3) is pre-formatted ext4 — no LUKS needed.
 # ---------------------------------------------------------------------------
-MOUNT_POINT="/mnt/edge-data"
-MAPPED_NAME="edge-data"
-LUKS_DEV="/dev/mapper/${MAPPED_NAME}"
+SSD_DEV="/dev/nvme0n1p3"
+SSD_MOUNT="/mnt/ssd"
 
-if [[ -e /dev/nvme0 ]]; then
-    info "NVMe device found."
+[[ -b "${SSD_DEV}" ]] || error "SSD device ${SSD_DEV} not found. Run lsblk to check hardware."
 
-    # Determine partition (use existing p1 or create one)
-    NVME_PART="/dev/nvme0n1p1"
-
-    if mountpoint -q "${MOUNT_POINT}"; then
-        info "NVMe already mounted at ${MOUNT_POINT} — skipping."
-    else
-        # ---------------------------------------------------------------------------
-        # 6. LUKS encrypt the partition
-        # ---------------------------------------------------------------------------
-        if cryptsetup isLuks "${NVME_PART}" 2>/dev/null; then
-            info "LUKS container already set up on ${NVME_PART}."
-        else
-            info "Partitioning ${NVME_PART} (creates new GPT partition table)..."
-            parted -s /dev/nvme0n1 mklabel gpt mkpart primary ext4 0% 100%
-            info "Setting up LUKS encryption on ${NVME_PART}..."
-            warn "You will be prompted to enter a passphrase. Store it safely (see README)."
-            cryptsetup luksFormat "${NVME_PART}"
-            info "LUKS format complete."
-        fi
-
-        if [[ -e "${LUKS_DEV}" ]]; then
-            info "LUKS device already open at ${LUKS_DEV}."
-        else
-            info "Opening LUKS container..."
-            cryptsetup luksOpen "${NVME_PART}" "${MAPPED_NAME}"
-        fi
-
-        if blkid "${LUKS_DEV}" | grep -q "ext4"; then
-            info "ext4 filesystem already present on ${LUKS_DEV}."
-        else
-            info "Formatting ${LUKS_DEV} as ext4..."
-            mkfs.ext4 -L edge-data "${LUKS_DEV}"
-        fi
-
-        mkdir -p "${MOUNT_POINT}"
-        mount "${LUKS_DEV}" "${MOUNT_POINT}"
-        info "Mounted ${LUKS_DEV} at ${MOUNT_POINT}."
-
-        # Persist mount via /etc/crypttab + /etc/fstab
-        NVME_UUID="$(blkid -s UUID -o value "${NVME_PART}")"
-        if ! grep -q "${MAPPED_NAME}" /etc/crypttab 2>/dev/null; then
-            echo "${MAPPED_NAME} UUID=${NVME_UUID} none luks,discard" >> /etc/crypttab
-            info "Added ${MAPPED_NAME} to /etc/crypttab."
-        fi
-        LUKS_UUID="$(blkid -s UUID -o value "${LUKS_DEV}")"
-        if ! grep -q "${MOUNT_POINT}" /etc/fstab; then
-            echo "UUID=${LUKS_UUID} ${MOUNT_POINT} ext4 defaults,noatime 0 2" >> /etc/fstab
-            info "Added ${MOUNT_POINT} to /etc/fstab."
-        fi
-    fi
+if mountpoint -q "${SSD_MOUNT}"; then
+    info "SSD already mounted at ${SSD_MOUNT}."
 else
-    warn "No NVMe device at /dev/nvme0 — skipping NVMe/LUKS setup."
+    warn "SSD not mounted — mounting now..."
+    mkdir -p "${SSD_MOUNT}"
+    mount "${SSD_DEV}" "${SSD_MOUNT}"
+    info "Mounted ${SSD_DEV} at ${SSD_MOUNT}."
+fi
+
+# Persist mount across reboots (nofail = system boots even without SSD)
+# SSD_UUID="$(blkid -s UUID -o value "${SSD_DEV}")"
+# if ! grep -q "UUID=${SSD_UUID}" /etc/fstab; then
+#     echo "UUID=${SSD_UUID} ${SSD_MOUNT} ext4 defaults,noatime,nofail 0 2" >> /etc/fstab
+#     info "Added ${SSD_MOUNT} to /etc/fstab (UUID=${SSD_UUID})."
+# else
+#     info "${SSD_MOUNT} already present in /etc/fstab."
+# fi
+
+# ---------------------------------------------------------------------------
+# 6. Create project directory tree on SSD
+# ---------------------------------------------------------------------------
+PROJECT_ROOT="${SSD_MOUNT}/iot-hub"
+
+for d in \
+    data/db \
+    data/mqtt \
+    data/uploads \
+    models/hailo \
+    models/whisper \
+    logs \
+    certs
+do
+    mkdir -p "${PROJECT_ROOT}/${d}"
+done
+
+chown -R "${REAL_USER}:${REAL_USER}" "${PROJECT_ROOT}"
+info "Project directory tree ready at ${PROJECT_ROOT}."
+
+# Convenience symlink so configs can reference /opt/iot-hub regardless of mount point
+if [[ -L /opt/iot-hub ]]; then
+    info "Symlink /opt/iot-hub already exists → $(readlink /opt/iot-hub)."
+elif [[ -e /opt/iot-hub ]]; then
+    warn "/opt/iot-hub exists but is not a symlink — skipping."
+else
+    ln -s "${PROJECT_ROOT}" /opt/iot-hub
+    info "Created symlink /opt/iot-hub → ${PROJECT_ROOT}."
 fi
 
 # ---------------------------------------------------------------------------
-# 7. Add user to docker group
+# 7. Move Docker data root to SSD (keeps SD card from filling up)
+# ---------------------------------------------------------------------------
+DOCKER_SSD="${SSD_MOUNT}/docker"
+DAEMON_JSON="/etc/docker/daemon.json"
+
+CURRENT_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo '')"
+if [[ "${CURRENT_ROOT}" == "${DOCKER_SSD}" ]]; then
+    info "Docker data root already on SSD at ${DOCKER_SSD}."
+else
+    info "Moving Docker data root to SSD..."
+    systemctl stop docker
+
+    mkdir -p "${DOCKER_SSD}"
+
+    if [[ -d /var/lib/docker ]] && [[ -n "$(ls -A /var/lib/docker 2>/dev/null)" ]]; then
+        info "Copying existing Docker data to SSD (this may take a while)..."
+        rsync -aH /var/lib/docker/ "${DOCKER_SSD}/"
+    fi
+
+    cat > "${DAEMON_JSON}" <<DAEMON
+{
+  "data-root": "${DOCKER_SSD}",
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+DAEMON
+
+    systemctl start docker
+    info "Docker data root is now ${DOCKER_SSD}."
+fi
+
+# ---------------------------------------------------------------------------
+# 8. Add user to docker group
 # ---------------------------------------------------------------------------
 if id -nG "${REAL_USER}" | grep -qw docker; then
     info "${REAL_USER} already in docker group."
@@ -135,14 +168,18 @@ fi
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
+SSD_FREE="$(df -h "${SSD_MOUNT}" | awk 'NR==2{print $4}')"
 echo ""
 info "=== Edge Bootstrap Complete ==="
-info "  Docker:       $(docker --version 2>/dev/null || echo 'installed')"
-info "  Hailo device: $( [[ -e /dev/hailo0 ]] && echo 'present' || echo 'not detected (install HailoRT)')"
-info "  NVMe mount:   $( mountpoint -q ${MOUNT_POINT} 2>/dev/null && echo "${MOUNT_POINT} mounted" || echo 'not mounted')"
-info "  Docker group: $( id -nG "${REAL_USER}" | grep -qw docker && echo 'ok' || echo 'added (re-login needed)')"
+info "  Docker:         $(docker --version 2>/dev/null || echo 'installed')"
+info "  Docker root:    $(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo 'unknown')"
+info "  Hailo device:   $([[ -e /dev/hailo0 ]] && echo 'present' || echo 'not detected (install HailoRT)')"
+info "  SSD mount:      $( mountpoint -q "${SSD_MOUNT}" && echo "${SSD_MOUNT} mounted (${SSD_FREE} free)" || echo 'NOT mounted')"
+info "  Project root:   ${PROJECT_ROOT}"
+info "  Docker group:   $(id -nG "${REAL_USER}" | grep -qw docker && echo 'ok' || echo 'added (re-login needed)')"
 echo ""
 warn "Next steps:"
-warn "  1. If HailoRT is not installed, download and install it from hailo.ai."
-warn "  2. Re-login (or newgrp docker) so docker group takes effect."
-warn "  3. Run: docker compose -f hub/docker-compose.edge.yml up -d"
+warn "  1. If HailoRT is not installed, download and install it from hailo.ai/developer-zone."
+warn "  2. Re-login (or run: newgrp docker) so the docker group takes effect."
+warn "  3. Clone the project repo into ${PROJECT_ROOT}/repo  (or bind-mount it there)."
+warn "  4. Run: docker compose -f /opt/iot-hub/repo/hub/docker-compose.edge.yml up -d"

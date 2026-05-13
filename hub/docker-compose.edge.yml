@@ -145,8 +145,7 @@ services:
   # Mosquitto exporter (MQTT metrics for Prometheus)
   # ---------------------------------------------------------------------------
   mosquitto-exporter:
-    image: sapcc/mosquitto-exporter:0.8.0
-    platform: linux/amd64   # no arm64 image — runs via Rosetta on Mac; on RPi5 replace with nolte/mosquitto-exporter
+    image: nolte/mosquitto-exporter:0.8.0
     container_name: mosquitto-exporter
     restart: unless-stopped
     environment:

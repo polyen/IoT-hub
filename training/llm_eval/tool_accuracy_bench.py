@@ -437,7 +437,8 @@ def main() -> None:
 
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / "llm_bench_v1.json"
+    safe_name = re.sub(r"[^\w.-]", "_", args.model_name)
+    out_file = out_dir / f"llm_bench_{safe_name}.json"
     with open(out_file, "w") as f:
         json.dump(result, f, indent=2)
 

@@ -19,6 +19,8 @@ USER appuser
 
 ENV WAKE_WORD_MODEL_PATH="" \
     FORCE_CPU_STT="false" \
+    WHISPER_HEF_PATH="" \
+    NPU_STRATEGY="whisper_waits" \
     MQTT_HOST="mosquitto" \
     MQTT_PORT="1883"
 

@@ -1,6 +1,10 @@
 """Full voice command pipeline.
 
 Chain: SileroVAD -> WakeWordDetector -> collect speech -> Hailo/CPU STT -> MQTT publish.
+
+NPU scheduling: when WHISPER_HEF_PATH is set, Whisper encoder shares the Hailo NPU
+with the CV cascade.  NPU_STRATEGY controls the contention policy (see scheduler.py).
+Set FORCE_CPU_STT=true to bypass Hailo entirely and always use faster-whisper.
 """
 
 from __future__ import annotations
@@ -10,10 +14,12 @@ import json
 import logging
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import aiomqtt
 
 from hub.edge.voice.hailo_whisper import get_backend
+from hub.edge.voice.scheduler import NPUScheduler, NPUStrategy
 from hub.edge.voice.vad import SileroVAD
 from hub.edge.voice.wake_word import WakeWordDetector
 
@@ -53,6 +59,8 @@ async def run_pipeline(
     mqtt_port: int = 1883,
     wake_word_model: str | None = None,
     force_cpu: bool = False,
+    hef_path: Path | None = None,
+    npu_strategy: NPUStrategy = NPUStrategy.WHISPER_WAITS,
 ) -> None:
     """Main voice pipeline loop. Runs until cancelled."""
     vad = SileroVAD()
@@ -61,9 +69,14 @@ async def run_pipeline(
     wwd = WakeWordDetector(model_path=wake_word_model)
     wwd.load()
 
-    stt = get_backend(force_cpu=force_cpu)
+    stt = get_backend(hef_path=hef_path, force_cpu=force_cpu)
+    scheduler = NPUScheduler(strategy=npu_strategy)
 
-    logger.info("Voice pipeline ready — listening for wake word")
+    logger.info(
+        "Voice pipeline ready — backend=%s strategy=%s",
+        type(stt).__name__,
+        npu_strategy.value,
+    )
 
     async with aiomqtt.Client(mqtt_host, mqtt_port) as mqtt:
         async for _ in wwd.listen(vad.stream()):
@@ -73,7 +86,8 @@ async def run_pipeline(
                     _collect_speech(vad, vad.stream()),
                     timeout=MAX_RECORD_SEC + 2,
                 )
-                text = await stt.transcribe(audio)
+                async with scheduler.whisper_inference():
+                    text = await stt.transcribe(audio)
                 logger.info("Transcribed: %s", text)
 
                 payload = {"text": text, "tier": 1}
@@ -83,11 +97,18 @@ async def run_pipeline(
 
 
 if __name__ == "__main__":
+    _strategy_map = {s.value: s for s in NPUStrategy}
+    _hef_env = os.environ.get("WHISPER_HEF_PATH")
+
     asyncio.run(
         run_pipeline(
             mqtt_host=os.environ.get("MQTT_HOST", "mosquitto"),
             mqtt_port=int(os.environ.get("MQTT_PORT", "1883")),
             wake_word_model=os.environ.get("WAKE_WORD_MODEL_PATH") or None,
             force_cpu=os.environ.get("FORCE_CPU_STT", "false").lower() == "true",
+            hef_path=Path(_hef_env) if _hef_env else None,
+            npu_strategy=_strategy_map.get(
+                os.environ.get("NPU_STRATEGY", "whisper_waits"), NPUStrategy.WHISPER_WAITS
+            ),
         )
     )
