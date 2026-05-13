@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import socket
 from logging.config import fileConfig
 
 from alembic import context
@@ -23,6 +25,21 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql+asyncpg://iothub:iothub@localhost:5432/iothub",
 )
+
+# asyncio's thread-pool executor runs getaddrinfo in worker threads, which can
+# fail for Docker service names on some host configurations. Resolve the
+# hostname synchronously in the main thread (C resolver, no thread overhead)
+# and substitute the IP so asyncpg never needs to do DNS at all.
+_host_match = re.search(r"@([^:@/]+):", DATABASE_URL)
+if _host_match:
+    _host = _host_match.group(1)
+    try:
+        _ip = socket.gethostbyname(_host)
+        DATABASE_URL = (
+            DATABASE_URL[: _host_match.start(1)] + _ip + DATABASE_URL[_host_match.end(1) :]
+        )
+    except OSError:
+        pass  # keep original URL if DNS fails (e.g. local dev with localhost)
 
 
 def run_migrations_offline() -> None:
