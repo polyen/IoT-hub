@@ -5,7 +5,9 @@ services:
   # MQTT broker (Mosquitto)
   # ---------------------------------------------------------------------------
   mosquitto:
-    image: eclipse-mosquitto:2.0
+    build:
+      context: ..
+      dockerfile: hub/mosquitto/Dockerfile
     container_name: mosquitto
     restart: unless-stopped
     ports:
@@ -13,14 +15,12 @@ services:
       # network is the security boundary for plain MQTT. Cross-host clients
       # (ESP32 sensors, VPS bridge) MUST use 8883 with mTLS.
       - "8883:8883"   # mTLS (T3.1)
-    environment:
-      VPS_MQTT_HOST: ${VPS_MQTT_HOST:-vps.example.com}
     volumes:
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/acl.conf:/mosquitto/config/acl.conf:ro
-      - ./mosquitto/certs:/mosquitto/config/certs:ro
+      - mosquitto-certs:/mosquitto/config/certs   # named volume; entrypoint generates certs on first start
       - ./mosquitto/conf.d:/mosquitto/config/conf.d:ro
     networks:
       - iot-internal
@@ -283,6 +283,7 @@ volumes:
   pgdata:
   mosquitto-data:
   mosquitto-log:
+  mosquitto-certs:
   redis-data:
   prometheus-data:
   grafana-data:
