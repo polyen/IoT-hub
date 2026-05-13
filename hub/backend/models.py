@@ -35,7 +35,9 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True, nullable=False, index=True
+    )
     room: Mapped[str | None] = mapped_column(String(64))
     type: Mapped[str] = mapped_column(String(64), nullable=False)
     # tier: 0=public-aggregate, 1=non-sensitive, 2=sensitive, 3=private

@@ -35,13 +35,15 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     op.create_table(
         "events",
-        sa.Column("id", UUID(as_uuid=True), primary_key=True),
+        sa.Column("id", UUID(as_uuid=True), nullable=False, default=sa.text("gen_random_uuid()")),
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("room", sa.String(64), nullable=True),
         sa.Column("type", sa.String(64), nullable=False),
         sa.Column("tier", sa.SmallInteger, nullable=False),
         sa.Column("payload", JSONB, nullable=True),
         sa.Column("model_version", sa.String(64), nullable=True),
+        # TimescaleDB requires the partition column to be part of the PK
+        sa.PrimaryKeyConstraint("id", "timestamp"),
     )
     op.create_index("ix_events_timestamp", "events", ["timestamp"])
 
