@@ -10,7 +10,6 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
-    ForeignKey,
     Integer,
     SmallInteger,
     String,
@@ -81,16 +80,22 @@ class FeedbackEvent(Base):
     __tablename__ = "feedback_events"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    alert_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False
-    )
+    # No DB-level FK to events: TimescaleDB hypertables require the partition
+    # column in every unique constraint, making a standalone FK on id impossible.
+    alert_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     user_label: Mapped[str] = mapped_column(String(64), nullable=False)
     # frame_blob_ref: path/S3 key to the frame — stored on edge, never in cloud
     frame_blob_ref: Mapped[str | None] = mapped_column(Text)
     tag: Mapped[str | None] = mapped_column(String(64))
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
-    alert: Mapped[Event] = relationship("Event", back_populates="feedback")
+    alert: Mapped[Event] = relationship(
+        "Event",
+        back_populates="feedback",
+        primaryjoin="FeedbackEvent.alert_id == Event.id",
+        foreign_keys="[FeedbackEvent.alert_id]",
+        viewonly=True,
+    )
 
 
 class EventEmbedding(Base):
@@ -102,15 +107,17 @@ class EventEmbedding(Base):
     __tablename__ = "event_embeddings"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("events.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-    )
+    # No DB-level FK — same TimescaleDB hypertable limitation as FeedbackEvent.
+    event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, unique=True)
     embedding: Mapped[Any] = mapped_column(Vector(768), nullable=False)
 
-    event: Mapped[Event] = relationship("Event", back_populates="embedding")
+    event: Mapped[Event] = relationship(
+        "Event",
+        back_populates="embedding",
+        primaryjoin="EventEmbedding.event_id == Event.id",
+        foreign_keys="[EventEmbedding.event_id]",
+        viewonly=True,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,6 @@ from alembic import op
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-# revision identifiers, used by Alembic.
 revision: str = "c08483cb2b64"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
@@ -24,30 +23,29 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Create initial schema with extensions, tables and hypertable."""
-    # ------------------------------------------------------------------
-    # Extensions
-    # ------------------------------------------------------------------
     op.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;")
     op.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
     # ------------------------------------------------------------------
-    # events
+    # events — TimescaleDB hypertable partitioned by timestamp.
+    # PK must be composite (id, timestamp) because TimescaleDB requires
+    # the partition column in every unique/primary-key constraint.
+    # Child tables (feedback_events, event_embeddings) reference events.id
+    # without a DB-level FK because a unique constraint on id alone is
+    # impossible on a hypertable; referential integrity is enforced by the app.
     # ------------------------------------------------------------------
     op.create_table(
         "events",
-        sa.Column("id", UUID(as_uuid=True), nullable=False, default=sa.text("gen_random_uuid()")),
+        sa.Column("id", UUID(as_uuid=True), nullable=False),
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("room", sa.String(64), nullable=True),
         sa.Column("type", sa.String(64), nullable=False),
         sa.Column("tier", sa.SmallInteger, nullable=False),
         sa.Column("payload", JSONB, nullable=True),
         sa.Column("model_version", sa.String(64), nullable=True),
-        # TimescaleDB requires the partition column to be part of the PK
         sa.PrimaryKeyConstraint("id", "timestamp"),
     )
     op.create_index("ix_events_timestamp", "events", ["timestamp"])
-
-    # TimescaleDB hypertable — partition by timestamp
     op.execute("SELECT create_hypertable('events', 'timestamp', if_not_exists => TRUE);")
 
     # ------------------------------------------------------------------
@@ -68,46 +66,33 @@ def upgrade() -> None:
     op.create_index("ix_agent_audit_timestamp", "agent_audit", ["timestamp"])
 
     # ------------------------------------------------------------------
-    # feedback_events
+    # feedback_events — no DB-level FK to events (hypertable limitation).
     # ------------------------------------------------------------------
     op.create_table(
         "feedback_events",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column(
-            "alert_id",
-            UUID(as_uuid=True),
-            sa.ForeignKey("events.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
+        sa.Column("alert_id", UUID(as_uuid=True), nullable=False),
         sa.Column("user_label", sa.String(64), nullable=False),
         sa.Column("frame_blob_ref", sa.Text, nullable=True),
         sa.Column("tag", sa.String(64), nullable=True),
         sa.Column("ts", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_feedback_events_ts", "feedback_events", ["ts"])
+    op.create_index("ix_feedback_events_alert_id", "feedback_events", ["alert_id"])
 
     # ------------------------------------------------------------------
-    # event_embeddings (pgvector 768-dim)
+    # event_embeddings — no DB-level FK to events (hypertable limitation).
     # ------------------------------------------------------------------
     op.create_table(
         "event_embeddings",
         sa.Column("id", UUID(as_uuid=True), primary_key=True),
-        sa.Column(
-            "event_id",
-            UUID(as_uuid=True),
-            sa.ForeignKey("events.id", ondelete="CASCADE"),
-            nullable=False,
-            unique=True,
-        ),
+        sa.Column("event_id", UUID(as_uuid=True), nullable=False, unique=True),
         sa.Column("embedding", Vector(768), nullable=False),
     )
-
-    # HNSW index for approximate nearest-neighbour search (cosine distance)
     op.execute("CREATE INDEX ON event_embeddings USING hnsw (embedding vector_cosine_ops);")
 
 
 def downgrade() -> None:
-    """Drop all tables created in this revision."""
     op.drop_table("event_embeddings")
     op.drop_table("feedback_events")
     op.drop_table("agent_audit")
