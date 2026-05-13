@@ -22,6 +22,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
 COMPOSE_EDGE="hub/docker-compose.edge.yml"
 COMPOSE_BENCH="hub/docker-compose.bench.yml"
 QUERIES="training/llm_eval/queries.yaml"
@@ -89,7 +90,7 @@ echo "════════════════════════�
 echo " STEP 1/4 — Start baseline LLM (Qwen2.5-3B-Instruct)"
 echo "══════════════════════════════════════════════════════"
 # Use default compose (no bench override = Qwen2.5-3B)
-docker compose -f "${COMPOSE_EDGE}" up -d llm
+docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_EDGE}" up -d llm
 # Model download on first run can take 3-5 min (1.85 GB)
 wait_llm_healthy llm 360
 
@@ -99,7 +100,7 @@ echo " STEP 2/4 — Run Phase B bench on Qwen2.5-3B"
 echo "══════════════════════════════════════════════════════"
 run_bench "qwen2.5-3b-instruct" "${RESULTS_BASE}"
 
-docker compose -f "${COMPOSE_EDGE}" stop llm
+docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_EDGE}" stop llm
 echo "[INFO] Baseline LLM stopped"
 
 # ─── Step 2: candidate — Qwen3.5-4B ───────────────────────────────────────────
@@ -110,7 +111,7 @@ echo " STEP 3/4 — Start candidate LLM (Qwen3.5-4B, bench override)"
 echo "══════════════════════════════════════════════════════"
 # Compose override adds MODEL_URL + MODEL_PATH for Qwen3.5-4B + mem_limit 6g
 # The model is downloaded to a different filename — baseline GGUF is preserved
-docker compose \
+docker compose --env-file "${ENV_FILE}" \
     -f "${COMPOSE_EDGE}" \
     -f "${COMPOSE_BENCH}" \
     up -d llm
@@ -141,7 +142,7 @@ echo " STEP 4/4 — Run Phase B bench on Qwen3.5-4B"
 echo "══════════════════════════════════════════════════════"
 run_bench "Qwen3.5-4B-Q4_K_M" "${RESULTS_CAND}"
 
-docker compose \
+docker compose --env-file "${ENV_FILE}" \
     -f "${COMPOSE_EDGE}" \
     -f "${COMPOSE_BENCH}" \
     stop llm
