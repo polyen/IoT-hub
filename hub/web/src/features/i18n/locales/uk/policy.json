@@ -1,0 +1,34 @@
+{
+  "title": "Правила (Policy)",
+  "readonly_banner": "Тільки читання. Зміни — через PR.",
+  "copy_hint": "Скопіюй команду:",
+  "sections": {
+    "tools": "Інструменти агента",
+    "mqtt_topics": "MQTT топіки",
+    "schedules": "Розклади",
+    "identities": "Ідентичності",
+    "llm": "LLM Guardrails",
+    "audit": "Аудит"
+  },
+  "class": {
+    "AUTO": "Автоматично",
+    "CONFIRM": "Потребує підтвердження",
+    "DENY": "Заблоковано"
+  },
+  "simulate": {
+    "title": "Симуляція",
+    "intent_placeholder": "Текст команди...",
+    "tool_placeholder": "Інструмент (необов'язково)",
+    "submit": "Симулювати",
+    "result": {
+      "matched_rule": "Правило",
+      "class": "Клас",
+      "overrides": "Перевизначення"
+    }
+  },
+  "linter": {
+    "ok": "Помилок немає",
+    "warnings": "{{count}} попереджень",
+    "errors": "{{count}} помилок"
+  }
+}

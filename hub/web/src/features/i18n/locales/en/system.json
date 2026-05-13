@@ -1,0 +1,23 @@
+{
+  "title": "System",
+  "sections": {
+    "services": "Services",
+    "hardware": "Hardware",
+    "models": "Models",
+    "latency": "Latency",
+    "sync": "Sync",
+    "incidents": "Incidents"
+  },
+  "status": { "ok": "OK", "warn": "Warning", "error": "Error", "offline": "Offline" },
+  "hardware": { "cpu": "CPU", "ram": "RAM", "nvme": "NVMe free", "npu": "NPU", "temp": "Temp" },
+  "models": { "cv": "CV model", "llm": "Local LLM", "whisper": "Whisper STT", "rollback": "Rollback", "promote": "Promote" },
+  "latency": { "cv_p50": "CV p50", "cv_p95": "CV p95", "voice_e2e": "Voice E2E p50" },
+  "sync": { "last_bridge": "Last bridge", "queue": "T1 queue" },
+  "logs": "Logs",
+  "incidents_empty": "No incidents",
+  "incident_codes": {
+    "deny_burst": "Burst of denied actions — possible injection",
+    "prompt_injection_attempt": "Prompt injection attempt",
+    "confirm_timeout_burst": "Burst of confirm timeouts"
+  }
+}

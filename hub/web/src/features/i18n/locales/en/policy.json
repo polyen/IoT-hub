@@ -1,0 +1,15 @@
+{
+  "title": "Policy",
+  "readonly_banner": "Read-only. Changes require a PR.",
+  "copy_hint": "Copy command:",
+  "sections": { "tools": "Agent tools", "mqtt_topics": "MQTT topics", "schedules": "Schedules", "identities": "Identities", "llm": "LLM Guardrails", "audit": "Audit" },
+  "class": { "AUTO": "Automatic", "CONFIRM": "Requires confirmation", "DENY": "Blocked" },
+  "simulate": {
+    "title": "Simulate",
+    "intent_placeholder": "Intent text...",
+    "tool_placeholder": "Tool (optional)",
+    "submit": "Simulate",
+    "result": { "matched_rule": "Matched rule", "class": "Class", "overrides": "Overrides" }
+  },
+  "linter": { "ok": "No issues", "warnings": "{{count}} warnings", "errors": "{{count}} errors" }
+}

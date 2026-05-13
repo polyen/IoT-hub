@@ -95,9 +95,16 @@ class LLMBench:
         return content, latency_s
 
     def parse_tool_call(self, response: str) -> dict[str, Any] | None:
-        """Extract JSON tool call from response text."""
+        r"""Extract JSON tool call from response text.
+
+        Handles nested JSON (e.g. {"tool": "x", "args": {"topic": "..."}})
+        by scanning for the outermost balanced {…} rather than using a
+        no-nesting regex.  The old regex r"\{[^{}]+\}" matched inner args
+        dicts instead of the outer object, causing accuracy=0 even when the
+        model returned correct JSON.
+        """
         text = response.strip()
-        # Direct JSON parse
+        # Direct JSON parse — works when model returns only JSON
         try:
             obj = json.loads(text)
             if isinstance(obj, dict):
@@ -105,16 +112,39 @@ class LLMBench:
         except json.JSONDecodeError:
             pass
 
-        # Regex: find first JSON-like object
-        match = re.search(r"\{[^{}]+\}", text, re.DOTALL)
-        if match:
-            try:
-                obj = json.loads(match.group())
-                if isinstance(obj, dict):
-                    return obj
-            except json.JSONDecodeError:
-                pass
-
+        # Walk the string to find the outermost balanced {…} object.
+        # This handles nested braces that the old r"\{[^{}]+\}" regex missed.
+        start = text.find("{")
+        if start == -1:
+            return None
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i, ch in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[start : i + 1])
+                        if isinstance(obj, dict):
+                            return obj
+                    except json.JSONDecodeError:
+                        pass
+                    # Outer object found but unparseable — don't try further
+                    return None
         return None
 
     def check_accuracy(

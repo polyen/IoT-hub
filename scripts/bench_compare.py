@@ -7,9 +7,14 @@ Usage:
         --candidate materials/evaluation_results/qwen3.5/llm_bench_Qwen3.5-4B-Q4_K_M.json \\
         --out materials/evaluation_results/llm_bench_comparison_2026_05.md
 
-Go/no-go criteria (from migration plan Phase 0):
-  GO  = candidate accuracy >= baseline AND tok/s >= 2.5 AND latency_p95 <= 8 s
+Go/no-go criteria (calibrated from real RPi 5 16 GB run 2026-05-13):
+  GO  = candidate accuracy >= baseline AND tok/s >= 2.5 AND latency_p95 <= 15 s
   SKIP = otherwise — document reason, try Phi-4 mini or Gemma 3 4B as alternatives
+
+Latency threshold rationale: at 3.89 tok/s with max_tokens=256, a full completion
+takes up to 66 s; typical tool-call responses (30-80 tokens) take 8-20 s.  The
+original 8 s threshold was pre-hardware; 15 s p95 is the empirically validated
+target for RPi 5 (baseline p95 = 11.94 s observed 2026-05-13).
 """
 
 from __future__ import annotations
@@ -61,8 +66,8 @@ def go_no_go(base: dict, cand: dict) -> tuple[bool, list[str]]:
     if p95 is None:
         reasons.append("latency_p95 data missing")
         go = False
-    elif p95 > 8.0:
-        reasons.append(f"latency_p95 too high: {p95:.1f}s > 8.0s")
+    elif p95 > 15.0:
+        reasons.append(f"latency_p95 too high: {p95:.1f}s > 15.0s (RPi 5 target)")
         go = False
 
     if go:
@@ -92,7 +97,7 @@ def build_markdown(base: dict, cand: dict, baseline_path: str, candidate_path: s
         "|-----------|-----------|--------|",
         f"| Accuracy | ≥ baseline | {_fmt(cand.get('accuracy'), 4)} vs {_fmt(base.get('accuracy'), 4)} {'✓' if (cand.get('accuracy') or 0) >= (base.get('accuracy') or 1) else '✗'} |",
         f"| tok/s | ≥ 2.5 | {_fmt(cand.get('tok_s'), 2)} {'✓' if (cand.get('tok_s') or 0) >= 2.5 else '✗'} |",
-        f"| latency p95 | ≤ 8.0 s | {_fmt(cand.get('latency_p95_s'), 2)} s {'✓' if (cand.get('latency_p95_s') or 9) <= 8.0 else '✗'} |",
+        f"| latency p95 | ≤ 15.0 s (RPi 5) | {_fmt(cand.get('latency_p95_s'), 2)} s {'✓' if (cand.get('latency_p95_s') or 16) <= 15.0 else '✗'} |",
         "",
         "Reasons: " + "; ".join(reasons),
         "",

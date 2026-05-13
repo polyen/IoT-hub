@@ -1,0 +1,30 @@
+{
+  "title": "Голос та агент",
+  "tabs": {
+    "transcripts": "Транскрипти",
+    "try": "Спробувати",
+    "audit": "Аудит",
+    "stack": "LLM Stack"
+  },
+  "try": {
+    "placeholder": "Напишіть команду...",
+    "submit": "Виконати (dry-run)",
+    "dry_run_badge": "DRY-RUN",
+    "result": {
+      "intent": "Intent",
+      "policy": "Policy",
+      "tools": "Заплановані дії"
+    }
+  },
+  "ptt": "Утримуй для запису",
+  "audit": {
+    "columns": {
+      "time": "Час",
+      "intent": "Intent",
+      "tool": "Tool",
+      "class": "Клас",
+      "latency": "ms"
+    },
+    "export_csv": "Експорт CSV"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "title": "Events Feed",
+  "filter": {
+    "placeholder": "Type, room, tier...",
+    "type": "Type",
+    "room": "Room",
+    "tier": "Tier",
+    "all": "All"
+  },
+  "missed": "{{count}} events missed while offline",
+  "missed_close": "Dismiss",
+  "feedback": {
+    "prompt": "Label:",
+    "tp": "✓ True alert",
+    "fp": "✗ False alert",
+    "not_sure": "? Not sure",
+    "sent": "Thanks for your feedback!"
+  }
+}

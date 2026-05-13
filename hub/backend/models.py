@@ -10,6 +10,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     Integer,
     SmallInteger,
     String,
@@ -125,6 +126,86 @@ class EventEmbedding(Base):
         foreign_keys="[EventEmbedding.event_id]",
         viewonly=True,
     )
+
+
+class FloorPlan(Base):
+    """User-defined floor plan canvas."""
+
+    __tablename__ = "floor_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    floor: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    width: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    height: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    background_url: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    rooms: Mapped[list[Room]] = relationship(
+        "Room", back_populates="floor_plan", cascade="all, delete-orphan"
+    )
+
+
+class Room(Base):
+    """Room polygon inside a floor plan (coords normalised [0..1])."""
+
+    __tablename__ = "rooms"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    floor_plan_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    polygon: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    color: Mapped[str | None] = mapped_column(String(16))
+    order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    floor_plan: Mapped[FloorPlan] = relationship("FloorPlan", back_populates="rooms")
+    placements: Mapped[list[DevicePlacement]] = relationship(
+        "DevicePlacement", back_populates="room", cascade="all, delete-orphan"
+    )
+
+
+class DevicePlacement(Base):
+    """Device icon placed on a room's canvas (coords normalised [0..1])."""
+
+    __tablename__ = "device_placements"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    room_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    x: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    y: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
+    label: Mapped[str | None] = mapped_column(String(128))
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    room: Mapped[Room] = relationship("Room", back_populates="placements")
+
+
+class ConfirmRequest(Base):
+    """Pending CONFIRM-class action request waiting for user decision."""
+
+    __tablename__ = "confirm_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    tool: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    intent_text: Mapped[str] = mapped_column(Text, nullable=False)
+    confirm_message: Mapped[str] = mapped_column(Text, nullable=False)
+    schedule_origin: Mapped[str | None] = mapped_column(String(64))
+    # state: pending | approved | rejected | timeout | executed
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    decided_by: Mapped[str | None] = mapped_column(String(64))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # ---------------------------------------------------------------------------

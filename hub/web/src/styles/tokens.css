@@ -1,0 +1,51 @@
+:root {
+  /* Tier colors */
+  --tier-0: #ef4444;
+  --tier-0-bg: rgba(239, 68, 68, 0.15);
+  --tier-1: #f59e0b;
+  --tier-1-bg: rgba(245, 158, 11, 0.15);
+  --tier-2: #3b82f6;
+  --tier-2-bg: rgba(59, 130, 246, 0.15);
+  --tier-3: #64748b;
+  --tier-3-bg: rgba(100, 116, 139, 0.15);
+
+  /* Semantic status */
+  --status-ok: #22c55e;
+  --status-warn: #f59e0b;
+  --status-error: #ef4444;
+  --status-offline: #64748b;
+
+  /* Dark theme surfaces */
+  --surface-base: #0f172a;
+  --surface-card: #1e293b;
+  --surface-raised: #334155;
+  --surface-border: #334155;
+
+  /* Light theme surfaces */
+  --surface-base-light: #f1f5f9;
+  --surface-card-light: #ffffff;
+  --surface-raised-light: #f8fafc;
+  --surface-border-light: #e2e8f0;
+
+  /* Sidebar width */
+  --sidebar-w: 220px;
+  --bottomnav-h: 60px;
+}
+
+.dark {
+  --bg: var(--surface-base);
+  --card: var(--surface-card);
+  --raised: var(--surface-raised);
+  --border: var(--surface-border);
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+}
+
+.light {
+  --bg: var(--surface-base-light);
+  --card: var(--surface-card-light);
+  --raised: var(--surface-raised-light);
+  --border: var(--surface-border-light);
+  --text: #0f172a;
+  --text-muted: #64748b;
+}

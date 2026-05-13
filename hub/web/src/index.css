@@ -1,3 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Safe area padding for mobile notch / home-bar */
+.safe-pb {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}

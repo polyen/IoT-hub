@@ -1,0 +1,46 @@
+{
+  "nav": {
+    "home": "Home",
+    "cameras": "Cameras",
+    "voice": "Voice",
+    "confirm": "Confirm",
+    "more": "More"
+  },
+  "more": {
+    "events": "Events",
+    "scenarios": "Scenarios",
+    "digest": "Digest",
+    "devices": "Devices",
+    "security": "Security",
+    "system": "System",
+    "policy": "Policy",
+    "privacy": "Privacy",
+    "settings": "Settings",
+    "about": "About"
+  },
+  "status": {
+    "online": "connected",
+    "offline": "offline",
+    "offline_banner": "Offline — showing cached data"
+  },
+  "action": {
+    "approve": "Approve",
+    "reject": "Reject",
+    "cancel": "Cancel",
+    "save": "Save",
+    "edit": "Edit",
+    "delete": "Delete",
+    "close": "Close",
+    "confirm": "Confirm",
+    "back": "Back"
+  },
+  "tier": {
+    "0": "T0 · Public",
+    "1": "T1 · Non-sensitive",
+    "2": "T2 · Sensitive",
+    "3": "T3 · Private"
+  },
+  "empty": "No data",
+  "loading": "Loading...",
+  "error": "An error occurred"
+}

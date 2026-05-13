@@ -1,0 +1,15 @@
+{
+  "title": "Voice & Agent",
+  "tabs": { "transcripts": "Transcripts", "try": "Try", "audit": "Audit", "stack": "LLM Stack" },
+  "try": {
+    "placeholder": "Type a command...",
+    "submit": "Run (dry-run)",
+    "dry_run_badge": "DRY-RUN",
+    "result": { "intent": "Intent", "policy": "Policy", "tools": "Planned actions" }
+  },
+  "ptt": "Hold to record",
+  "audit": {
+    "columns": { "time": "Time", "intent": "Intent", "tool": "Tool", "class": "Class", "latency": "ms" },
+    "export_csv": "Export CSV"
+  }
+}

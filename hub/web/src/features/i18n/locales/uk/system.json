@@ -1,0 +1,47 @@
+{
+  "title": "Система",
+  "sections": {
+    "services": "Сервіси",
+    "hardware": "Залізо",
+    "models": "Моделі",
+    "latency": "Латентність",
+    "sync": "Синхронізація",
+    "incidents": "Інциденти"
+  },
+  "status": {
+    "ok": "Ок",
+    "warn": "Увага",
+    "error": "Помилка",
+    "offline": "Офлайн"
+  },
+  "hardware": {
+    "cpu": "CPU",
+    "ram": "RAM",
+    "nvme": "NVMe вільно",
+    "npu": "NPU",
+    "temp": "Температура"
+  },
+  "models": {
+    "cv": "CV модель",
+    "llm": "Local LLM",
+    "whisper": "Whisper STT",
+    "rollback": "Відкат",
+    "promote": "Встановити"
+  },
+  "latency": {
+    "cv_p50": "CV p50",
+    "cv_p95": "CV p95",
+    "voice_e2e": "Voice E2E p50"
+  },
+  "sync": {
+    "last_bridge": "Останній bridge",
+    "queue": "Черга T1"
+  },
+  "logs": "Логи",
+  "incidents_empty": "Інцидентів немає",
+  "incident_codes": {
+    "deny_burst": "Серія заблокованих дій — можлива ін'єкція",
+    "prompt_injection_attempt": "Спроба prompt injection",
+    "confirm_timeout_burst": "Серія тайм-аутів підтвердження"
+  }
+}
