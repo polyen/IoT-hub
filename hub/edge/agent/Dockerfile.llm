@@ -23,7 +23,9 @@ ENV MODEL_PATH="/app/models/qwen3.5-4b-q4_k_m.gguf" \
 COPY hub/edge/agent/llm_entrypoint.sh /app/llm_entrypoint.sh
 RUN chmod +x /app/llm_entrypoint.sh
 
-RUN useradd --create-home --no-log-init -r llmuser
+RUN useradd --create-home --no-log-init -r llmuser && \
+    mkdir -p /app/models && \
+    chown llmuser:llmuser /app/models
 USER llmuser
 
 EXPOSE 8001
