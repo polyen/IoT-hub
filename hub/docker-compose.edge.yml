@@ -145,7 +145,7 @@ services:
   # Mosquitto exporter (MQTT metrics for Prometheus)
   # ---------------------------------------------------------------------------
   mosquitto-exporter:
-    image: nolte/mosquitto-exporter:0.8.0
+    image: jnovack/mosquitto-exporter:latest
     container_name: mosquitto-exporter
     restart: unless-stopped
     environment:
