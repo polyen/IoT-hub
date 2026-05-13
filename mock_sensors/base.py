@@ -17,7 +17,9 @@ class BaseSensor:
     async def publish(self, client: aiomqtt.Client, topic: str, payload: dict) -> None:
         data = {"device_id": self.device_id, "ts": datetime.now(UTC).isoformat(), **payload}
         await client.publish(topic, json.dumps(data), qos=1)
-        logger.debug("[%s] %-35s %s", self.device_id, topic, data)
 
-    async def loop(self, client: aiomqtt.Client) -> None:
-        raise NotImplementedError
+        # compact one-liner: topic + key numeric fields only
+        summary = {
+            k: v for k, v in payload.items() if isinstance(v, int | float) and k not in ("tier",)
+        }
+        logger.info("→ %-38s %s", topic, summary)
