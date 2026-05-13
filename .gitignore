@@ -57,7 +57,7 @@ cython_debug/
 venv/
 ENV/
 env/
-uv.lock
+# uv.lock is intentionally tracked — pins full dependency tree for reproducible Docker builds
 
 # ruff / black
 .ruff_cache/
