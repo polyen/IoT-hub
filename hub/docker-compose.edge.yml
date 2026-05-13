@@ -79,7 +79,7 @@ services:
     container_name: backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-iothub}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-iothub}?ssl=disable
       REDIS_URL: redis://redis:6379/0
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
