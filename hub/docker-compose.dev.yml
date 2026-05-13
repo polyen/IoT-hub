@@ -1,0 +1,10 @@
+name: iot-hub-edge
+# Dev override: exposes plain MQTT port 1883 on the host so mock_sensors
+# running on the dev machine can publish without mTLS.
+# Usage:
+#   docker compose -f hub/docker-compose.edge.yml -f hub/docker-compose.dev.yml up -d
+# Never use in production — 1883 has no auth outside the Docker network.
+services:
+  mosquitto:
+    ports:
+      - "1883:1883"

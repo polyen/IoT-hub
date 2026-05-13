@@ -15,6 +15,15 @@ help: ## Show this help
 up-edge: ## Start all edge services
 	$(COMPOSE) -f $(EDGE_COMPOSE) up -d
 
+up-edge-dev: ## Start edge + expose MQTT 1883 for mock_sensors (dev only)
+	$(COMPOSE) -f $(EDGE_COMPOSE) -f hub/docker-compose.dev.yml up -d
+
+setup-mock-certs: ## Fetch CA from RPi and generate mock-sensors client cert
+	bash mock_sensors/setup_certs.sh
+
+mock-sensors: ## Run all mock sensors against RPi (port 8883, mTLS)
+	uv run python mock_sensors/run_all.py
+
 down-edge: ## Stop and remove edge containers
 	$(COMPOSE) -f $(EDGE_COMPOSE) down
 
