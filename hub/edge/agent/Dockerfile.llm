@@ -31,6 +31,6 @@ USER llmuser
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=5 \
-    CMD curl -sf http://localhost:8001/health || exit 1
+    CMD curl -sf http://localhost:8001/v1/models || exit 1
 
 CMD ["/app/llm_entrypoint.sh"]
