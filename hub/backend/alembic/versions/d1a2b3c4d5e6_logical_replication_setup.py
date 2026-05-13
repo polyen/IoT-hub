@@ -21,12 +21,21 @@ def upgrade() -> None:
         sa.Column("user_consent_cloud", sa.Boolean(), nullable=False, server_default="false"),
     )
 
-    # Note: wal_level=logical must be set manually (requires PG restart):
-    #   ALTER SYSTEM SET wal_level = 'logical';
-    #   SELECT pg_reload_conf();
+    # CREATE PUBLICATION requires wal_level=logical.
+    # On a fresh container wal_level=replica — wrap in DO block so the migration
+    # succeeds and the column is added even when the publication can't be created.
+    # To activate replication later:
+    #   ALTER SYSTEM SET wal_level = 'logical';  -- then restart postgres
     op.execute(
-        "CREATE PUBLICATION events_pub FOR TABLE events "
-        "WHERE (tier IN (1, 2) AND user_consent_cloud = true)"
+        """
+        DO $$ BEGIN
+            CREATE PUBLICATION events_pub
+            FOR TABLE events
+            WHERE (tier IN (1, 2) AND user_consent_cloud = true);
+        EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'Skipping publication setup (requires wal_level=logical): %', SQLERRM;
+        END $$;
+        """
     )
 
 

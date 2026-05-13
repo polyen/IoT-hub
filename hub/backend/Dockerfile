@@ -22,6 +22,7 @@ RUN useradd --create-home --shell /bin/bash appuser && \
 
 COPY --from=builder /app/.venv /app/.venv
 COPY hub/ hub/
+RUN chmod +x /app/hub/backend/entrypoint.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -32,4 +33,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
     CMD curl -sf http://localhost:8000/health/live || exit 1
 
-CMD ["uvicorn", "hub.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/hub/backend/entrypoint.sh"]
