@@ -10,6 +10,11 @@ BRANCH="main"
 
 ts() { date -Iseconds; }
 
+if [[ ! -f "${ENV_FILE}" ]]; then
+    echo "[$(ts)] ERROR: ${ENV_FILE} not found — run: cp .env.example .env && nano .env" >&2
+    exit 1
+fi
+
 cd "${REPO_DIR}"
 
 git fetch origin "${BRANCH}" --quiet
