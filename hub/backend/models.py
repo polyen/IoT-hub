@@ -46,10 +46,17 @@ class Event(Base):
     user_consent_cloud: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     embedding: Mapped[EventEmbedding | None] = relationship(
-        "EventEmbedding", back_populates="event", uselist=False, cascade="all, delete-orphan"
+        "EventEmbedding",
+        back_populates="event",
+        primaryjoin="Event.id == foreign(EventEmbedding.event_id)",
+        uselist=False,
+        viewonly=True,
     )
     feedback: Mapped[list[FeedbackEvent]] = relationship(
-        "FeedbackEvent", back_populates="alert", cascade="all, delete-orphan"
+        "FeedbackEvent",
+        back_populates="alert",
+        primaryjoin="Event.id == foreign(FeedbackEvent.alert_id)",
+        viewonly=True,
     )
 
 
