@@ -10,9 +10,13 @@ logLevel: info
 logDestinations: [stdout]
 
 # Disable unused transports; HLS enabled for browser playback via nginx proxy
-rtmpDisable: true
-webrtcDisable: true
+rtmp: false
+webrtc: false
 srt: false
+
+readTimeout: 30s
+writeTimeout: 30s
+writeQueueSize: 1024
 
 rtspAddress: :8554
 hlsAddress: :8888
@@ -21,17 +25,21 @@ hlsAddress: :8888
 api: true
 apiAddress: :9997
 
-# Accept connections from LAN only — enforced at Docker port mapping level
-# (only 0.0.0.0:8554 is exposed, not forwarded externally by default).
-# Authentication is intentionally omitted: stream is T1 tier (local LAN),
-# network boundary is the security perimeter per arch principle #2.
+# Auth: no credentials — T1 tier, LAN network boundary is the security perimeter.
+authInternalUsers:
+  - user: any
+    pass: ""
+    ips: []
+    permissions:
+      - action: publish
+        path: ""
+      - action: read
+        path: ""
+      - action: playback
+        path: ""
 
 paths:
   camera:
     # No source = wait for a publisher (sender device) to push.
     # Any device on the LAN can publish to rtsp://RPI_IP:8554/camera.
     # The CV pipeline reads the same path from within the Docker network.
-    readUser: ""
-    readPass: ""
-    publishUser: ""
-    publishPass: ""
