@@ -39,6 +39,15 @@ const DEVICE_KINDS: DeviceKind[] = [
 const ROOM_FILL_COLORS = ["#1e3a5f", "#1a3a2a", "#3a1e2a", "#2a1e3a", "#3a2a1e"];
 const SNAP = 0.05;
 
+function uuid4(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  // Fallback for HTTP (non-secure) contexts — crypto.getRandomValues is always available
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => {
+    const n = parseInt(c, 10);
+    return (n ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (n / 4)))).toString(16);
+  });
+}
+
 function snapN(n: number): number {
   return Math.round(n / SNAP) * SNAP;
 }
@@ -174,7 +183,7 @@ export function FloorPlanEditor() {
     if (!newRoomState || !draft) return;
     pushHistory();
     const room: Room = {
-      id: crypto.randomUUID(),
+      id: uuid4(),
       floor_plan_id: draft.floor_plans[0].id,
       name: name.trim() || "Кімната",
       type: "other",
@@ -246,7 +255,7 @@ export function FloorPlanEditor() {
       }
       pushHistory();
       const placement: DevicePlacement = {
-        id: crypto.randomUUID(),
+        id: uuid4(),
         room_id: roomUnder.id,
         device_id: pendingDeviceId ?? `${pendingDeviceKind}_${Date.now()}`,
         kind: pendingDeviceKind,
