@@ -25,11 +25,12 @@ async def list_cameras(session: SessionDep) -> list[CameraOut]:
     cameras: list[CameraOut] = []
     for p in res.scalars():
         cfg: dict = p.config or {}
+        stream_hls = cfg.get("stream_hls") or f"/hls/{p.device_id}/index.m3u8"
         cameras.append(
             CameraOut(
                 id=str(p.id),
                 name=p.label or p.device_id,
-                stream_hls=cfg.get("stream_hls"),
+                stream_hls=stream_hls,
                 stream_webrtc=cfg.get("stream_webrtc"),
                 online=cfg.get("online", False),
             )

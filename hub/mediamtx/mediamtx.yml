@@ -9,13 +9,13 @@
 logLevel: info
 logDestinations: [stdout]
 
-# Only RTSP needed; disable unused transports to reduce attack surface
+# Disable unused transports; HLS enabled for browser playback via nginx proxy
 rtmpDisable: true
-hlsDisable: true
 webrtcDisable: true
-srtDisable: true
+srt: false
 
 rtspAddress: :8554
+hlsAddress: :8888
 
 # REST API — used by healthcheck; bound to container-local only
 api: true
