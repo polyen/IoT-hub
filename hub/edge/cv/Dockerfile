@@ -14,6 +14,10 @@ RUN uv sync --no-dev --frozen --no-install-project
 COPY hub/ hub/
 RUN uv sync --no-dev --frozen
 
+# Use the uv-managed venv as default python — otherwise CMD picks system
+# python and ModuleNotFoundError fires for aiomqtt / fastapi / etc.
+ENV PATH="/app/.venv/bin:$PATH"
+
 RUN useradd --create-home --no-log-init -r appuser
 USER appuser
 

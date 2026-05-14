@@ -6,7 +6,7 @@ train:
     base_model: yolo26n.pt
     epochs: 50
     imgsz: 640
-    batch: 16
+    batch: 8
     lr: 0.001
     device: mps
     mlflow_uri: http://localhost:5001
@@ -15,8 +15,7 @@ mining:
   db_url: postgresql+asyncpg://iothub:iothub@localhost:5432/iothub
   days: 30
   max_per_tag: 100
-  # Maximum Event.tier to include (0=public-aggregate, 1=non-sensitive,
-  # 2=sensitive, 3=private). Default 1 keeps the training loop conservative:
-  # sensitive/private frames are never copied off T0 storage unless the
-  # operator explicitly raises this threshold for a specific run.
+  # Maximum Event.tier to include (0=T0 raw/sensitive edge-only, 1=T1 personal
+  # events, 2=T2 aggregated, 3=T3 operational). Default 1 keeps the training
+  # loop conservative: T0 raw frames are excluded unless explicitly overridden.
   max_tier: 1

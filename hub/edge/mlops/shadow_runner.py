@@ -180,15 +180,61 @@ class ShadowRunner:
             self._running = False
 
     async def compare_with_active(self, active_event_ids: list[str]) -> dict[str, Any]:
-        """Placeholder comparison between shadow and active model.
+        """Compare shadow vs active model detection rates via Prometheus.
 
-        Returns a summary dict; full statistical analysis is left to the
-        Grafana dashboard and the ``deploy.check_and_rollback_if_needed`` loop.
+        Queries the 1-hour detection rate for both shadow (by model_version label)
+        and active (all detections) models. Falls back to raw detection counts
+        when Prometheus is unavailable.
         """
+        from hub.edge.mlops.deploy import _PROMETHEUS_URL, _prom_scalar
+
+        shadow_fps = (
+            self.metrics.fps_sum / max(1, self.metrics.frame_count)
+            if self.metrics.frame_count
+            else 0.0
+        )
+        shadow_det_rate = (
+            self.metrics.detections_total / max(1, self.metrics.frame_count)
+            if self.metrics.frame_count
+            else 0.0
+        )
+
+        prom_data: dict[str, Any] = {}
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=5) as client:
+                shadow_rate = await _prom_scalar(
+                    client,
+                    _PROMETHEUS_URL,
+                    f'rate(iot_hub_shadow_detections_total{{model_version="{self.model_version}"}}[1h])',
+                )
+                active_rate = await _prom_scalar(
+                    client,
+                    _PROMETHEUS_URL,
+                    "rate(iot_hub_cv_detections_total[1h])",
+                )
+            prom_data = {
+                "shadow_rate_1h": shadow_rate,
+                "active_rate_1h": active_rate,
+                "rate_ratio": round(shadow_rate / active_rate, 3) if active_rate > 0 else None,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "compare_with_active: Prometheus unavailable (%s) — using counters only", exc
+            )
+
         return {
             "shadow_version": self.model_version,
             "active_events_sampled": len(active_event_ids),
-            "shadow_detections": self.metrics.detections_total,
+            "shadow_frames": self.metrics.frame_count,
+            "shadow_detections_total": self.metrics.detections_total,
+            "shadow_det_per_frame": round(shadow_det_rate, 4),
+            "shadow_avg_fps": round(shadow_fps, 1),
+            "shadow_avg_inference_ms": round(
+                self.metrics.inference_ms_sum / max(1, self.metrics.frame_count), 1
+            ),
+            **prom_data,
         }
 
     def stop(self) -> None:

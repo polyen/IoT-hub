@@ -18,6 +18,7 @@ const PolicyPage = lazy(() => import("../pages/more/PolicyPage"));
 const PrivacyPage = lazy(() => import("../pages/more/PrivacyPage"));
 const SettingsPage = lazy(() => import("../pages/more/SettingsPage"));
 const AboutPage = lazy(() => import("../pages/more/AboutPage"));
+const ModelsPage = lazy(() => import("../pages/more/ModelsPage"));
 
 function PageLoader() {
   return (
@@ -47,6 +48,7 @@ export function AppRouter() {
           <Route path="/more/privacy" element={<PrivacyPage />} />
           <Route path="/more/settings" element={<SettingsPage />} />
           <Route path="/more/about" element={<AboutPage />} />
+          <Route path="/more/models" element={<ModelsPage />} />
         </Routes>
       </Suspense>
     </Shell>

@@ -12,6 +12,7 @@ const ITEMS = [
   { to: "/more/privacy", icon: "🔒", key: "privacy" },
   { to: "/more/settings", icon: "⚙", key: "settings" },
   { to: "/more/about", icon: "ℹ", key: "about" },
+  { to: "/more/models", icon: "⬡", key: "models" },
 ] as const;
 
 export default function MoreIndex() {

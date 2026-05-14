@@ -1,4 +1,4 @@
-"""Pose estimation wrapper — runs YOLOv11n-pose on person crops.
+"""Pose estimation wrapper — runs YOLO26n-pose on person crops.
 
 Only invoked on tracked person detections (one per track, throttled).
 """
@@ -26,7 +26,7 @@ class Keypoints:
 
 
 class PoseEstimator:
-    """Runs YOLOv11n-pose on person crops via Hailo NPU."""
+    """Runs YOLO26n-pose on person crops via Hailo NPU."""
 
     def __init__(self, hef_path: Path) -> None:
         if not HAILO_AVAILABLE:

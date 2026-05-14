@@ -5,7 +5,7 @@
 
 ## System components
 
-1. **Edge RPi5** — compute, local PostgreSQL, AI inference (YOLOv8 / Whisper), Mosquitto MQTT broker
+1. **Edge RPi5** — compute, local PostgreSQL, AI inference (YOLO26n det + YOLO26n-pose + Whisper), Mosquitto MQTT broker
 2. **ESP32 sensor nodes** — DHT22 temperature/humidity, MQ-2 gas, PIR motion, relay actuators
 3. **VPS (cloud)** — MQTT bridge receiver, Telegram bot, PostgreSQL read replica (T1/T2 only)
 4. **PWA** — browser UI (React), WebSocket to backend, IndexedDB offline cache, background sync
@@ -96,7 +96,7 @@ The system classifies data into four tiers with distinct handling rules:
 
 - **T0 at rest**: Stored on a dedicated LUKS partition mounted at `/mnt/secure`; PostgreSQL tablespace `ts_secure` resides there. The LUKS passphrase is not stored on disk — entered manually or via TPM2 unsealing.
 - **T1 forwarding**: Enabled only after explicit user consent in Settings page (`/api/settings` consent flag). Forwarded via authenticated MQTT bridge.
-- **T2 anonymisation**: YOLOv8 bounding boxes and confidence scores forwarded; original JPEG frames never leave the LAN. Anonymisation logic in `hub/backend/vision/anonymise.py`.
+- **T2 anonymisation**: YOLO26n bounding boxes and confidence scores forwarded; original JPEG frames never leave the LAN. Anonymisation logic in `hub/backend/vision/anonymise.py`.
 - **T3 never replicated**: pgvector embeddings are excluded from the VPS replication set via `hub/backend/db.py` table-level replication filter.
 
 ---

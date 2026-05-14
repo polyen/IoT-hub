@@ -30,7 +30,7 @@ class Event(Base):
     """Sensor / CV / system event stream.
 
     Partitioned as a TimescaleDB hypertable on ``timestamp``.
-    Only T0/T1 tier data is replicated to cloud.
+    T1+T2 tier data is replicated to cloud (WHERE tier IN (1,2) AND user_consent_cloud).
     """
 
     __tablename__ = "events"
@@ -41,7 +41,8 @@ class Event(Base):
     )
     room: Mapped[str | None] = mapped_column(String(64))
     type: Mapped[str] = mapped_column(String(64), nullable=False)
-    # tier: 0=public-aggregate, 1=non-sensitive, 2=sensitive, 3=private
+    # tier: 0=T0 raw/sensitive (edge-only), 1=T1 personal events (cloud opt-in),
+    #        2=T2 aggregated (cloud OK), 3=T3 operational (cloud OK)
     tier: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     model_version: Mapped[str | None] = mapped_column(String(64))

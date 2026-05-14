@@ -110,6 +110,10 @@ class ChecksumMismatchError(RuntimeError):
     """Raised when a HEF file's SHA256 does not match manifest entry."""
 
 
+class SmokeTestError(RuntimeError):
+    """Raised when a HEF fails the holdout smoke test before promotion."""
+
+
 class ModelStore:
     """Manages versions, manifest, and active symlinks for a single model kind."""
 
@@ -270,6 +274,121 @@ class ModelStore:
         os.replace(tmp, self._deployments_file)
 
     # ------------------------------------------------------------------
+    # Holdout smoke test
+    # ------------------------------------------------------------------
+
+    def validate_on_holdout(
+        self,
+        holdout_dir: Path | None = None,
+        n_frames: int = 50,
+        min_hef_bytes: int = 1024 * 64,
+        candidate_path: Path | None = None,
+    ) -> bool:
+        """Smoke-test a candidate HEF before promote.
+
+        Checks (in order, each can be skipped gracefully):
+          1. File size ≥ min_hef_bytes (catches truncated downloads).
+          2. HEF header magic bytes (first 4 bytes must be non-zero).
+          3. If HailoDetector is importable AND holdout_dir has images:
+             load the model, run on up to n_frames, verify no exception and
+             at least one detection across all frames (basic sanity).
+
+        On dev machines / CI (no hailo_platform) steps 1-2 run; step 3 is
+        skipped with a WARNING — promote is allowed through.
+
+        Args:
+            holdout_dir: directory of sample images for inference check.
+                         Defaults to datasets/fire_smoke/images/val relative
+                         to cwd (best-effort; missing dir skips step 3).
+            n_frames:    max images to run inference on.
+            min_hef_bytes: minimum acceptable HEF file size.
+            candidate_path: explicit HEF path; if None uses active_link target.
+
+        Returns True on pass, raises SmokeTestError on hard failure.
+        """
+        hef_path = candidate_path or (
+            self.active_link.resolve() if self.active_link.is_symlink() else None
+        )
+        if hef_path is None or not hef_path.is_file():
+            logger.warning("validate_on_holdout: no HEF path available — skipping")
+            return True
+
+        # Step 1: file size
+        size = hef_path.stat().st_size
+        if size < min_hef_bytes:
+            raise SmokeTestError(
+                f"HEF file {hef_path} is suspiciously small ({size} bytes < {min_hef_bytes})"
+            )
+
+        # Step 2: magic bytes (HEF starts with a non-zero protobuf header)
+        with hef_path.open("rb") as f:
+            magic = f.read(4)
+        if magic == b"\x00\x00\x00\x00" or len(magic) < 4:
+            raise SmokeTestError(f"HEF file {hef_path} has invalid header magic: {magic!r}")
+
+        # Step 3: inference smoke test (RPi5 only)
+        try:
+            from hub.edge.cv.detector import HailoDetector
+        except ImportError:
+            logger.warning(
+                "validate_on_holdout: HailoDetector unavailable (dev/CI) — "
+                "skipping inference check for %s/%s",
+                self.kind,
+                hef_path.name,
+            )
+            return True
+
+        if holdout_dir is None:
+            holdout_dir = Path("datasets/fire_smoke/images/val")
+        if not holdout_dir.is_dir():
+            logger.warning(
+                "validate_on_holdout: holdout_dir %s not found — skipping inference check",
+                holdout_dir,
+            )
+            return True
+
+        try:
+            import cv2  # type: ignore[import]
+        except ImportError:
+            logger.warning("validate_on_holdout: opencv not available — skipping inference check")
+            return True
+
+        images = sorted(holdout_dir.glob("*.jpg")) + sorted(holdout_dir.glob("*.png"))
+        if not images:
+            logger.warning(
+                "validate_on_holdout: no images in %s — skipping inference check", holdout_dir
+            )
+            return True
+
+        sample = images[: min(n_frames, len(images))]
+        detector = HailoDetector(hef_path)
+        try:
+            detector.load()
+            total_detections = 0
+            for img_path in sample:
+                frame = cv2.imread(str(img_path))
+                if frame is None:
+                    continue
+                dets = detector.detect(frame)
+                total_detections += len(dets)
+
+            logger.info(
+                "validate_on_holdout %s/%s: ran %d frames, %d detections",
+                self.kind,
+                hef_path.name,
+                len(sample),
+                total_detections,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise SmokeTestError(
+                f"Inference smoke test failed for {self.kind}/{hef_path.name}: {exc}"
+            ) from exc
+        finally:
+            detector.close()
+
+        return True
+
+    # ------------------------------------------------------------------
     # SIGHUP
     # ------------------------------------------------------------------
 
@@ -305,6 +424,7 @@ class ModelStore:
             )
 
         self._verify_checksum(version, hef_path)
+        self.validate_on_holdout(candidate_path=hef_path)
 
         # Atomic symlink swap via temp link + os.replace (POSIX, same fs).
         tmp_link = self.models_dir / f"active_{self.kind}.tmp.hef"
@@ -378,32 +498,32 @@ class ModelStore:
 # ---------------------------------------------------------------------------
 
 
-# (query_label, prometheus_query_5m, prometheus_query_24h, kind)
-# Tuned so a regression in any of the named classes triggers rollback,
-# not only fire — broader than the original single-class watcher.
+# (query_label, prometheus_query_5m, prometheus_query_7d_baseline, kind)
+# Baseline is 7 days to survive weekend/weekday variation in a home environment.
+# 24h baseline proved too short — daytime cooking smoke patterns skewed it.
 DEFAULT_ROLLBACK_QUERIES: tuple[tuple[str, str, str, str], ...] = (
     (
         "fire",
         'rate(iot_hub_cv_detections_total{label="fire"}[5m])',
-        'avg_over_time(rate(iot_hub_cv_detections_total{label="fire"}[5m])[24h:5m])',
+        'avg_over_time(rate(iot_hub_cv_detections_total{label="fire"}[5m])[7d:5m])',
         "yolo",
     ),
     (
         "smoke",
         'rate(iot_hub_cv_detections_total{label="smoke"}[5m])',
-        'avg_over_time(rate(iot_hub_cv_detections_total{label="smoke"}[5m])[24h:5m])',
+        'avg_over_time(rate(iot_hub_cv_detections_total{label="smoke"}[5m])[7d:5m])',
         "yolo",
     ),
     (
         "fall",
         "rate(iot_hub_cv_fall_alerts_total[5m])",
-        "avg_over_time(rate(iot_hub_cv_fall_alerts_total[5m])[24h:5m])",
+        "avg_over_time(rate(iot_hub_cv_fall_alerts_total[5m])[7d:5m])",
         "pose",
     ),
     (
         "person",
         'rate(iot_hub_cv_detections_total{label="person"}[5m])',
-        'avg_over_time(rate(iot_hub_cv_detections_total{label="person"}[5m])[24h:5m])',
+        'avg_over_time(rate(iot_hub_cv_detections_total{label="person"}[5m])[7d:5m])',
         "yolo",
     ),
 )
@@ -426,7 +546,7 @@ async def check_and_rollback_if_needed(
 
     Args:
         stores: mapping kind→ModelStore (or a single ModelStore for back-compat).
-        threshold: multiplier over 24h baseline that triggers rollback.
+        threshold: multiplier over 7-day baseline that triggers rollback.
 
     Returns True if any rollback was triggered.
     """

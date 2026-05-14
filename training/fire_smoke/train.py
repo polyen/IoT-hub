@@ -106,26 +106,33 @@ def main(argv: list[str] | None = None) -> None:
             }
         )
 
-        # Resolve checkpoint — resume from last.pt if requested and available
-        checkpoint = args.base_model
-        if args.resume:
-            last_pt = Path("runs/fire_smoke/train/weights/last.pt")
-            if last_pt.exists():
-                checkpoint = str(last_pt)
-                print(f"Resuming from {checkpoint}")
+        # Use absolute project path so YOLO doesn't prepend its default
+        # "runs/detect/" base directory to the project name.
+        project_dir = Path("runs/fire_smoke").resolve()
+        run_dir = project_dir / "train"
 
-        model = YOLO(checkpoint)
+        last_pt = run_dir / "weights" / "last.pt"
+        resuming = args.resume and last_pt.exists()
 
-        results = model.train(
-            data=str(args.data),
-            epochs=args.epochs,
-            imgsz=args.imgsz,
-            batch=args.batch,
-            lr0=args.lr,
-            device=args.device,
-            project="runs/fire_smoke",
-            name="train",
-        )
+        if resuming:
+            # YOLO resume=True reads the full training state (epoch, optimizer,
+            # scheduler) from last.pt — all other train() kwargs are ignored.
+            print(f"Resuming from {last_pt}")
+            model = YOLO(str(last_pt))
+            results = model.train(resume=True)
+        else:
+            model = YOLO(args.base_model)
+            results = model.train(
+                data=str(args.data),
+                epochs=args.epochs,
+                imgsz=args.imgsz,
+                batch=args.batch,
+                lr0=args.lr,
+                device=args.device,
+                project=str(project_dir),
+                name="train",
+                exist_ok=True,
+            )
 
         # Log metrics from results dict
         metrics: dict[str, float] = {
@@ -137,7 +144,7 @@ def main(argv: list[str] | None = None) -> None:
         mlflow.log_metrics(metrics)
 
         # Log best.pt as MLflow artifact
-        best_pt_path = Path("runs/fire_smoke/train/weights/best.pt")
+        best_pt_path = run_dir / "weights" / "best.pt"
         if best_pt_path.exists():
             mlflow.log_artifact(str(best_pt_path), artifact_path="model")
 

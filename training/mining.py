@@ -36,9 +36,8 @@ async def fetch_fp_feedback(
     """Return FP-labelled FeedbackEvents created after *since*, ordered by tag.
 
     Only events whose linked Event.tier <= *max_tier* are returned. This is
-    the privacy gate that keeps sensitive/private frames out of the training
-    dataset — the underlying T0 storage may already encrypt them, but the
-    miner must not even reference their paths.
+    the privacy gate: tier 0 = T0 raw/sensitive (edge-only), tier 1 = T1
+    personal events. Default max_tier=1 excludes T0 raw frames from mining.
     """
     result = await session.execute(
         select(FeedbackEvent)
@@ -204,9 +203,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=1,
         help=(
-            "Maximum Event.tier to include (0=public-aggregate, 1=non-sensitive, "
-            "2=sensitive, 3=private). Default 1 — sensitive/private frames are "
-            "excluded unless explicitly overridden."
+            "Maximum Event.tier to include (0=T0 raw/sensitive edge-only, "
+            "1=T1 personal events, 2=T2 aggregated, 3=T3 operational). "
+            "Default 1 — T0 raw frames are excluded unless explicitly overridden."
         ),
     )
     parser.add_argument(

@@ -16,7 +16,8 @@
     "policy": "Policy",
     "privacy": "Privacy",
     "settings": "Settings",
-    "about": "About"
+    "about": "About",
+    "models": "Models"
   },
   "status": {
     "online": "connected",

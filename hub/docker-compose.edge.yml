@@ -301,18 +301,17 @@ services:
   # survive container rebuilds and can be re-imported by DVC if desired.
   # ---------------------------------------------------------------------------
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.18.0
+    build:
+      context: ..
+      dockerfile: hub/mlflow/Dockerfile
     container_name: mlflow
     restart: unless-stopped
-    command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5001
-      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${MLFLOW_DB:-mlflow}
-      --default-artifact-root /mlflow/artifacts
-    environment:
-      # mlflow image ships without psycopg2 by default; install at boot.
-      MLFLOW_INSTALL_REQUIREMENTS: "psycopg2-binary"
+    command:
+      - server
+      - --host=0.0.0.0
+      - --port=5001
+      - --backend-store-uri=postgresql+psycopg2://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${MLFLOW_DB:-mlflow}
+      - --default-artifact-root=/mlflow/artifacts
     volumes:
       - ${MLFLOW_ARTIFACTS_DIR:-/opt/iot-hub/mlflow/artifacts}:/mlflow/artifacts
     ports:

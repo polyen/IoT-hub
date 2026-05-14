@@ -115,11 +115,14 @@ async def submit_feedback(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="alert_id must be a valid UUID") from exc
 
+    frame_blob_ref = body.get("frame_blob_ref")
+
     fb = FeedbackEvent(
         alert_id=alert_uuid,
         user_label=str(user_label),
         tag=body.get("tag"),
         ts=datetime.now(UTC),
+        frame_blob_ref=str(frame_blob_ref) if frame_blob_ref is not None else None,
     )
     session.add(fb)
     await session.commit()
