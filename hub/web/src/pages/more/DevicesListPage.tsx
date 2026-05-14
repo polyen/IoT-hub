@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useFloorPlan } from "../../features/floorplan/useFloorPlan";
+import { useDecideConfirm } from "../../features/confirm/useDecideConfirm";
 import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
-import type { DeviceKind, DevicePlacement, FloorPlanData, Room } from "../../lib/types";
+import { countdownSeconds } from "../../lib/format";
+import type { ConfirmRequest, DeviceKind, DevicePlacement, FloorPlanData, Room } from "../../lib/types";
 
 const KIND_ICON: Record<string, string> = {
   camera: "📷", light: "💡", lock: "🔒", thermostat: "🌡", relay: "⚡",
@@ -34,6 +36,57 @@ interface EditForm {
   mqtt_topic: string;
 }
 
+/* Inline confirm card shown when a device command returns confirm_required */
+function InlineConfirmCard({
+  confirmId,
+  deviceLabel,
+  onDone,
+}: {
+  confirmId: string;
+  deviceLabel: string;
+  onDone: () => void;
+}) {
+  const { data: req } = useQuery<ConfirmRequest>({
+    queryKey: ["confirm", confirmId],
+    queryFn: () => api.get<ConfirmRequest>(`/api/confirm/${confirmId}`),
+    refetchInterval: 3_000,
+  });
+
+  const { mutate: decide, isPending } = useDecideConfirm();
+  const seconds = req ? countdownSeconds(req.expires_at) : 60;
+  const pct = Math.max(0, (seconds / 60) * 100);
+
+  const handle = (decision: "approve" | "reject") => {
+    if ("vibrate" in navigator) navigator.vibrate(decision === "approve" ? [50] : [50, 50, 50]);
+    decide({ id: confirmId, decision }, { onSuccess: onDone });
+  };
+
+  return (
+    <div className="mt-2 rounded-lg border border-amber-700 bg-amber-950/40 p-3 space-y-2">
+      <div className="h-1 rounded-full bg-slate-700 overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-1000 ${
+            pct > 50 ? "bg-green-500" : pct > 20 ? "bg-amber-500" : "bg-red-500"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="text-xs text-amber-300">
+        {req?.confirm_message ?? `Підтверди дію для ${deviceLabel}`}
+        <span className="ml-2 font-mono text-slate-400">{seconds}с</span>
+      </p>
+      <div className="flex gap-2">
+        <Button variant="primary" size="sm" className="flex-1" disabled={isPending || seconds === 0} onClick={() => handle("approve")}>
+          Схвалити
+        </Button>
+        <Button variant="danger" size="sm" className="flex-1" disabled={isPending} onClick={() => handle("reject")}>
+          Відхилити
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 interface DeviceCardProps {
   placement: DevicePlacement;
   room: Room | undefined;
@@ -44,6 +97,7 @@ interface DeviceCardProps {
 function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pendingConfirmId, setPendingConfirmId] = useState<string | null>(null);
 
   const form = useForm<EditForm>({
     defaultValues: {
@@ -54,24 +108,37 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
     },
   });
 
+  const commandMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      api.post<{ result: string; confirm_id?: string }>(
+        `/api/devices/${placement.device_id}/command`,
+        { payload, intent_text: "UI command" },
+      ),
+    onSuccess: (data) => {
+      if (data.result === "confirm_required" && data.confirm_id) {
+        setPendingConfirmId(data.confirm_id);
+        toast.info("Потрібне підтвердження");
+      } else if (data.result === "auto_executed") {
+        toast.success("Виконано");
+      }
+    },
+  });
+
   async function handleSave(data: EditForm) {
     setSaving(true);
     try {
       const config = { ...placement.config };
       if (data.mqtt_topic) config.mqtt_topic = data.mqtt_topic;
       else delete config.mqtt_topic;
-      await onSave({
-        ...placement,
-        label: data.label || null,
-        device_id: data.device_id,
-        kind: data.kind,
-        config,
-      });
+      await onSave({ ...placement, label: data.label || null, device_id: data.device_id, kind: data.kind, config });
       setExpanded(false);
     } finally {
       setSaving(false);
     }
   }
+
+  const actionKinds = ["light", "relay", "lock"] as const;
+  const isControllable = actionKinds.includes(placement.kind as (typeof actionKinds)[number]);
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-800/60 overflow-hidden">
@@ -80,22 +147,54 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
           {KIND_ICON[placement.kind] ?? "⚙"}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-sm truncate">
-            {placement.label || placement.device_id}
-          </p>
+          <p className="font-medium text-sm truncate">{placement.label || placement.device_id}</p>
           <p className="text-xs text-slate-500 truncate">
             {KIND_LABELS[placement.kind] ?? placement.kind}
             {room ? ` · ${room.name}` : ""}
             {" · "}<span className="font-mono">{placement.device_id}</span>
           </p>
         </div>
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="shrink-0 rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-white"
-        >
-          {expanded ? "Закрити" : "Редагувати"}
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          {isControllable && !expanded && (
+            <>
+              {placement.kind === "light" && (
+                <>
+                  <Button size="sm" disabled={commandMutation.isPending} onClick={() => commandMutation.mutate({ state: "on" })}>Вкл</Button>
+                  <Button size="sm" variant="ghost" disabled={commandMutation.isPending} onClick={() => commandMutation.mutate({ state: "off" })}>Викл</Button>
+                </>
+              )}
+              {placement.kind === "relay" && (
+                <>
+                  <Button size="sm" disabled={commandMutation.isPending} onClick={() => commandMutation.mutate({ cmd: "relay_on" })}>Вкл</Button>
+                  <Button size="sm" variant="ghost" disabled={commandMutation.isPending} onClick={() => commandMutation.mutate({ cmd: "relay_off" })}>Викл</Button>
+                </>
+              )}
+              {placement.kind === "lock" && (
+                <Button size="sm" variant="danger" disabled={commandMutation.isPending} onClick={() => commandMutation.mutate({ action: "unlock" })}>
+                  Відкрити
+                </Button>
+              )}
+            </>
+          )}
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-white"
+          >
+            {expanded ? "Закрити" : "Редагувати"}
+          </button>
+        </div>
       </div>
+
+      {/* Inline confirm card */}
+      {pendingConfirmId && (
+        <div className="px-4 pb-3">
+          <InlineConfirmCard
+            confirmId={pendingConfirmId}
+            deviceLabel={placement.label || placement.device_id}
+            onDone={() => setPendingConfirmId(null)}
+          />
+        </div>
+      )}
 
       {expanded && (
         <form
@@ -148,12 +247,7 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
             <Button type="submit" size="sm" variant="primary" disabled={saving}>
               {saving ? "Зберігаємо…" : "Зберегти"}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => { form.reset(); setExpanded(false); }}
-            >
+            <Button type="button" size="sm" variant="secondary" onClick={() => { form.reset(); setExpanded(false); }}>
               Скасувати
             </Button>
             <button
@@ -203,7 +297,6 @@ export default function DevicesListPage() {
     );
   });
 
-  // Group by room_id preserving encounter order
   const byRoom = new Map<string, DevicePlacement[]>();
   for (const p of filtered) {
     const list = byRoom.get(p.room_id) ?? [];
@@ -256,13 +349,7 @@ export default function DevicesListPage() {
               {room?.name ?? "Невідома кімната"}
             </h2>
             {placements.map((p) => (
-              <DeviceCard
-                key={p.id}
-                placement={p}
-                room={room}
-                onSave={handleSave}
-                onDelete={handleDelete}
-              />
+              <DeviceCard key={p.id} placement={p} room={room} onSave={handleSave} onDelete={handleDelete} />
             ))}
           </section>
         );

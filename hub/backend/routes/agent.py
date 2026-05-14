@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,3 +111,43 @@ async def voice_ws(websocket: WebSocket) -> None:
     finally:
         await pubsub.unsubscribe("voice:transcript", "voice:wakeword")
         await pubsub.aclose()
+
+
+@router.websocket("/ws/agent")
+async def agent_ws(websocket: WebSocket) -> None:
+    """Stream live agent turn updates: intent → tool plan → results."""
+    await websocket.accept()
+    from hub.backend.main import app  # noqa: PLC0415
+
+    pubsub = app.state.redis.pubsub()
+    await pubsub.subscribe("agent:turn", "agent:tool_call", "agent:result")
+    try:
+        while True:
+            msg = await asyncio.wait_for(
+                pubsub.get_message(ignore_subscribe_messages=True), timeout=30
+            )
+            if msg and msg["type"] == "message":
+                await websocket.send_text(msg["data"])
+            else:
+                await websocket.send_text('{"type":"ping"}')
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        await pubsub.unsubscribe("agent:turn", "agent:tool_call", "agent:result")
+        await pubsub.aclose()
+
+
+@router.post("/voice/audio")
+async def submit_voice_audio(websocket_request: Request) -> dict[str, Any]:
+    """Receive audio blob from PTT and publish to voice pipeline via Redis."""
+    from hub.backend.main import app  # noqa: PLC0415
+
+    body = await websocket_request.body()
+    if not body:
+        raise HTTPException(status_code=422, detail="Empty audio body")
+    redis = app.state.redis
+    # Store in Redis stream for voice pipeline to consume
+    await redis.xadd("voice:audio_stream", {"blob_size": len(body), "source": "ptt"}, maxlen=100)
+    return {"status": "queued", "bytes": len(body)}

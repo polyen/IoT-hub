@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { shortDateTime, relativeTime } from "../../lib/format";
 import type { AgentAuditEntry } from "../../lib/types";
 
-type Tab = "transcripts" | "try" | "audit";
+type Tab = "transcripts" | "try" | "audit" | "stack";
 
 const ACTION_COLORS: Record<string, string> = {
   AUTO: "bg-green-900/60 text-green-300",
@@ -20,6 +21,82 @@ interface VoiceMessage {
   ts: string;
   confidence?: number;
 }
+
+// ── Push-to-Talk ────────────────────────────────────────────────────────────
+
+function PushToTalk() {
+  const [recording, setRecording] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const mrRef = useRef<MediaRecorder | null>(null);
+  const chunks = useRef<Blob[]>([]);
+
+  async function startRecording() {
+    if (recording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
+      const mr = new MediaRecorder(stream, { mimeType });
+      chunks.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks.current, { type: mimeType });
+        setUploading(true);
+        try {
+          const fd = new FormData();
+          fd.append("audio", blob, "recording.webm");
+          await fetch("/api/agent/voice/audio", { method: "POST", body: fd });
+          toast.success("Аудіо відправлено у пайплайн");
+        } catch {
+          toast.error("Не вдалося відправити аудіо");
+        } finally {
+          setUploading(false);
+        }
+      };
+      mr.start(100); // collect in 100ms chunks
+      mrRef.current = mr;
+      setRecording(true);
+      if ("vibrate" in navigator) navigator.vibrate(50);
+    } catch {
+      toast.error("Немає доступу до мікрофона");
+    }
+  }
+
+  function stopRecording() {
+    if (!recording || !mrRef.current) return;
+    mrRef.current.stop();
+    mrRef.current = null;
+    setRecording(false);
+    if ("vibrate" in navigator) navigator.vibrate([30, 30, 30]);
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3 py-6">
+      <button
+        onPointerDown={startRecording}
+        onPointerUp={stopRecording}
+        onPointerLeave={stopRecording}
+        disabled={uploading}
+        className={[
+          "w-20 h-20 rounded-full text-2xl transition-all duration-150 select-none touch-none",
+          "border-4 shadow-lg active:scale-95",
+          recording
+            ? "bg-red-600 border-red-400 animate-pulse"
+            : "bg-slate-700 border-slate-500 hover:bg-slate-600",
+          uploading ? "opacity-50 cursor-wait" : "cursor-pointer",
+        ].join(" ")}
+        aria-label={recording ? "Зупинити запис" : "Утримуй для запису"}
+      >
+        {uploading ? "⏳" : recording ? "🔴" : "🎤"}
+      </button>
+      <p className="text-xs text-slate-500">
+        {uploading ? "Відправляємо…" : recording ? "Запис… відпусти щоб відправити" : "Утримуй для запису"}
+      </p>
+    </div>
+  );
+}
+
+// ── Transcripts tab ─────────────────────────────────────────────────────────
 
 function TranscriptsTab() {
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
@@ -46,17 +123,18 @@ function TranscriptsTab() {
   }, []);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <PushToTalk />
+
       <div className="flex items-center gap-2 text-sm">
         <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-slate-500"}`} />
         <span className="text-slate-400">{connected ? "Підключено" : "Очікування підключення…"}</span>
       </div>
 
       {messages.length === 0 ? (
-        <div className="py-12 text-center text-slate-500">
-          <p className="text-3xl mb-2">🎤</p>
+        <div className="py-8 text-center text-slate-500">
           <p className="text-sm">Очікування голосових подій…</p>
-          <p className="text-xs mt-1 text-slate-600">Скажіть ключове слово щоб активувати асистента</p>
+          <p className="text-xs mt-1 text-slate-600">Скажіть ключове слово або скористайтесь кнопкою вище</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -75,7 +153,7 @@ function TranscriptsTab() {
               </div>
               {msg.confidence !== undefined && (
                 <p className="mt-1 text-xs text-slate-500">
-                  {msg.type === "wakeword" ? "Ключове слово" : "Транскрипція"} · впевненість {Math.round(msg.confidence * 100)}%
+                  {msg.type === "wakeword" ? "Ключове слово" : "Транскрипція"} · {Math.round(msg.confidence * 100)}%
                 </p>
               )}
             </div>
@@ -85,6 +163,8 @@ function TranscriptsTab() {
     </div>
   );
 }
+
+// ── Try / Simulator tab ─────────────────────────────────────────────────────
 
 interface TryResult {
   matched_rule: string;
@@ -135,7 +215,12 @@ function TryTab() {
             className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </label>
-        <Button type="submit" variant="primary" size="sm" disabled={tryMutation.isPending || !intentText.trim()}>
+        <Button
+          type="submit"
+          variant="primary"
+          size="sm"
+          disabled={tryMutation.isPending || !intentText.trim()}
+        >
           {tryMutation.isPending ? "Перевіряємо…" : "Симулювати"}
         </Button>
       </form>
@@ -156,6 +241,32 @@ function TryTab() {
   );
 }
 
+// ── Audit tab ───────────────────────────────────────────────────────────────
+
+function exportCSV(data: AgentAuditEntry[]) {
+  const headers = ["timestamp", "action_class", "tool", "intent_text", "latency_ms", "confirmation"];
+  const rows = data.map((e) => [
+    e.timestamp,
+    e.action_class,
+    e.tool ?? "",
+    e.intent_text,
+    e.latency_ms ?? "",
+    e.confirmation ?? "",
+  ]);
+  const csv = [headers, ...rows]
+    .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `agent-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function AuditTab() {
   const { data, isLoading } = useQuery<AgentAuditEntry[]>({
     queryKey: ["agent-audit"],
@@ -164,35 +275,156 @@ function AuditTab() {
   });
 
   if (isLoading) return <div className="flex justify-center py-8"><Spinner className="h-6 w-6" /></div>;
-  if (!data?.length) return (
-    <div className="py-12 text-center text-slate-500">
-      <p className="text-sm">Записів аудиту ще немає</p>
-    </div>
-  );
 
   return (
-    <div className="space-y-2">
-      {data.map((entry) => (
-        <div key={entry.id} className="rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-3">
-          <div className="flex items-start gap-2">
-            <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-xs font-bold ${ACTION_COLORS[entry.action_class] ?? "bg-slate-700"}`}>
-              {entry.action_class}
-            </span>
-            <p className="flex-1 text-sm text-slate-200 leading-snug">{entry.intent_text}</p>
-            <span className="shrink-0 text-xs text-slate-500">{shortDateTime(entry.timestamp)}</span>
-          </div>
-          {(entry.tool || entry.latency_ms) && (
-            <p className="mt-1 pl-10 text-xs text-slate-500">
-              {entry.tool && <span className="font-mono">{entry.tool} · </span>}
-              {entry.latency_ms != null && <span>{entry.latency_ms} мс</span>}
-              {entry.confirmation && <span className="ml-2">{entry.confirmation}</span>}
-            </p>
-          )}
+    <div className="space-y-3">
+      {data && data.length > 0 && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => exportCSV(data)}
+            className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"
+          >
+            ↓ CSV
+          </button>
         </div>
-      ))}
+      )}
+
+      {!data?.length ? (
+        <div className="py-12 text-center text-slate-500">
+          <p className="text-sm">Записів аудиту ще немає</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {data.map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-3">
+              <div className="flex items-start gap-2">
+                <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-xs font-bold ${ACTION_COLORS[entry.action_class] ?? "bg-slate-700"}`}>
+                  {entry.action_class}
+                </span>
+                <p className="flex-1 text-sm text-slate-200 leading-snug">{entry.intent_text}</p>
+                <span className="shrink-0 text-xs text-slate-500">{shortDateTime(entry.timestamp)}</span>
+              </div>
+              {(entry.tool || entry.latency_ms) && (
+                <p className="mt-1 pl-10 text-xs text-slate-500">
+                  {entry.tool && <span className="font-mono">{entry.tool} · </span>}
+                  {entry.latency_ms != null && <span>{entry.latency_ms} мс</span>}
+                  {entry.confirmation && <span className="ml-2">{entry.confirmation}</span>}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
+// ── Stack tab — live agent turn stream ──────────────────────────────────────
+
+interface AgentTurnEvent {
+  type: "intent" | "tool_call" | "result" | "ping";
+  text?: string;
+  tool?: string;
+  payload?: unknown;
+  ts?: string;
+}
+
+function StackTab() {
+  const [events, setEvents] = useState<AgentTurnEvent[]>([]);
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    function connect() {
+      const ws = new WebSocket(`${proto}://${location.host}/api/agent/ws/agent`);
+      wsRef.current = ws;
+      ws.onopen = () => setConnected(true);
+      ws.onclose = () => { setConnected(false); setTimeout(connect, 5000); };
+      ws.onerror = () => ws.close();
+      ws.onmessage = (e) => {
+        try {
+          const ev: AgentTurnEvent = JSON.parse(e.data as string);
+          if (ev.type === "ping") return;
+          setEvents((prev) => [...prev.slice(-99), ev]);
+          requestAnimationFrame(() => {
+            listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+          });
+        } catch { /* ignore */ }
+      };
+    }
+    connect();
+    return () => wsRef.current?.close();
+  }, []);
+
+  const TYPE_STYLE: Record<string, string> = {
+    intent: "border-blue-700 bg-blue-900/20 text-blue-200",
+    tool_call: "border-amber-700 bg-amber-900/20 text-amber-200",
+    result: "border-green-700 bg-green-900/20 text-green-200",
+  };
+
+  const TYPE_ICON: Record<string, string> = {
+    intent: "💬",
+    tool_call: "🔧",
+    result: "✅",
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm">
+          <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-slate-500"}`} />
+          <span className="text-slate-400">{connected ? "Агент підключений" : "Очікування агента…"}</span>
+        </div>
+        {events.length > 0 && (
+          <button
+            onClick={() => setEvents([])}
+            className="text-xs text-slate-500 hover:text-slate-300"
+          >
+            Очистити
+          </button>
+        )}
+      </div>
+
+      <div
+        ref={listRef}
+        className="space-y-2 max-h-[60vh] overflow-y-auto pr-1"
+      >
+        {events.length === 0 ? (
+          <div className="py-12 text-center text-slate-500">
+            <p className="text-3xl mb-2">🤖</p>
+            <p className="text-sm">Агент не активний</p>
+            <p className="text-xs mt-1 text-slate-600">Тут з'являться кроки обробки у реальному часі</p>
+          </div>
+        ) : (
+          events.map((ev, i) => (
+            <div
+              key={i}
+              className={`rounded-lg border px-3 py-2 text-xs ${TYPE_STYLE[ev.type] ?? "border-slate-700 bg-slate-800 text-slate-300"}`}
+            >
+              <div className="flex items-start gap-2">
+                <span>{TYPE_ICON[ev.type] ?? "•"}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium capitalize">{ev.type.replace("_", " ")}</p>
+                  {ev.text && <p className="mt-0.5 opacity-80 truncate">{ev.text}</p>}
+                  {ev.tool && <p className="mt-0.5 font-mono opacity-70">{ev.tool}</p>}
+                </div>
+                {ev.ts && (
+                  <span className="shrink-0 opacity-50 font-mono">
+                    {new Date(ev.ts).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ───────────────────────────────────────────────────────────────
 
 export default function VoicePage() {
   const [tab, setTab] = useState<Tab>("transcripts");
@@ -201,20 +433,20 @@ export default function VoicePage() {
     { id: "transcripts", label: "Транскрипції" },
     { id: "try", label: "Симулятор" },
     { id: "audit", label: "Аудит" },
+    { id: "stack", label: "Стек" },
   ];
 
   return (
     <div className="space-y-5">
       <h1 className="text-xl font-semibold">Голосовий асистент</h1>
 
-      {/* Tabs */}
-      <div className="flex gap-0.5 rounded-lg border border-slate-700 bg-slate-800/60 p-1 w-fit">
+      <div className="flex gap-0.5 rounded-lg border border-slate-700 bg-slate-800/60 p-1 w-fit overflow-x-auto">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
             className={[
-              "rounded px-4 py-1.5 text-sm font-medium transition-colors",
+              "rounded px-4 py-1.5 text-sm font-medium transition-colors whitespace-nowrap",
               tab === t.id
                 ? "bg-slate-700 text-white"
                 : "text-slate-400 hover:text-white",
@@ -228,6 +460,7 @@ export default function VoicePage() {
       {tab === "transcripts" && <TranscriptsTab />}
       {tab === "try" && <TryTab />}
       {tab === "audit" && <AuditTab />}
+      {tab === "stack" && <StackTab />}
     </div>
   );
 }

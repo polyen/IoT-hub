@@ -1,11 +1,12 @@
-"""Camera registry and CV detection WebSocket."""
+"""Camera registry, snapshot, and CV detection WebSocket."""
 
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,6 +35,25 @@ async def list_cameras(session: SessionDep) -> list[CameraOut]:
             )
         )
     return cameras
+
+
+@router.post("/api/cv/cameras/{camera_id}/snapshot")
+async def snapshot(camera_id: str, session: SessionDep) -> dict:
+    """Return current frame URL for a camera (from config or MediaMTX)."""
+    try:
+        uid = uuid.UUID(camera_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid camera id") from exc
+    res = await session.execute(
+        select(DevicePlacement)
+        .where(DevicePlacement.id == uid, DevicePlacement.kind == "camera")
+        .limit(1)
+    )
+    placement = res.scalar_one_or_none()
+    if not placement:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    cfg: dict = placement.config or {}
+    return {"camera_id": camera_id, "frame_url": cfg.get("snapshot_url")}
 
 
 @router.websocket("/ws/cv/{camera_id}")

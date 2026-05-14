@@ -30,6 +30,18 @@ async def get_pending(session: SessionDep) -> list[ConfirmRequestOut]:
     return [ConfirmRequestOut.model_validate(r) for r in res.scalars()]
 
 
+@router.get("/api/confirm/{confirm_id}", response_model=ConfirmRequestOut)
+async def get_confirm(confirm_id: str, session: SessionDep) -> ConfirmRequestOut:
+    try:
+        uid = uuid.UUID(confirm_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid UUID") from exc
+    req = await session.get(ConfirmRequest, uid)
+    if req is None:
+        raise HTTPException(status_code=404, detail="Confirm request not found")
+    return ConfirmRequestOut.model_validate(req)
+
+
 @router.post("/api/confirm/{confirm_id}/decide", response_model=ConfirmRequestOut)
 async def decide(confirm_id: str, body: DecideBody, session: SessionDep) -> ConfirmRequestOut:
     try:

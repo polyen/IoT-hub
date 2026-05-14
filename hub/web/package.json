@@ -34,7 +34,8 @@
     "react-konva": "^18.2.10",
     "hls.js": "^1.5.0",
     "@simplewebauthn/browser": "^10.0.0",
-    "clsx": "^2.1.1"
+    "clsx": "^2.1.1",
+    "uplot": "^1.6.31"
   },
   "devDependencies": {
     "@types/react": "^18.3.5",
@@ -49,7 +50,6 @@
     "vitest": "^2.0.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/jest-dom": "^6.5.0",
-    "@playwright/test": "^1.47.0",
-    "uplot": "^1.6.31"
+    "@playwright/test": "^1.47.0"
   }
 }

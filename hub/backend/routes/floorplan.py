@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,6 +136,36 @@ async def put_floorplan(body: FloorPlanIn, session: SessionDep) -> FloorPlanData
 
     await session.commit()
     return await get_floorplan(session)
+
+
+@router.get("/room_states")
+async def room_states(request: Request, session: SessionDep) -> dict[str, list[str]]:
+    """Return room IDs that have presence or alert based on Redis device states."""
+    redis = request.app.state.redis
+    res = await session.execute(select(DevicePlacement))
+    placements = list(res.scalars())
+
+    presence_rooms: set[str] = set()
+    alert_rooms: set[str] = set()
+
+    for p in placements:
+        state = await redis.hgetall(f"home:state:{p.device_id}")
+        if not state:
+            continue
+        if (
+            state.get("presence") == "true"
+            or state.get("motion") == "true"
+            or state.get("occupied") == "true"
+        ):
+            presence_rooms.add(str(p.room_id))
+        if (
+            state.get("alert") == "true"
+            or state.get("alarm") == "true"
+            or state.get("fire") == "true"
+        ):
+            alert_rooms.add(str(p.room_id))
+
+    return {"presence_rooms": list(presence_rooms), "alert_rooms": list(alert_rooms)}
 
 
 @router.get("/devices/discovered", response_model=list[DiscoveredDevice])

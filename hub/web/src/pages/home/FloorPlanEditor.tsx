@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Circle, Group, Layer, Line, Stage, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useFloorPlanStore } from "../../features/floorplan/floorplan-store";
 import { useFloorPlan } from "../../features/floorplan/useFloorPlan";
@@ -9,6 +9,13 @@ import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import type { DeviceKind, DevicePlacement, Room } from "../../lib/types";
+
+interface DiscoveredDevice {
+  device_id: string;
+  kind_guess: DeviceKind;
+  last_seen: string | null;
+  source: "mqtt" | "redis";
+}
 
 const KIND_ICON: Record<string, string> = {
   camera: "📷",
@@ -69,6 +76,16 @@ export function FloorPlanEditor() {
     isDirty, pushHistory, undo, redo, canUndo, canRedo,
     setEditMode,
   } = useFloorPlanStore();
+
+  // Prefill device_id when placing a discovered device
+  const [pendingDeviceId, setPendingDeviceId] = useState<string | null>(null);
+
+  const { data: discoveredDevices } = useQuery<DiscoveredDevice[]>({
+    queryKey: ["discovered-devices"],
+    queryFn: () => api.get<DiscoveredDevice[]>("/api/floorplan/devices/discovered"),
+    enabled: mode === "add-device",
+    staleTime: 30_000,
+  });
 
   const { data, isLoading } = useFloorPlan();
   const qc = useQueryClient();
@@ -215,7 +232,7 @@ export function FloorPlanEditor() {
       const placement: DevicePlacement = {
         id: crypto.randomUUID(),
         room_id: roomUnder.id,
-        device_id: `${pendingDeviceKind}_${Date.now()}`,
+        device_id: pendingDeviceId ?? `${pendingDeviceKind}_${Date.now()}`,
         kind: pendingDeviceKind,
         x: clampN(nx),
         y: clampN(ny),
@@ -223,6 +240,8 @@ export function FloorPlanEditor() {
         config: {},
       };
       updatePlacements([...draft.placements, placement]);
+      // Reset discovered device selection after placing
+      if (pendingDeviceId) setPendingDeviceId(null);
     }
   }
 
@@ -337,22 +356,49 @@ export function FloorPlanEditor() {
 
       {/* ── Device palette ── */}
       {mode === "add-device" && (
-        <div className="flex flex-wrap gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-2">
-          {DEVICE_KINDS.map((k) => (
-            <button
-              key={k}
-              onClick={() => setPendingDeviceKind(k)}
-              className={[
-                "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
-                pendingDeviceKind === k
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-700 text-slate-300 hover:bg-slate-600",
-              ].join(" ")}
-            >
-              <span aria-hidden>{KIND_ICON[k]}</span>
-              <span>{k.replace("sensor_", "")}</span>
-            </button>
-          ))}
+        <div className="space-y-2">
+          {/* Generic kinds */}
+          <div className="flex flex-wrap gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-2">
+            <p className="w-full text-xs text-slate-500 mb-1">Тип пристрою:</p>
+            {DEVICE_KINDS.map((k) => (
+              <button
+                key={k}
+                onClick={() => { setPendingDeviceKind(k); setPendingDeviceId(null); }}
+                className={[
+                  "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
+                  pendingDeviceKind === k && !pendingDeviceId
+                    ? "bg-blue-600 text-white"
+                    : "bg-slate-700 text-slate-300 hover:bg-slate-600",
+                ].join(" ")}
+              >
+                <span aria-hidden>{KIND_ICON[k]}</span>
+                <span>{k.replace("sensor_", "")}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Discovered devices (pre-existing) */}
+          {discoveredDevices && discoveredDevices.length > 0 && (
+            <div className="flex flex-wrap gap-1 rounded-lg border border-slate-600 bg-slate-900/60 p-2">
+              <p className="w-full text-xs text-slate-500 mb-1">Виявлені пристрої:</p>
+              {discoveredDevices.map((d) => (
+                <button
+                  key={d.device_id}
+                  onClick={() => { setPendingDeviceKind(d.kind_guess); setPendingDeviceId(d.device_id); }}
+                  className={[
+                    "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors border",
+                    pendingDeviceId === d.device_id
+                      ? "bg-green-700 border-green-500 text-white"
+                      : "bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700",
+                  ].join(" ")}
+                  title={`${d.source} · ${d.device_id}`}
+                >
+                  <span aria-hidden>{KIND_ICON[d.kind_guess] ?? "⚙"}</span>
+                  <span className="font-mono max-w-[120px] truncate">{d.device_id}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

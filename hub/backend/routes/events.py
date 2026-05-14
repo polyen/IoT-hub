@@ -1,4 +1,4 @@
-"""WebSocket events feed + feedback endpoint."""
+"""WebSocket events feed + REST list/detail + feedback endpoint."""
 
 from __future__ import annotations
 
@@ -8,16 +8,56 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hub.backend.db import get_session
 from hub.backend.models import Event, FeedbackEvent
+from hub.backend.schemas.events import EventOut
 
 router = APIRouter()
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+@router.get("/api/events", response_model=list[EventOut])
+async def list_events(
+    session: SessionDep,
+    since: str | None = Query(None, description="ISO datetime lower bound"),
+    until: str | None = Query(None, description="ISO datetime upper bound"),
+    type: str | None = Query(None),
+    room: str | None = Query(None),
+    tier: int | None = Query(None, description="Max tier inclusive (e.g. tier=1 → tier<=1)"),
+    limit: int = Query(100, le=200),
+    offset: int = Query(0, ge=0),
+) -> list[EventOut]:
+    stmt = select(Event).order_by(Event.timestamp.desc()).limit(limit).offset(offset)
+    if since:
+        stmt = stmt.where(Event.timestamp >= datetime.fromisoformat(since.replace("Z", "+00:00")))
+    if until:
+        stmt = stmt.where(Event.timestamp <= datetime.fromisoformat(until.replace("Z", "+00:00")))
+    if type:
+        stmt = stmt.where(Event.type == type)
+    if room:
+        stmt = stmt.where(Event.room == room)
+    if tier is not None:
+        stmt = stmt.where(Event.tier <= tier)
+    res = await session.execute(stmt)
+    return [EventOut.model_validate(e) for e in res.scalars()]
+
+
+@router.get("/api/events/{event_id}", response_model=EventOut)
+async def get_event(event_id: str, session: SessionDep) -> EventOut:
+    try:
+        uid = uuid.UUID(event_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid UUID") from exc
+    res = await session.execute(select(Event).where(Event.id == uid).limit(1))
+    event = res.scalar_one_or_none()
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return EventOut.model_validate(event)
 
 
 @router.websocket("/ws/events")

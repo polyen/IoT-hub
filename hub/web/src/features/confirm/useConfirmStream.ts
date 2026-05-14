@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import type { ConfirmRequest } from "../../lib/types";
 
 const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/confirm`;
@@ -68,8 +69,11 @@ export function useConfirmStream(): {
             notifyCount(next.length);
             return next;
           });
-          if (req.state === "pending" && "Notification" in window && Notification.permission === "granted") {
-            new Notification("IoT Hub — потрібне підтвердження", { body: req.confirm_message, tag: req.id });
+          if (req.state === "pending") {
+            toast.warning(`⚠️ ${req.confirm_message}`, { duration: 10_000, id: req.id });
+            if ("Notification" in window && Notification.permission === "granted") {
+              new Notification("IoT Hub — потрібне підтвердження", { body: req.confirm_message, tag: req.id });
+            }
           }
         } catch {}
       };
