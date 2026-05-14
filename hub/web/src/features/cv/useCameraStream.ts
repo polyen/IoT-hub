@@ -15,8 +15,8 @@ export function useCameraStream(cameraId: string | null) {
       wsRef.current = ws;
       ws.onmessage = (e) => {
         try {
-          const frame: CvFrame = JSON.parse(e.data as string);
-          if (!destroyed) setLastFrame(frame);
+          const data = JSON.parse(e.data as string);
+          if (Array.isArray(data.dets) && !destroyed) setLastFrame(data as CvFrame);
         } catch {}
       };
       ws.onclose = () => {

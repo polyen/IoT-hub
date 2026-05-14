@@ -118,6 +118,24 @@ async def _handle(
         ),
     )
 
+    # Bridge camera detections to per-room CV WebSocket channel
+    if type_ == "camera/event" and room and payload.get("event_type") == "detection":
+        cv_frame = json.dumps(
+            {
+                "ts": event.timestamp.isoformat(),
+                "dets": [
+                    {
+                        "bbox": payload.get("bbox", []),
+                        "cls": payload.get("label", "unknown"),
+                        "conf": payload.get("confidence", 0.0),
+                        "track_id": payload.get("track_id"),
+                        "face_id": payload.get("face_id"),
+                    }
+                ],
+            }
+        )
+        await redis_client.publish(f"cv:detections:{room}", cv_frame)
+
     MQTT_MSGS.labels(topic=type_, status="ok").inc()
 
 

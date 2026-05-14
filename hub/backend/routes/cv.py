@@ -9,8 +9,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from hub.backend.db import get_session
+from hub.backend.db import AsyncSessionLocal, get_session
 from hub.backend.models import DevicePlacement
 from hub.backend.schemas.cv import CameraOut
 
@@ -62,9 +63,26 @@ async def ws_cv(camera_id: str, websocket: WebSocket) -> None:
     """Stream CV detections for a specific camera from Redis pub/sub."""
     await websocket.accept()
     try:
+        # Resolve camera_id (UUID) → room name so we can subscribe to the
+        # correct Redis channel (cv:detections:{room}) that the MQTT subscriber writes.
+        channel = f"cv:detections:{camera_id}"  # fallback
+        try:
+            uid = uuid.UUID(camera_id)
+            async with AsyncSessionLocal() as session:
+                res = await session.execute(
+                    select(DevicePlacement)
+                    .options(selectinload(DevicePlacement.room))
+                    .where(DevicePlacement.id == uid, DevicePlacement.kind == "camera")
+                    .limit(1)
+                )
+                placement = res.scalar_one_or_none()
+                if placement and placement.room:
+                    channel = f"cv:detections:{placement.room.name}"
+        except Exception:
+            pass  # keep fallback channel
+
         redis = websocket.app.state.redis
         pubsub = redis.pubsub()
-        channel = f"cv:detections:{camera_id}"
         await pubsub.subscribe(channel)
         try:
             while True:

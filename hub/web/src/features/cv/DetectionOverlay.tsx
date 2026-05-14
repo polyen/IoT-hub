@@ -30,7 +30,7 @@ export function DetectionOverlay({ frame, videoWidth, videoHeight, visible }: Pr
     canvas.width = videoWidth;
     canvas.height = videoHeight;
 
-    for (const det of frame.dets) {
+    for (const det of frame.dets ?? []) {
       const [x1, y1, x2, y2] = det.bbox;
       const rx = x1 * videoWidth;
       const ry = y1 * videoHeight;
