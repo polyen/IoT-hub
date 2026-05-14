@@ -144,3 +144,29 @@ export interface SystemHealth {
     t1_queue_depth: number;
   };
 }
+
+export interface Incident {
+  id: string;
+  timestamp: string;
+  intent_text: string;
+  tool: string | null;
+  severity: "high" | "medium" | "low";
+}
+
+export interface DigestData {
+  period: "today" | "yesterday" | "week";
+  start: string;
+  end: string;
+  total_events: number;
+  counts: Record<string, number>;
+  peak_hour: number | null;
+  narrative: string | null;
+}
+
+export interface PrivacyReport {
+  sent_to_cloud_bytes_7d: number;
+  by_tier: Record<string, number>;
+  by_tool: Record<string, number>;
+  cloud_consent_state: boolean;
+  report_generated_at: string;
+}

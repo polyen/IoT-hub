@@ -1,12 +1,20 @@
-"""System health metrics endpoint."""
+"""System health metrics, logs, incidents, live WebSocket."""
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from hub.backend.db import get_session
+from hub.backend.models import AgentAudit
 
 router = APIRouter(prefix="/api/system", tags=["system"])
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 def _f(s: str | None) -> float | None:
@@ -17,11 +25,7 @@ def _i(s: str | None) -> int | None:
     return int(float(s)) if s else None
 
 
-@router.get("/health")
-async def system_health(request: Request) -> dict[str, Any]:
-    """Return hardware metrics, service heartbeats, model versions from Redis."""
-    redis = request.app.state.redis
-
+async def _collect_health(redis: Any) -> dict[str, Any]:
     keys = [
         "system:cpu_pct",
         "system:ram_used_gb",
@@ -54,19 +58,12 @@ async def system_health(request: Request) -> dict[str, Any]:
         last_bridge,
     ) = values
 
-    # Service heartbeats (edge processes set these with TTL 60s)
     svc_names = ["cv", "voice", "agent", "mqtt", "postgres", "redis"]
-    hb_keys = [f"heartbeat:{s}" for s in svc_names]
-    heartbeats = await redis.mget(*hb_keys)
+    heartbeats = await redis.mget(*[f"heartbeat:{s}" for s in svc_names])
     services = [
-        {
-            "name": name,
-            "status": "ok" if hb else "offline",
-            "uptime": hb,
-        }
+        {"name": name, "status": "ok" if hb else "offline", "uptime": hb}
         for name, hb in zip(svc_names, heartbeats, strict=True)
     ]
-
     t1_queue_depth = await redis.llen("sync:t1_queue")
 
     return {
@@ -94,3 +91,68 @@ async def system_health(request: Request) -> dict[str, Any]:
             "t1_queue_depth": t1_queue_depth or 0,
         },
     }
+
+
+@router.get("/health")
+async def system_health(request: Request) -> dict[str, Any]:
+    return await _collect_health(request.app.state.redis)
+
+
+@router.get("/logs/{service}")
+async def get_logs(
+    service: str,
+    request: Request,
+    tail: int = Query(200, le=500),
+) -> list[str]:
+    """Last N log lines from Redis ring buffer (edge services push via LPUSH+LTRIM)."""
+    redis = request.app.state.redis
+    lines = await redis.lrange(f"logs:{service}", 0, tail - 1)
+    if not lines:
+        return [f"[Немає логів для '{service}' — edge-сервіс ще не писав у Redis]"]
+    return list(reversed(lines))
+
+
+@router.get("/incidents")
+async def get_incidents(session: SessionDep) -> list[dict[str, Any]]:
+    """Recent DENY decisions and prompt-injection attempts from AgentAudit (last 7 days)."""
+    cutoff = datetime.now(UTC) - timedelta(days=7)
+    res = await session.execute(
+        select(AgentAudit)
+        .where(AgentAudit.action_class == "DENY", AgentAudit.timestamp >= cutoff)
+        .order_by(AgentAudit.timestamp.desc())
+        .limit(100)
+    )
+    rows = list(res.scalars())
+    return [
+        {
+            "id": str(r.id),
+            "timestamp": r.timestamp.isoformat(),
+            "intent_text": r.intent_text,
+            "tool": r.tool,
+            "severity": (
+                "high"
+                if any(
+                    kw in r.intent_text.lower()
+                    for kw in ("inject", "ignore", "disregard", "system prompt")
+                )
+                else "medium"
+            ),
+        }
+        for r in rows
+    ]
+
+
+@router.websocket("/ws")
+async def system_ws(websocket: WebSocket) -> None:
+    """Push health snapshot every 5 s."""
+    await websocket.accept()
+    redis = websocket.app.state.redis
+    try:
+        while True:
+            snapshot = await _collect_health(redis)
+            await websocket.send_json(snapshot)
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
