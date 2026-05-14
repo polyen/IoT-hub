@@ -375,7 +375,7 @@ if __name__ == "__main__":
     asyncio.run(
         run_pipeline_with_fusion(
             rtsp_url=os.environ["RTSP_URL"],
-            hef_path=Path(os.environ.get("HEF_PATH", "/app/models/current.hef")),
+            hef_path=Path(os.environ.get("HEF_PATH", "/app/models/current_yolo.hef")),
             pose_hef_path=Path(pose_path_env) if pose_path_env else None,
             mqtt_host=os.environ.get("MQTT_HOST", "mosquitto"),
             mqtt_port=int(os.environ.get("MQTT_PORT", "1883")),

@@ -15,3 +15,8 @@ mining:
   db_url: postgresql+asyncpg://iothub:iothub@localhost:5432/iothub
   days: 30
   max_per_tag: 100
+  # Maximum Event.tier to include (0=public-aggregate, 1=non-sensitive,
+  # 2=sensitive, 3=private). Default 1 keeps the training loop conservative:
+  # sensitive/private frames are never copied off T0 storage unless the
+  # operator explicitly raises this threshold for a specific run.
+  max_tier: 1

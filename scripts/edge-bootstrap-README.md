@@ -30,7 +30,7 @@ The script is **idempotent** — safe to re-run after failures or reboots.
 3. Installs Docker + Compose plugin via the official convenience script
 4. Reminds you to install HailoRT if not found (manual — see below)
 5. Ensures `/dev/nvme0n1p3` is mounted at `/mnt/ssd`, adds UUID entry to `/etc/fstab`
-6. Creates project directory tree: `data/db`, `data/mqtt`, `models/hailo`, `models/whisper`, `logs`, `certs`
+6. Creates project directory tree: `data/db`, `data/mqtt`, `models/versions`, `models/llm`, `models/whisper`, `mlflow/artifacts`, `logs`, `certs`. Seeds empty `models/manifest.json` and `models/deployments.json` so `ModelStore` can promote on a fresh install.
 7. Creates convenience symlink `/opt/iot-hub → /mnt/ssd/iot-hub`
 8. Moves Docker data root from SD to `/mnt/ssd/docker` (prevents SD card from filling up)
 9. Adds the calling user to the `docker` group
@@ -161,18 +161,29 @@ The bootstrap script cannot auto-download HailoRT — it requires a hailo.ai dev
 
 ```
 /mnt/ssd/iot-hub/
-├── repo/           ← git clone here
+├── repo/                  ← git clone here
 ├── data/
-│   ├── db/         ← PostgreSQL bind mount (if used)
-│   └── mqtt/       ← Mosquitto persistence backup
+│   ├── db/                ← PostgreSQL bind mount (if used)
+│   └── mqtt/              ← Mosquitto persistence backup
 ├── models/
-│   ├── hailo/      ← .hef model files
-│   └── whisper/    ← Whisper GGUF/ONNX files
+│   ├── versions/          ← immutable .hef artifacts (DVC / MLflow outputs)
+│   ├── current_yolo.hef   ← symlink → versions/<active>.hef  (managed by ModelStore)
+│   ├── current_pose.hef   ← symlink (pose kind)
+│   ├── current_face.hef   ← symlink (face kind)
+│   ├── current_whisper.hef← symlink (whisper kind)
+│   ├── current.hef        ← legacy alias of current_yolo.hef
+│   ├── manifest.json      ← {stem: {sha256, kind}} — verified on promote
+│   ├── deployments.json   ← append-only history → rollback() source of truth
+│   ├── embeddings.pkl     ← face enrollment store
+│   ├── llm/               ← Qwen / other GGUF weights
+│   └── whisper/           ← extra Whisper caches (CPU fallback)
+├── mlflow/artifacts/      ← MLflow tracking artifact root (mounted into the mlflow service)
 ├── logs/
-├── certs/          ← extra TLS certs / CA
-└── docker/         ← Docker data root (images, volumes)
+├── certs/                 ← extra TLS certs / CA
+├── .env.docker-gid        ← DOCKER_GID=… emitted by bootstrap (source via --env-file)
+└── docker/                ← Docker data root (images, volumes)
 
-/opt/iot-hub        ← symlink → /mnt/ssd/iot-hub
+/opt/iot-hub               ← symlink → /mnt/ssd/iot-hub
 ```
 
 Named Docker volumes (`pgdata`, `mosquitto-data`, etc.) live in `/mnt/ssd/docker/volumes/`.

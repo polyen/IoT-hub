@@ -7,6 +7,9 @@ Usage:
         --out models/versions/wake_word_xei_xata.onnx \
         --epochs 100
 
+openWakeWord v0.6+ exports ONNX by default; the runtime wrapper
+(hub.edge.voice.wake_word.WakeWordDetector) loads via inference_framework="onnx".
+
 The user must record ~100 positive samples before running this script.
 Negative samples are sourced from Speech Commands dataset (auto-downloaded).
 """

@@ -15,12 +15,12 @@ stages:
     cmd: >
       uv run python -m training.wake_word.train_oww
       --samples-dir datasets/voice/wake_word
-      --out models/versions/wake_word_xei_xata.tflite
+      --out models/versions/wake_word_xei_xata.onnx
     deps:
       - datasets/voice/wake_word
       - training/wake_word/train_oww.py
     outs:
-      - models/versions/wake_word_xei_xata.tflite
+      - models/versions/wake_word_xei_xata.onnx
 
   # ---------------------------------------------------------------------------
   # Fire/smoke fine-tune (T4.3) — runs on Colab / Kaggle GPU.
@@ -47,7 +47,12 @@ stages:
 
   # ---------------------------------------------------------------------------
   # Hard-negative mining (T4.2) — runs only on edge (T0 frame access).
-  # Skip in CI; produces the next feedback_v{N}/ delta dataset.
+  # Produces the next feedback_v{N}/ delta dataset.
+  #
+  # No longer frozen: the stage is the entry point of the MLOps feedback loop
+  # (mining → re-train → shadow eval → promote → rollback). The
+  # ``always_changed: true`` flag keeps dvc from caching the result since the
+  # input is the live Postgres FeedbackEvent table, not a tracked file.
   # ---------------------------------------------------------------------------
   mine_hard_negatives:
     cmd: >
@@ -55,13 +60,13 @@ stages:
       --db-url ${mining.db_url}
       --days ${mining.days}
       --max-per-tag ${mining.max_per_tag}
+      --max-tier ${mining.max_tier}
       --out-base datasets/fire_smoke
     deps:
       - training/mining.py
     params:
       - mining
     always_changed: true
-    frozen: true
 
   # ---------------------------------------------------------------------------
   # Evaluation (T5.1) — wraps `make evaluate`.

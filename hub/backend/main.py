@@ -53,10 +53,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         asyncio.create_task(mqtt_subscriber.run(app.state.redis), name="mqtt-subscriber"),
     ]
     if os.environ.get("ENABLE_DEPLOY_MONITOR", "true").lower() == "true":
+        # Watch every kind that has its own rollback trigger (yolo + pose);
+        # face/whisper currently lack class-rate metrics so they are managed
+        # manually via the deploy API.
+        stores = {
+            "yolo": ModelStore(kind="yolo"),
+            "pose": ModelStore(kind="pose"),
+        }
         tasks.append(
             asyncio.create_task(
                 monitor_loop(
-                    ModelStore(), interval=int(os.environ.get("DEPLOY_MONITOR_INTERVAL", "300"))
+                    stores,
+                    interval=int(os.environ.get("DEPLOY_MONITOR_INTERVAL", "300")),
                 ),
                 name="deploy-monitor",
             )

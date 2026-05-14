@@ -84,6 +84,26 @@ services:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # ModelStore writes the active symlink + history into this directory and
+      # then issues `docker kill --signal=SIGHUP <container>` via the bound socket.
+      MODELS_DIR: /app/models
+      CV_CONTAINER: cv
+      VOICE_CONTAINER: voice
+      DEPLOY_TOKEN: ${DEPLOY_TOKEN:?DEPLOY_TOKEN is required}
+    volumes:
+      # Read-write so promote() can swap the active_{kind}.hef symlink and
+      # append to deployments.json; the underlying versions/ tree is bind-mounted
+      # from the SSD (immutable artifacts pushed via DVC / SCP).
+      - ${MODELS_HOST_DIR:-/opt/iot-hub/models}:/app/models
+      # Read-only socket so backend can SIGHUP the cv/voice containers. The
+      # bind is :ro at the OS level; Docker still requires the docker.sock
+      # GID to be exposed to appuser inside the container — see ``group_add``.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # appuser inside the container must be able to read the docker socket on
+    # the host. The host docker group GID is passed at runtime via env so the
+    # compose file stays portable across hosts (RPi5 usually 988; varies).
+    group_add:
+      - "${DOCKER_GID:-988}"
     ports:
       - "8000:8000"   # FastAPI / metrics
     depends_on:
@@ -228,6 +248,17 @@ services:
       # When RTSP_URL is not set, default to the mediamtx stream pushed by the
       # WiFi camera sender (scripts/wifi_stream_sender.sh).
       RTSP_URL: ${RTSP_URL:-rtsp://mediamtx:8554/camera}
+      # Resolved at runtime via the symlinks ModelStore manages.
+      HEF_PATH: /app/models/current_yolo.hef
+      POSE_HEF_PATH: /app/models/current_pose.hef
+    volumes:
+      # Read-only — only the backend's ModelStore writes here. cv just opens
+      # the symlinks for inference and reacts to SIGHUP to reload.
+      - ${MODELS_HOST_DIR:-/opt/iot-hub/models}:/app/models:ro
+    # Hailo HAT requires /dev/hailo0; declare it as an override in
+    # docker-compose.prod.yml on the RPi5 so dev/CI machines without HailoRT
+    # can still bring the compose up. The cv pipeline degrades gracefully
+    # when hailo_platform is unavailable.
     ports:
       - "8002:8002"
     depends_on:
@@ -237,7 +268,7 @@ services:
       - iot-internal
 
   # ---------------------------------------------------------------------------
-  # Local LLM (Qwen 3.5 4B Q4_K_M via llama-cpp-python)
+  # Local LLM (Qwen 2.5 3B Instruct Q4_K_M via llama-cpp-python)
   # ---------------------------------------------------------------------------
   llm:
     build:
@@ -246,7 +277,13 @@ services:
     container_name: llm
     restart: unless-stopped
     volumes:
-      - llm-models:/app/models
+      # LLM GGUF weights live under the same models tree as HEF artifacts so
+      # backups and the auto-updater treat them uniformly.
+      - ${MODELS_HOST_DIR:-/opt/iot-hub/models}/llm:/app/models
+    environment:
+      MODEL_URL: ${LLM_MODEL_URL:-https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf}
+      MODEL_PATH: /app/models/qwen2.5-3b-instruct-q4_k_m.gguf
+      MODEL_SHA256: ${LLM_MODEL_SHA256:-}
     ports:
       - "8001:8001"
     mem_limit: 4g
@@ -256,6 +293,39 @@ services:
       test: ["CMD-SHELL", "curl -sf http://localhost:8001/v1/models || exit 1"]
       interval: 30s
       timeout: 10s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # MLflow tracking server (T0.6 / T4.x)
+  # Backed by the same Postgres instance; artifacts land on the SSD so they
+  # survive container rebuilds and can be re-imported by DVC if desired.
+  # ---------------------------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.18.0
+    container_name: mlflow
+    restart: unless-stopped
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5001
+      --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${MLFLOW_DB:-mlflow}
+      --default-artifact-root /mlflow/artifacts
+    environment:
+      # mlflow image ships without psycopg2 by default; install at boot.
+      MLFLOW_INSTALL_REQUIREMENTS: "psycopg2-binary"
+    volumes:
+      - ${MLFLOW_ARTIFACTS_DIR:-/opt/iot-hub/mlflow/artifacts}:/mlflow/artifacts
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - iot-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5001/health || exit 1"]
+      interval: 30s
+      timeout: 5s
       retries: 5
 
   # ---------------------------------------------------------------------------
@@ -312,7 +382,8 @@ volumes:
   grafana-data:
   ntfy-data:
   ntfy-etc:
-  llm-models:
+  # llm-models removed: LLM weights now live in the same host-mounted models
+  # tree (${MODELS_HOST_DIR}/llm) as HEFs for uniform backup/sync.
 
 # -----------------------------------------------------------------------------
 # Networks

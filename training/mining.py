@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from hub.backend.models import FeedbackEvent
+from hub.backend.models import Event, FeedbackEvent
 
 if TYPE_CHECKING:
     pass
@@ -31,12 +31,21 @@ logger = logging.getLogger(__name__)
 async def fetch_fp_feedback(
     session: AsyncSession,
     since: datetime,
+    max_tier: int = 1,
 ) -> list[FeedbackEvent]:
-    """Return FP-labelled FeedbackEvents created after *since*, ordered by tag."""
+    """Return FP-labelled FeedbackEvents created after *since*, ordered by tag.
+
+    Only events whose linked Event.tier <= *max_tier* are returned. This is
+    the privacy gate that keeps sensitive/private frames out of the training
+    dataset — the underlying T0 storage may already encrypt them, but the
+    miner must not even reference their paths.
+    """
     result = await session.execute(
         select(FeedbackEvent)
+        .join(Event, Event.id == FeedbackEvent.alert_id)
         .where(FeedbackEvent.user_label == "fp")
         .where(FeedbackEvent.ts >= since)
+        .where(Event.tier <= max_tier)
         .order_by(FeedbackEvent.tag)
     )
     return list(result.scalars().all())
@@ -116,6 +125,7 @@ async def run_mining(
     db_url: str,
     days: int = 30,
     max_per_tag: int = 100,
+    max_tier: int = 1,
     out_base: Path = Path("datasets/fire_smoke"),
 ) -> None:
     """Orchestrate hard-negative mining pipeline."""
@@ -140,7 +150,7 @@ async def run_mining(
     since = datetime.now(UTC) - timedelta(days=days)
 
     async with async_session() as session:
-        events = await fetch_fp_feedback(session, since)
+        events = await fetch_fp_feedback(session, since, max_tier=max_tier)
 
     await engine.dispose()
 
@@ -190,6 +200,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Max frames per tag bucket (default: 100)",
     )
     parser.add_argument(
+        "--max-tier",
+        type=int,
+        default=1,
+        help=(
+            "Maximum Event.tier to include (0=public-aggregate, 1=non-sensitive, "
+            "2=sensitive, 3=private). Default 1 — sensitive/private frames are "
+            "excluded unless explicitly overridden."
+        ),
+    )
+    parser.add_argument(
         "--out-base",
         type=Path,
         default=Path("datasets/fire_smoke"),
@@ -206,6 +226,7 @@ def main(argv: list[str] | None = None) -> None:
             db_url=args.db_url,
             days=args.days,
             max_per_tag=args.max_per_tag,
+            max_tier=args.max_tier,
             out_base=args.out_base,
         )
     )

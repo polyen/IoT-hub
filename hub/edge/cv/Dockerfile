@@ -23,7 +23,8 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/metrics')" || exit 1
 
 ENV RTSP_URL="" \
-    HEF_PATH="/app/models/yolo11n_coco.hef" \
+    HEF_PATH="/app/models/current_yolo.hef" \
+    POSE_HEF_PATH="/app/models/current_pose.hef" \
     MQTT_HOST="mosquitto" \
     MQTT_PORT="1883" \
     ROOM="living_room" \

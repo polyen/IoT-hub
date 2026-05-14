@@ -99,13 +99,20 @@ for d in \
     data/db \
     data/mqtt \
     data/uploads \
-    models/hailo \
+    models/versions \
+    models/llm \
     models/whisper \
+    mlflow/artifacts \
     logs \
     certs
 do
     mkdir -p "${PROJECT_ROOT}/${d}"
 done
+
+# Seed an empty manifest / deployments history so ModelStore can write into
+# them without surprise on a fresh install.
+[[ -f "${PROJECT_ROOT}/models/manifest.json" ]]    || echo '{}'   > "${PROJECT_ROOT}/models/manifest.json"
+[[ -f "${PROJECT_ROOT}/models/deployments.json" ]] || echo '[]'   > "${PROJECT_ROOT}/models/deployments.json"
 
 chown -R "${REAL_USER}:${REAL_USER}" "${PROJECT_ROOT}"
 info "Project directory tree ready at ${PROJECT_ROOT}."
@@ -163,6 +170,20 @@ if id -nG "${REAL_USER}" | grep -qw docker; then
 else
     usermod -aG docker "${REAL_USER}"
     info "Added ${REAL_USER} to docker group. Re-login required to take effect."
+fi
+
+# ---------------------------------------------------------------------------
+# 9. Resolve host docker group GID (the backend container needs it via
+#    `group_add` in docker-compose.edge.yml so it can SIGHUP cv/voice).
+# ---------------------------------------------------------------------------
+DOCKER_GID="$(getent group docker | awk -F: '{print $3}' || echo '')"
+ENV_FILE="${PROJECT_ROOT}/.env.docker-gid"
+if [[ -n "${DOCKER_GID}" ]]; then
+    echo "DOCKER_GID=${DOCKER_GID}" > "${ENV_FILE}"
+    chown "${REAL_USER}:${REAL_USER}" "${ENV_FILE}"
+    info "Captured host docker GID=${DOCKER_GID} → ${ENV_FILE} (source it via --env-file)."
+else
+    warn "Could not determine docker group GID — check that docker is installed."
 fi
 
 # ---------------------------------------------------------------------------
