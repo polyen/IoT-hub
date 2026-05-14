@@ -11,6 +11,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     SmallInteger,
     String,
@@ -157,7 +158,12 @@ class Room(Base):
     __tablename__ = "rooms"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    floor_plan_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    floor_plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("floor_plans.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     polygon: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
@@ -176,7 +182,9 @@ class DevicePlacement(Base):
     __tablename__ = "device_placements"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    room_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    room_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     device_id: Mapped[str] = mapped_column(String(128), nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     x: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
