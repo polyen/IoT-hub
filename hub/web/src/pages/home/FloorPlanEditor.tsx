@@ -138,6 +138,7 @@ export function FloorPlanEditor() {
   const [pending, setPending] = useState<PendingPoly | null>(null);
   const [newRoomState, setNewRoomState] = useState<{ polygon: [number, number][]; name: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editPlacement, setEditPlacement] = useState<{ id: string; label: string; device_id: string } | null>(null);
 
   const toNorm = useCallback(
     (kx: number, ky: number): [number, number] => [
@@ -207,6 +208,18 @@ export function FloorPlanEditor() {
       updatePlacements(draft.placements.filter((p) => p.id !== selectedId));
     }
     setSelectedId(null);
+  }
+
+  function saveEditPlacement() {
+    if (!editPlacement || !draft) return;
+    updatePlacements(
+      draft.placements.map((p) =>
+        p.id === editPlacement.id
+          ? { ...p, label: editPlacement.label || null, device_id: editPlacement.device_id.trim() }
+          : p,
+      ),
+    );
+    setEditPlacement(null);
   }
 
   async function handleSave() {
@@ -354,7 +367,18 @@ export function FloorPlanEditor() {
           ↪
         </button>
 
-        {/* Delete selected */}
+        {/* Edit / Delete selected */}
+        {selectedId && draft?.placements.some((p) => p.id === selectedId) && (
+          <button
+            onClick={() => {
+              const p = draft!.placements.find((pl) => pl.id === selectedId)!;
+              setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id });
+            }}
+            className="rounded px-2.5 py-1 text-xs font-medium bg-blue-900/50 text-blue-300 hover:bg-blue-800 hover:text-white"
+          >
+            Редагувати
+          </button>
+        )}
         {selectedId && (
           <button
             onClick={deleteSelected}
@@ -570,6 +594,10 @@ export function FloorPlanEditor() {
                     e.cancelBubble = true;
                     setSelectedId(p.id);
                   }}
+                  onDblClick={(e) => {
+                    e.cancelBubble = true;
+                    setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id });
+                  }}
                   onDragStart={() => pushHistory()}
                   onDragEnd={(e) => {
                     const [nx, ny] = toNorm(e.target.x(), e.target.y());
@@ -694,6 +722,70 @@ export function FloorPlanEditor() {
           </div>
         </div>
       )}
+      {/* ── Edit placement dialog ── */}
+      {editPlacement && (() => {
+        const p = draft?.placements.find((pl) => pl.id === editPlacement.id);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="w-96 space-y-4 rounded-xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
+              <h3 className="font-semibold text-white">
+                {KIND_ICON[p?.kind ?? ""] ?? "⚙"} Редагувати пристрій
+              </h3>
+
+              <div className="space-y-3">
+                <label className="block space-y-1">
+                  <span className="text-xs text-slate-400">Мітка (відображається на плані)</span>
+                  <input
+                    autoFocus
+                    className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="напр. PIR Вітальня"
+                    value={editPlacement.label}
+                    onChange={(e) => setEditPlacement({ ...editPlacement, label: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs text-slate-400">Device ID — має збігатися з MQTT-топіком</span>
+                  <input
+                    className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 font-mono text-sm text-green-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="напр. pir_living_room"
+                    value={editPlacement.device_id}
+                    onChange={(e) => setEditPlacement({ ...editPlacement, device_id: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    Перевірити: <code className="text-slate-400">mosquitto_sub -t 'home/#' -v</code>
+                  </p>
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (!draft) return;
+                    pushHistory();
+                    updatePlacements(draft.placements.filter((pl) => pl.id !== editPlacement.id));
+                    setEditPlacement(null);
+                    setSelectedId(null);
+                  }}
+                  className="rounded px-2.5 py-1.5 text-xs font-medium bg-red-900/50 text-red-300 hover:bg-red-800 hover:text-white"
+                >
+                  Видалити
+                </button>
+                <div className="ml-auto flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setEditPlacement(null)}>
+                    Скасувати
+                  </Button>
+                  <Button size="sm" variant="primary" onClick={saveEditPlacement} disabled={!editPlacement.device_id.trim()}>
+                    Зберегти
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
