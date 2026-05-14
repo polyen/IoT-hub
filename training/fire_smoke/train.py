@@ -1,4 +1,9 @@
-"""Fine-tune YOLOv11n on fire/smoke dataset with MLflow tracking."""
+"""Fine-tune YOLO26n on fire/smoke dataset with MLflow tracking.
+
+Default base model is ``yolo26n.pt`` (see params.yaml). YOLO26 exports NMS-free
+so downstream ``convert_to_hef.py`` should be called with ``--calib-set`` and
+the Hailo detector loaded with ``nms_free=True``.
+"""
 
 from __future__ import annotations
 
@@ -27,7 +32,7 @@ except ImportError:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Fine-tune YOLOv11n on fire/smoke dataset with MLflow tracking."
+        description="Fine-tune YOLO26n on fire/smoke dataset with MLflow tracking."
     )
     parser.add_argument(
         "--data",

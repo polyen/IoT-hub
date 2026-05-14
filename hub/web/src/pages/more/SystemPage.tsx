@@ -217,7 +217,7 @@ export default function SystemPage() {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Моделі</h2>
         <div className="rounded-lg border border-slate-700 bg-slate-800/60 divide-y divide-slate-700">
           {([
-            { label: "CV (YOLOv11n)", value: data.models.cv_version },
+            { label: "CV (YOLO26n)", value: data.models.cv_version },
             { label: "LLM (Qwen)", value: data.models.llm_version },
             { label: "ASR (Whisper)", value: data.models.whisper_version },
           ] as const).map(({ label, value }) => (

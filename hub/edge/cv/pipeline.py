@@ -1,7 +1,7 @@
 """Async CV cascade: RTSP -> detect -> track -> pose -> fall_rule -> MQTT.
 
 Pipeline composition (T2.13):
-    Stage 1  YOLOv11n detect (Hailo)         -> Detection[]
+    Stage 1  YOLO26n detect (Hailo, NMS-free)-> Detection[]
     Stage 2  ByteTrack tracker               -> Track[]
     Stage 3  YOLOv11n-pose on person tracks  -> Keypoints       [optional]
     Stage 4  FallDetector rule               -> FallEvent       [optional]

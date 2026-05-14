@@ -1,12 +1,13 @@
-"""Hailo-8 inference wrapper for YOLO detection (YOLO11n and YOLO26n).
+"""Hailo-8 inference wrapper for YOLO detection (YOLO26n primary, YOLO11n legacy).
 
 Requires HailoRT + hailo_platform installed on RPi5.
 On other platforms, raises ImportError with a clear message.
 
-YOLO26 note: pass nms_free=True when loading a YOLO26 HEF.  YOLO26 bakes NMS
-into the forward pass, so detect() must NOT apply a second NMS round.  The
-inference loop implementation (currently a stub) is responsible for honoring
-this flag — see hailo-rpi5-examples for the stream API reference.
+YOLO26 is the project's primary detector — pass nms_free=True when loading a
+YOLO26 HEF. YOLO26 bakes NMS into the forward pass, so detect() must NOT apply
+a second NMS round. The inference loop implementation (currently a stub) is
+responsible for honoring this flag — see hailo-rpi5-examples for the stream
+API reference.
 """
 
 from __future__ import annotations
@@ -121,7 +122,7 @@ COCO_CLASSES = [
 
 
 class HailoDetector:
-    """Batch=1 YOLO inference on Hailo-8 (supports YOLO11n and YOLO26n).
+    """Batch=1 YOLO inference on Hailo-8 (YOLO26n primary; YOLO11n still loadable).
 
     Pass nms_free=True for YOLO26 HEFs: the inference loop must skip any
     post-NMS step since suppression is already part of the graph.
@@ -177,7 +178,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
-    parser.add_argument("--hef", default="models/versions/yolo11n_coco.hef")
+    parser.add_argument("--hef", default="models/versions/yolo26n_coco.hef")
     args = parser.parse_args()
     detector = HailoDetector(Path(args.hef))
     detector.load()
