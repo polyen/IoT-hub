@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Circle, Group, Layer, Line, Stage, Text } from "react-konva";
 import type { KonvaEventObject } from "konva/lib/Node";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -66,8 +66,8 @@ interface PendingPoly {
 
 export function FloorPlanEditor() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [stageW, setStageW] = useState(800);
-  const [stageH, setStageH] = useState(480);
+  const [stageW, setStageW] = useState(0);
+  const [stageH, setStageH] = useState(0);
 
   const {
     mode, setMode,
@@ -95,7 +95,22 @@ export function FloorPlanEditor() {
     if (data && !draft) setDraft(data);
   }, [data, draft, setDraft]);
 
-  // Resize observer — keep stage sized to container
+  // Read actual container dimensions synchronously after mount (before first paint).
+  // This prevents Konva from ever mounting with a 0-size canvas.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const plan = draft?.floor_plans[0];
+    const ratio = plan ? plan.height / plan.width : 0.6;
+    const w = el.getBoundingClientRect().width || el.clientWidth;
+    if (w > 0) {
+      setStageW(w);
+      setStageH(Math.max(1, Math.round(w * ratio)));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // once on mount
+
+  // Resize observer — keep stage sized to container on subsequent changes
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -103,8 +118,9 @@ export function FloorPlanEditor() {
       const plan = draft?.floor_plans[0];
       const ratio = plan ? plan.height / plan.width : 0.6;
       const w = el.clientWidth;
+      if (w <= 0) return;
       setStageW(w);
-      setStageH(Math.round(w * ratio));
+      setStageH(Math.max(1, Math.round(w * ratio)));
     });
     obs.observe(el);
     return () => obs.disconnect();
@@ -411,7 +427,12 @@ export function FloorPlanEditor() {
         className="rounded-xl overflow-hidden border border-slate-700 bg-slate-900 touch-none"
         style={{ cursor: mode === "add-room" || mode === "add-device" ? "crosshair" : "default" }}
       >
-        <Stage
+        {stageW === 0 && (
+          <div className="flex items-center justify-center py-16">
+            <span className="text-slate-600 text-sm">Ініціалізація…</span>
+          </div>
+        )}
+        {stageW > 0 && <Stage
           width={stageW}
           height={stageH}
           onClick={handleStageClick}
@@ -634,7 +655,7 @@ export function FloorPlanEditor() {
               </Group>
             )}
           </Layer>
-        </Stage>
+        </Stage>}
       </div>
 
       {/* ── New room name dialog ── */}
