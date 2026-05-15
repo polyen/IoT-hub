@@ -24,6 +24,8 @@ services:
       - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so.4.23.0:ro
       - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so.4:ro
       - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so:ro
+      - /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33:/hailo/lib/libstdc++.so.6.0.33:ro
+      - /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33:/hailo/lib/libstdc++.so.6:ro
     environment:
       PYTHONPATH: /hailo
       LD_LIBRARY_PATH: /hailo/lib
