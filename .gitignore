@@ -1,7 +1,6 @@
 # Project-specific
 materials/
 datasets/
-models/
 .env
 .env.*
 !.env.example
@@ -111,3 +110,6 @@ runs
 yolo26n.pt
 
 CLAUDE.md
+
+# MLflow local tracking (laptop only)
+mlruns/

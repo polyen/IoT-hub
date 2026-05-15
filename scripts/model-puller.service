@@ -5,8 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Source the same .env that docker-compose uses so GHCR_TOKEN / DEPLOY_TOKEN
-# are available without duplicating secrets.
 EnvironmentFile=/opt/iot-hub/repo/.env
 Environment=MODELS_DIR=/opt/iot-hub/models
 Environment=BACKEND_URL=http://localhost:8000

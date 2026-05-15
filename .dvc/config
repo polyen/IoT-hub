@@ -1,7 +1,6 @@
 [core]
     remote = gdrive
     autostage = true
-[remote "gdrive"]
-    url = gdrive://REPLACE_WITH_GDRIVE_FOLDER_ID
-    gdrive_use_service_account = true
-    gdrive_service_account_json_file_path = ${GDRIVE_SERVICE_ACCOUNT_JSON}
+['remote "gdrive"']
+    url = gdrive://1ccIXhWOLrfdrLBjnJOVqAfrp2hzn0y4U
+    gdrive_use_service_account = false

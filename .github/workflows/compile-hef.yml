@@ -44,16 +44,20 @@ jobs:
       - name: Install dev deps
         run: uv sync --extra dev --frozen
 
-      - name: Pull ONNX from DVC (GDrive)
+      - name: Write GDrive OAuth credentials
         env:
-          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+        run: |
+          mkdir -p "/home/runner/.cache/pydrive2fs/${GDRIVE_CLIENT_ID}"
+          echo '${{ secrets.GDRIVE_CREDENTIALS }}' \
+            > "/home/runner/.cache/pydrive2fs/${GDRIVE_CLIENT_ID}/default.json"
+
+      - name: Pull ONNX from DVC (GDrive)
         run: |
           uv run dvc pull "models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx"
           echo "onnx_path=models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" >> "$GITHUB_ENV"
 
       - name: Pull calibration subset via DVC
-        env:
-          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
         run: uv run dvc pull "datasets/${MODEL_NAME}/calibration/" --run-cache
 
       - name: Cache Hailo DFC Docker layers

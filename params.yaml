@@ -9,7 +9,7 @@ train:
     batch: 8
     lr: 0.001
     device: mps
-    mlflow_uri: http://localhost:5001
+    mlflow_uri: file:///Users/vlad/VSProjects/IoT-hub/IoT-hub/mlruns
 
 mining:
   db_url: postgresql+asyncpg://iothub:iothub@localhost:5432/iothub
