@@ -100,9 +100,9 @@ for d in \
     data/mqtt \
     data/uploads \
     models/versions \
+    models/onnx \
     models/llm \
     models/whisper \
-    mlflow/artifacts \
     logs \
     certs
 do
@@ -184,6 +184,40 @@ if [[ -n "${DOCKER_GID}" ]]; then
     info "Captured host docker GID=${DOCKER_GID} → ${ENV_FILE} (source it via --env-file)."
 else
     warn "Could not determine docker group GID — check that docker is installed."
+fi
+
+# ---------------------------------------------------------------------------
+# 10. Install oras CLI (OCI artifact pull for model-puller)
+# ---------------------------------------------------------------------------
+ORAS_VERSION="1.2.3"
+if command -v oras &>/dev/null; then
+    info "oras already installed: $(oras version 2>/dev/null | head -1)"
+else
+    info "Installing oras ${ORAS_VERSION} (arm64)..."
+    curl -fsSLO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_arm64.tar.gz"
+    tar -xzf "oras_${ORAS_VERSION}_linux_arm64.tar.gz" oras
+    mv oras /usr/local/bin/oras
+    rm -f "oras_${ORAS_VERSION}_linux_arm64.tar.gz"
+    info "oras installed at /usr/local/bin/oras."
+fi
+
+# ---------------------------------------------------------------------------
+# 11. Install model-puller systemd timer
+# ---------------------------------------------------------------------------
+REPO_PATH="${PROJECT_ROOT}/repo"
+SERVICE_SRC="${REPO_PATH}/scripts/model-puller.service"
+TIMER_SRC="${REPO_PATH}/scripts/model-puller.timer"
+
+if [[ -f "${SERVICE_SRC}" && -f "${TIMER_SRC}" ]]; then
+    cp "${SERVICE_SRC}" /etc/systemd/system/model-puller.service
+    cp "${TIMER_SRC}"   /etc/systemd/system/model-puller.timer
+    systemctl daemon-reload
+    systemctl enable --now model-puller.timer
+    info "model-puller.timer enabled (runs every 5 min)."
+    info "Add GHCR_TOKEN and GHCR_OWNER to ${REPO_PATH}/.env to activate."
+else
+    warn "model-puller service/timer not found at ${SERVICE_SRC} — skipping."
+    warn "Re-run after cloning the repo into ${REPO_PATH}."
 fi
 
 # ---------------------------------------------------------------------------

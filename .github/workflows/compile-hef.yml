@@ -1,5 +1,15 @@
 name: Compile HEF
 
+# Triggered manually after training: export ONNX, dvc push, then run this workflow.
+#
+# User workflow on laptop/Colab:
+#   1. train → export ONNX → cp best.onnx models/onnx/{model}_{version}.onnx
+#   2. dvc add models/onnx/{model}_{version}.onnx && dvc push
+#   3. gh workflow run compile-hef.yml -f model=fire_smoke -f version=v1.4
+#
+# The RPi model-puller (systemd timer) detects the new GHCR tag and promotes
+# the model automatically within 5 minutes — no manual step on the device.
+
 on:
   workflow_dispatch:
     inputs:
@@ -11,15 +21,13 @@ on:
         description: "Model version tag (e.g. v1.4)"
         required: true
         type: string
-  repository_dispatch:
-    types: [mlflow-model-registered]
 
 jobs:
   compile:
     runs-on: ubuntu-22.04
     env:
-      MODEL_NAME: ${{ github.event.inputs.model || github.event.client_payload.model }}
-      MODEL_VERSION: ${{ github.event.inputs.version || github.event.client_payload.version }}
+      MODEL_NAME: ${{ github.event.inputs.model }}
+      MODEL_VERSION: ${{ github.event.inputs.version }}
 
     steps:
       - name: Checkout
@@ -36,29 +44,17 @@ jobs:
       - name: Install dev deps
         run: uv sync --extra dev --frozen
 
+      - name: Pull ONNX from DVC (GDrive)
+        env:
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          uv run dvc pull "models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx"
+          echo "onnx_path=models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" >> "$GITHUB_ENV"
+
       - name: Pull calibration subset via DVC
         env:
           GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
-        run: uv run dvc pull datasets/${{ env.MODEL_NAME }}/calibration/ --run-cache
-
-      - name: Download ONNX from MLflow registry
-        env:
-          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
-          MLFLOW_TRACKING_TOKEN: ${{ secrets.MLFLOW_TOKEN }}
-        run: |
-          uv run python - <<'EOF'
-          import mlflow, os, pathlib
-          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
-          client = mlflow.tracking.MlflowClient()
-          model_name = os.environ["MODEL_NAME"]
-          version = os.environ["MODEL_VERSION"]
-          mv = client.get_model_version(model_name, version)
-          local_path = mlflow.artifacts.download_artifacts(
-              artifact_uri=f"{mv.source}/model.onnx",
-              dst_path="onnx_artifacts",
-          )
-          pathlib.Path("onnx_path.txt").write_text(local_path)
-          EOF
+        run: uv run dvc pull "datasets/${MODEL_NAME}/calibration/" --run-cache
 
       - name: Cache Hailo DFC Docker layers
         uses: actions/cache@v4
@@ -67,56 +63,43 @@ jobs:
           key: hailo-dfc-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
           restore-keys: hailo-dfc-${{ runner.os }}-
 
-      - name: Run ONNX -> HAR -> HEF conversion via Hailo DFC
-        env:
-          MODEL_NAME: ${{ env.MODEL_NAME }}
-          MODEL_VERSION: ${{ env.MODEL_VERSION }}
+      - name: Compile ONNX → HEF via Hailo DFC
         run: |
-          ONNX_PATH="$(cat onnx_path.txt)"
           mkdir -p hef_output
           docker run --rm \
-            -v "$(pwd)/onnx_artifacts:/onnx_artifacts:ro" \
+            -v "$(pwd)/models/onnx:/onnx:ro" \
             -v "$(pwd)/hef_output:/hef_output" \
             -v "$(pwd)/training:/training:ro" \
             hailo/hailo_dfc:latest \
             python /training/convert_to_hef.py \
-              --onnx "/onnx_artifacts/$(basename "${ONNX_PATH}")" \
+              --onnx "/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" \
               --out /hef_output \
-              --model-name "${MODEL_NAME}" \
+              --model-name "${MODEL_NAME}_${MODEL_VERSION}" \
               --ci
 
-      - name: Upload HEF to MLflow
-        env:
-          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
-          MLFLOW_TRACKING_TOKEN: ${{ secrets.MLFLOW_TOKEN }}
+      - name: Install oras CLI
         run: |
-          uv run python - <<'EOF'
-          import mlflow, os, glob
-          mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
-          hef_files = glob.glob("hef_output/*.hef")
-          if not hef_files:
-              raise FileNotFoundError("No .hef files found in hef_output/")
-          with mlflow.start_run(run_name=f"hef-{os.environ['MODEL_NAME']}-{os.environ['MODEL_VERSION']}"):
-              for hef in hef_files:
-                  mlflow.log_artifact(hef, artifact_path="hef")
-          EOF
+          ORAS_VERSION="1.2.3"
+          curl -LO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" oras
+          sudo mv oras /usr/local/bin/oras
 
       - name: Push HEF as OCI artifact to GHCR
         env:
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
         run: |
-          echo "${GHCR_PAT}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${GHCR_PAT}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
           HEF_TAG="ghcr.io/${{ github.repository_owner }}/iot-hub-models:${MODEL_NAME}-${MODEL_VERSION}"
           for hef in hef_output/*.hef; do
             oras push "${HEF_TAG}" "${hef}:application/octet-stream"
+            echo "Pushed: ${HEF_TAG}"
           done
 
-      - name: Notify edge for watchtower pull
-        env:
-          EDGE_DISPATCH_TOKEN: ${{ secrets.EDGE_DISPATCH_TOKEN }}
+      - name: Summary
         run: |
-          curl -fsSL -X POST \
-            -H "Authorization: token ${EDGE_DISPATCH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/${{ github.repository }}/dispatches \
-            -d "{\"event_type\":\"hef-updated\",\"client_payload\":{\"model\":\"${MODEL_NAME}\",\"version\":\"${MODEL_VERSION}\"}}"
+          echo "### HEF Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Model:** \`${MODEL_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** \`${MODEL_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **GHCR tag:** \`ghcr.io/${{ github.repository_owner }}/iot-hub-models:${MODEL_NAME}-${MODEL_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "RPi \`model-puller\` will detect and promote within 5 minutes." >> "$GITHUB_STEP_SUMMARY"

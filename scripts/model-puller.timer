@@ -1,0 +1,11 @@
+[Unit]
+Description=IoT Hub model puller — run every 5 minutes
+Requires=model-puller.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
