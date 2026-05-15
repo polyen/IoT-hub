@@ -193,6 +193,10 @@ class HailoDetector:
 
         self._exit_stack = contextlib.ExitStack()
         self._configured = self._exit_stack.enter_context(self._infer_model.configure())
+        # HailoRT 4.23: streams must be explicitly activated after configure().
+        activate_result = self._configured.activate()
+        if hasattr(activate_result, "__enter__"):
+            self._exit_stack.enter_context(activate_result)
         self._output_buf = np.empty(output_shape, dtype=np.float32)
 
         logger.info(
