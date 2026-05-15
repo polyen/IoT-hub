@@ -312,6 +312,7 @@ services:
       - --port=5001
       - --backend-store-uri=postgresql+psycopg2://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${MLFLOW_DB:-mlflow}
       - --default-artifact-root=/mlflow/artifacts
+      - --serve-artifacts
     volumes:
       - ${MLFLOW_ARTIFACTS_DIR:-/opt/iot-hub/mlflow/artifacts}:/mlflow/artifacts
     ports:

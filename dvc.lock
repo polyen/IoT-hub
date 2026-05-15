@@ -1,0 +1,32 @@
+schema: '2.0'
+stages:
+  train_fire_smoke:
+    cmd: "uv run python -m training.fire_smoke.train --data datasets/fire_smoke/data.yaml
+      --base-model yolo26n.pt --epochs 50 --imgsz 640 --batch 8 --lr 0.001 --device
+      mps --mlflow-uri http://localhost:5001 --resume\n"
+    deps:
+    - path: datasets/fire_smoke
+      hash: md5
+      md5: e908b5622008d7959f8f796c94f10a05.dir
+      size: 3128878559
+      nfiles: 43059
+    - path: training/fire_smoke/train.py
+      hash: md5
+      md5: 5e3b60c6690fcef7dc622c0b893e2737
+      size: 6936
+    params:
+      params.yaml:
+        train.fire_smoke:
+          base_model: yolo26n.pt
+          epochs: 50
+          imgsz: 640
+          batch: 8
+          lr: 0.001
+          device: mps
+          mlflow_uri: http://localhost:5001
+    outs:
+    - path: runs/fire_smoke
+      hash: md5
+      md5: 969598afc4b83b91bc9bfc8997902030.dir
+      size: 33890774
+      nfiles: 11
