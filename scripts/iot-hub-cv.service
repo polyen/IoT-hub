@@ -11,11 +11,6 @@ User=vlad
 Group=vlad
 WorkingDirectory=/mnt/ssd/iot-hub/repo
 
-# hailo_platform is installed system-wide by HailoRT; expose it to the venv Python
-# by prepending the system dist-packages to the module search path.
-# cv2 (python3-opencv) is also found here if installed via apt.
-Environment=PYTHONPATH=/usr/lib/python3/dist-packages
-
 # Pipeline defaults — all can be overridden in /etc/iot-hub-cv.env
 Environment=RTSP_URL=rtsp://localhost:8554/camera
 Environment=HEF_PATH=/opt/iot-hub/models/current_yolo.hef
@@ -30,8 +25,13 @@ Environment=ENABLE_FUSION=true
 # Optional site-local overrides (create this file to change any of the above)
 EnvironmentFile=-/etc/iot-hub-cv.env
 
-# Uses the project uv venv; run `uv sync --no-dev` in the repo first.
-ExecStart=/mnt/ssd/iot-hub/repo/.venv/bin/python -m hub.edge.cv.pipeline
+# Uses a dedicated venv created with system Python 3.13 + --system-site-packages
+# so hailo_platform (cpython-313) and cv2 (python3-opencv) are accessible.
+# One-time setup:
+#   python3 -m venv --system-site-packages /mnt/ssd/iot-hub/repo/.venv-cv
+#   .venv-cv/bin/pip install -e /mnt/ssd/iot-hub/repo --no-deps
+#   .venv-cv/bin/pip install aiomqtt prometheus-client pyyaml
+ExecStart=/mnt/ssd/iot-hub/repo/.venv-cv/bin/python -m hub.edge.cv.pipeline
 
 Restart=on-failure
 RestartSec=10s
