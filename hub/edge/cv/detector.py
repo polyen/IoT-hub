@@ -3,11 +3,12 @@
 Requires HailoRT + hailo_platform installed on RPi5.
 On other platforms, raises ImportError with a clear message.
 
-YOLO26 is the project's primary detector — pass nms_free=True when loading a
-YOLO26 HEF. YOLO26 bakes NMS into the forward pass, so detect() must NOT apply
-a second NMS round. The inference loop implementation (currently a stub) is
-responsible for honoring this flag — see hailo-rpi5-examples for the stream
-API reference.
+YOLO26n compilation note: Hailo hardware does not support NMS operations
+(GatherElements, TopK, ReduceMax). The HEF is therefore compiled with the graph
+cut at /model.23/Transpose (before the NMS decode head). The detector's
+inference loop must apply CPU-side NMS after NPU inference — pass
+nms_on_cpu=True (default) to enable this. See hailo-rpi5-examples for the
+stream API reference.
 """
 
 from __future__ import annotations
@@ -124,15 +125,16 @@ COCO_CLASSES = [
 class HailoDetector:
     """Batch=1 YOLO inference on Hailo-8 (YOLO26n primary; YOLO11n still loadable).
 
-    Pass nms_free=True for YOLO26 HEFs: the inference loop must skip any
-    post-NMS step since suppression is already part of the graph.
+    YOLO26n HEFs are compiled with the graph cut before the NMS head (Hailo
+    hardware limitation). Set nms_on_cpu=True (default) so detect() applies
+    CPU-side NMS on the raw /model.23/Transpose output tensors.
     """
 
     def __init__(
         self,
         hef_path: Path,
         confidence_threshold: float = 0.5,
-        nms_free: bool = False,
+        nms_on_cpu: bool = True,
     ) -> None:
         if not HAILO_AVAILABLE:
             raise ImportError(
@@ -141,7 +143,7 @@ class HailoDetector:
             )
         self._hef_path = hef_path
         self._confidence_threshold = confidence_threshold
-        self._nms_free = nms_free
+        self._nms_on_cpu = nms_on_cpu
         self._device: Any = None
         self._network_group: Any = None
 

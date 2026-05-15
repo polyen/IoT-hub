@@ -113,3 +113,7 @@ CLAUDE.md
 
 # MLflow local tracking (laptop only)
 mlruns/
+
+# Compiled model artifacts — stored in GHCR OCI (HEF) and DVC/GDrive (ONNX)
+models/hef/
+models/onnx/

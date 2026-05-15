@@ -1,14 +1,15 @@
 name: Compile HEF
 
-# Triggered manually after training: export ONNX, dvc push, then run this workflow.
+# NOTE: HEF compilation runs locally via scripts/deploy-model.sh using the
+# Hailo AI Software Suite Docker image (17.5 GB — too large for CI runners).
 #
-# User workflow on laptop/Colab:
-#   1. train → export ONNX → cp best.onnx models/onnx/{model}_{version}.onnx
-#   2. dvc add models/onnx/{model}_{version}.onnx && dvc push
-#   3. gh workflow run compile-hef.yml -f model=fire_smoke -f version=v1.4
+# This workflow is kept as a future reference for when a self-hosted runner
+# with the Hailo DFC image pre-loaded becomes available.
 #
-# The RPi model-puller (systemd timer) detects the new GHCR tag and promotes
-# the model automatically within 5 minutes — no manual step on the device.
+# Current deployment flow (local):
+#   scripts/deploy-model.sh --model fire_smoke --version v1.0
+#   → ONNX export → docker run hailo_dfc → HEF → oras push GHCR
+#   → RPi model-puller promotes within 5 min
 
 on:
   workflow_dispatch:
@@ -23,101 +24,14 @@ on:
         type: string
 
 jobs:
-  compile:
+  notice:
     runs-on: ubuntu-22.04
-    env:
-      MODEL_NAME: ${{ github.event.inputs.model }}
-      MODEL_VERSION: ${{ github.event.inputs.version }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dev deps
-        run: uv sync --extra dev --frozen
-
-      - name: Write GDrive OAuth credentials
-        env:
-          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
-          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+      - name: Deployment via local script
         run: |
-          # Write client_secret to .dvc/config.local (not committed to git)
-          printf '['"'"'remote "gdrive"'"'"']\n    gdrive_client_secret = %s\n' \
-            "${GDRIVE_CLIENT_SECRET}" >> .dvc/config.local
-          # Write OAuth token to the pydrive2fs cache path
-          mkdir -p "/home/runner/.cache/pydrive2fs/${GDRIVE_CLIENT_ID}"
-          echo '${{ secrets.GDRIVE_CREDENTIALS }}' \
-            > "/home/runner/.cache/pydrive2fs/${GDRIVE_CLIENT_ID}/default.json"
-
-      - name: Pull ONNX from DVC (GDrive)
-        run: |
-          uv run dvc pull "models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx.dvc"
-          echo "onnx_path=models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" >> "$GITHUB_ENV"
-
-      - name: Pull calibration subset via DVC (optional)
-        run: |
-          if uv run dvc pull "datasets/${MODEL_NAME}/calibration.dvc" 2>/dev/null; then
-            echo "calib_flag=--calib-set /datasets/${MODEL_NAME}/calibration" >> "$GITHUB_ENV"
-            echo "calib_mount=-v $(pwd)/datasets/${MODEL_NAME}/calibration:/datasets/${MODEL_NAME}/calibration:ro" >> "$GITHUB_ENV"
-          else
-            echo "Calibration dataset not found in DVC — compiling without int8 calibration."
-            echo "calib_flag=" >> "$GITHUB_ENV"
-            echo "calib_mount=" >> "$GITHUB_ENV"
-          fi
-
-      - name: Cache Hailo DFC Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.hailo-dfc-cache
-          key: hailo-dfc-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
-          restore-keys: hailo-dfc-${{ runner.os }}-
-
-      - name: Compile ONNX → HEF via Hailo DFC
-        run: |
-          mkdir -p hef_output
-          docker run --rm \
-            -v "$(pwd)/models/onnx:/onnx:ro" \
-            -v "$(pwd)/hef_output:/hef_output" \
-            -v "$(pwd)/training:/training:ro" \
-            ${calib_mount} \
-            hailo/hailo_dfc:latest \
-            python /training/convert_to_hef.py \
-              --onnx "/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" \
-              --out /hef_output \
-              --model-name "${MODEL_NAME}_${MODEL_VERSION}" \
-              ${calib_flag}
-
-      - name: Install oras CLI
-        run: |
-          ORAS_VERSION="1.2.3"
-          curl -LO "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_amd64.tar.gz"
-          tar -xzf "oras_${ORAS_VERSION}_linux_amd64.tar.gz" oras
-          sudo mv oras /usr/local/bin/oras
-
-      - name: Push HEF as OCI artifact to GHCR
-        env:
-          GHCR_PAT: ${{ secrets.GHCR_PAT }}
-        run: |
-          echo "${GHCR_PAT}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-          HEF_TAG="ghcr.io/${{ github.repository_owner }}/iot-hub-models:${MODEL_NAME}-${MODEL_VERSION}"
-          for hef in hef_output/*.hef; do
-            oras push "${HEF_TAG}" "${hef}:application/octet-stream"
-            echo "Pushed: ${HEF_TAG}"
-          done
-
-      - name: Summary
-        run: |
-          echo "### HEF Published" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Model:** \`${MODEL_NAME}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Version:** \`${MODEL_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **GHCR tag:** \`ghcr.io/${{ github.repository_owner }}/iot-hub-models:${MODEL_NAME}-${MODEL_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "## HEF compilation runs locally" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "RPi \`model-puller\` will detect and promote within 5 minutes." >> "$GITHUB_STEP_SUMMARY"
+          echo "Run on your laptop:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo "scripts/deploy-model.sh --model ${{ github.event.inputs.model }} --version ${{ github.event.inputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
