@@ -97,28 +97,46 @@ else:
 
 
 async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator[Any, None]:
-    """Async generator that yields frames from RTSP stream at target_fps."""
+    """Async generator that yields frames from RTSP stream at target_fps.
+
+    Retries indefinitely on connect failure (stream not yet pushed) and
+    reopens on sustained read failures (stream dropped mid-session).
+    """
     if not CV2_AVAILABLE:
         raise ImportError("opencv-python not installed")
 
     interval = 1.0 / target_fps
-    cap = cv2.VideoCapture(rtsp_url)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open RTSP stream: {rtsp_url}")
+    _open_retry = 5
 
-    try:
-        while True:
-            t0 = time.monotonic()
-            ok, frame = await asyncio.get_event_loop().run_in_executor(None, cap.read)
-            if not ok:
-                logger.warning("Frame read failed — retrying in 1s")
-                await asyncio.sleep(1)
-                continue
-            yield frame
-            elapsed = time.monotonic() - t0
-            await asyncio.sleep(max(0, interval - elapsed))
-    finally:
-        cap.release()
+    while True:
+        cap = cv2.VideoCapture(rtsp_url)
+        if not cap.isOpened():
+            logger.warning("RTSP not available (%s) — retrying in %ds", rtsp_url, _open_retry)
+            await asyncio.sleep(_open_retry)
+            _open_retry = min(_open_retry * 2, 60)
+            continue
+
+        _open_retry = 5
+        logger.info("RTSP stream opened: %s", rtsp_url)
+        consecutive_failures = 0
+
+        try:
+            while True:
+                t0 = time.monotonic()
+                ok, frame = await asyncio.get_event_loop().run_in_executor(None, cap.read)
+                if not ok:
+                    consecutive_failures += 1
+                    if consecutive_failures >= 10:
+                        logger.warning("RTSP stream lost — reopening")
+                        break  # reopen outer loop
+                    await asyncio.sleep(1)
+                    continue
+                consecutive_failures = 0
+                yield frame
+                elapsed = time.monotonic() - t0
+                await asyncio.sleep(max(0, interval - elapsed))
+        finally:
+            cap.release()
 
 
 class CVPipeline:
@@ -246,47 +264,61 @@ class CVPipeline:
         frame_count = 0
         fps_window_start = time.monotonic()
 
+        _mqtt_retry_delay = 5
         try:
-            async with aiomqtt.Client(self.mqtt_host, self.mqtt_port) as mqtt:
-                async for frame in _capture_frames(self.rtsp_url, self.target_fps):
-                    if self._reload_requested:
-                        try:
-                            self._load_models()
-                            if RELOAD_COUNTER is not None:
-                                RELOAD_COUNTER.inc()
-                            logger.info("Models reloaded successfully")
-                        except Exception:
-                            logger.exception("Model reload failed — continuing with previous")
-                        self._reload_requested = False
+            while True:
+                try:
+                    async with aiomqtt.Client(self.mqtt_host, self.mqtt_port) as mqtt:
+                        logger.info("MQTT connected to %s:%d", self.mqtt_host, self.mqtt_port)
+                        _mqtt_retry_delay = 5  # reset on successful connect
+                        async for frame in _capture_frames(self.rtsp_url, self.target_fps):
+                            if self._reload_requested:
+                                try:
+                                    self._load_models()
+                                    if RELOAD_COUNTER is not None:
+                                        RELOAD_COUNTER.inc()
+                                    logger.info("Models reloaded successfully")
+                                except Exception:
+                                    logger.exception(
+                                        "Model reload failed — continuing with previous"
+                                    )
+                                self._reload_requested = False
 
-                    assert self._detector is not None
-                    t0 = time.monotonic()
-                    detections: list[Detection] = await asyncio.get_event_loop().run_in_executor(
-                        None, self._detector.detect, frame
-                    )
-                    latency_ms = (time.monotonic() - t0) * 1000
-                    if INFERENCE_HIST is not None:
-                        INFERENCE_HIST.observe(latency_ms)
+                            assert self._detector is not None
+                            t0 = time.monotonic()
+                            detections: list[
+                                Detection
+                            ] = await asyncio.get_event_loop().run_in_executor(
+                                None, self._detector.detect, frame
+                            )
+                            latency_ms = (time.monotonic() - t0) * 1000
+                            if INFERENCE_HIST is not None:
+                                INFERENCE_HIST.observe(latency_ms)
 
-                    frame_shape: tuple[int, int] = frame.shape[:2]
-                    tracks: list[Track] = self._tracker.update(detections, frame_shape)
+                            frame_shape: tuple[int, int] = frame.shape[:2]
+                            tracks: list[Track] = self._tracker.update(detections, frame_shape)
 
-                    frame_count += 1
-                    elapsed = time.monotonic() - fps_window_start
-                    if elapsed >= 1.0:
-                        if FPS_GAUGE is not None:
-                            FPS_GAUGE.set(frame_count / elapsed)
-                        frame_count = 0
-                        fps_window_start = time.monotonic()
+                            frame_count += 1
+                            elapsed = time.monotonic() - fps_window_start
+                            if elapsed >= 1.0:
+                                if FPS_GAUGE is not None:
+                                    FPS_GAUGE.set(frame_count / elapsed)
+                                frame_count = 0
+                                fps_window_start = time.monotonic()
 
-                    for track in tracks:
-                        if DETECTIONS_COUNTER is not None:
-                            DETECTIONS_COUNTER.labels(label=track.detection.label).inc()
-                        await mqtt.publish(
-                            f"home/{self.room}/camera/event",
-                            json.dumps(self._publish_detection_payload(track)),
-                        )
-                        await self._maybe_run_fall(frame, track, mqtt)
+                            for track in tracks:
+                                if DETECTIONS_COUNTER is not None:
+                                    DETECTIONS_COUNTER.labels(label=track.detection.label).inc()
+                                await mqtt.publish(
+                                    f"home/{self.room}/camera/event",
+                                    json.dumps(self._publish_detection_payload(track)),
+                                )
+                                await self._maybe_run_fall(frame, track, mqtt)
+                        return  # RTSP stream ended cleanly
+                except aiomqtt.MqttError as exc:
+                    logger.warning("MQTT error (%s) — retrying in %ds", exc, _mqtt_retry_delay)
+                    await asyncio.sleep(_mqtt_retry_delay)
+                    _mqtt_retry_delay = min(_mqtt_retry_delay * 2, 60)
         finally:
             if self._detector is not None:
                 self._detector.close()
