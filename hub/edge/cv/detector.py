@@ -28,7 +28,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    from hailo_platform import VDevice  # noqa: F401
+    from hailo_platform import FormatType, VDevice  # noqa: F401
 
     HAILO_AVAILABLE = True
 except ImportError:
@@ -178,6 +178,11 @@ class HailoDetector:
         self._infer_model = self._device.create_infer_model(str(self._hef_path))
         self._infer_model.set_batch_size(1)
 
+        # Ask HailoRT to auto-quantize input (float32→uint8) and auto-dequantize
+        # output (uint8→float32). The HEF carries the quant params.
+        self._infer_model.input().set_format_type(FormatType.FLOAT32)
+        self._infer_model.output().set_format_type(FormatType.FLOAT32)
+
         input_info = self._infer_model.input()
         shape = input_info.shape  # (H, W, C) — no batch dimension
         self._input_h = int(shape[0])
@@ -209,8 +214,8 @@ class HailoDetector:
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(frame_rgb, (self._input_w, self._input_h))
-        # HEF compiled with static quantization — expects uint8 [0, 255] natively.
-        input_tensor = np.ascontiguousarray(resized)  # (H, W, C) uint8
+        # FormatType.FLOAT32: HailoRT quantizes [0,255] float32 → uint8 before NPU.
+        input_tensor = np.ascontiguousarray(resized.astype(np.float32))  # (H, W, C) 0–255
 
         bindings = self._configured.create_bindings()
         bindings.input().set_buffer(input_tensor)
