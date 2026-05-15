@@ -296,39 +296,6 @@ services:
       retries: 5
 
   # ---------------------------------------------------------------------------
-  # MLflow tracking server (T0.6 / T4.x)
-  # Backed by the same Postgres instance; artifacts land on the SSD so they
-  # survive container rebuilds and can be re-imported by DVC if desired.
-  # ---------------------------------------------------------------------------
-  mlflow:
-    build:
-      context: ..
-      dockerfile: hub/mlflow/Dockerfile
-    container_name: mlflow
-    restart: unless-stopped
-    command:
-      - server
-      - --host=0.0.0.0
-      - --port=5001
-      - --backend-store-uri=postgresql+psycopg2://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${MLFLOW_DB:-mlflow}
-      - --default-artifact-root=/mlflow/artifacts
-      - --serve-artifacts
-    volumes:
-      - ${MLFLOW_ARTIFACTS_DIR:-/opt/iot-hub/mlflow/artifacts}:/mlflow/artifacts
-    ports:
-      - "5001:5001"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - iot-internal
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:5001/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-
-  # ---------------------------------------------------------------------------
   # ntfy (push notifications)
   # ---------------------------------------------------------------------------
   ntfy:
