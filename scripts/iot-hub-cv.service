@@ -1,0 +1,56 @@
+[Unit]
+Description=IoT Hub CV Pipeline (Hailo-8 NPU)
+Documentation=https://github.com/your-org/iot-hub
+# Start after Docker is up so mosquitto + mediamtx containers are available.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vlad
+Group=vlad
+WorkingDirectory=/mnt/ssd/iot-hub/repo
+
+# hailo_platform is installed system-wide by HailoRT; expose it to the venv Python
+# by prepending the system dist-packages to the module search path.
+# cv2 (python3-opencv) is also found here if installed via apt.
+Environment=PYTHONPATH=/usr/lib/python3/dist-packages
+
+# Pipeline defaults — all can be overridden in /etc/iot-hub-cv.env
+Environment=RTSP_URL=rtsp://localhost:8554/camera
+Environment=HEF_PATH=/opt/iot-hub/models/current_yolo.hef
+Environment=POSE_HEF_PATH=/opt/iot-hub/models/current_pose.hef
+Environment=MQTT_HOST=127.0.0.1
+Environment=MQTT_PORT=1883
+Environment=ROOM=living_room
+Environment=TARGET_FPS=15
+Environment=METRICS_PORT=8002
+Environment=ENABLE_FUSION=true
+
+# Optional site-local overrides (create this file to change any of the above)
+EnvironmentFile=-/etc/iot-hub-cv.env
+
+# Uses the project uv venv; run `uv sync --no-dev` in the repo first.
+ExecStart=/mnt/ssd/iot-hub/repo/.venv/bin/python -m hub.edge.cv.pipeline
+
+Restart=on-failure
+RestartSec=10s
+# Allow up to 5 restarts per 2 minutes before giving up
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-hub-cv
+
+# SIGTERM for graceful shutdown; pipeline closes Hailo device in finally block
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# TODO: ModelStore currently sends `docker kill --signal=SIGHUP cv` to trigger
+# model reload. With this service, update ModelStore to use:
+#   systemctl kill --signal=SIGHUP iot-hub-cv
+# or write a PID file and use: kill -HUP $(cat /run/iot-hub-cv.pid)
+
+[Install]
+WantedBy=multi-user.target

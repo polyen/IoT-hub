@@ -1,31 +1,22 @@
-# docker-compose.prod.yml — RPi5 production overrides (Hailo-8 HAT).
+# docker-compose.prod.yml — RPi5 production overrides.
 #
-# Use alongside docker-compose.edge.yml:
-#   docker compose -f hub/docker-compose.edge.yml -f hub/docker-compose.prod.yml up -d
-# Or via make:
-#   make up-edge-prod
+# On RPi5 the CV pipeline runs as a systemd service (scripts/iot-hub-cv.service)
+# rather than in Docker, because hailo_platform has deep system-library ties
+# (glibc/libstdc++ compiled for Debian Trixie) that conflict with standard
+# Docker base images.
 #
-# Strategy:
-#   - hailo_platform (pure Python + cpython-313 .so) → /hailo/hailo_platform
-#   - PYTHONPATH=/hailo so Python finds the package without touching the venv
-#   - libhailort.so.4.23.0 mounted three times (unversioned, SONAME, full) so
-#     the dynamic linker resolves all reference forms without following symlinks
-#   - LD_LIBRARY_PATH=/hailo/lib — searched before container system libs
+# Usage:
+#   make up-edge-prod           — starts all edge services except cv
+#   sudo systemctl start iot-hub-cv
 #
-# Note: hailo_platform requires Python 3.13 (the .so is cpython-313).
-# The cv Dockerfile uses python:3.13-slim-bookworm to match.
+# What this file does:
+#   - Exposes mosquitto port 1883 on 127.0.0.1 (localhost only) so the host
+#     CV systemd service can connect without mTLS.
+#   - cv is excluded at the make level via --scale cv=0.
 
 services:
-  cv:
-    devices:
-      - /dev/hailo0:/dev/hailo0
-    volumes:
-      - /usr/lib/python3/dist-packages/hailo_platform:/hailo/hailo_platform:ro
-      - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so.4.23.0:ro
-      - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so.4:ro
-      - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so:ro
-      - /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33:/hailo/lib/libstdc++.so.6.0.33:ro
-      - /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33:/hailo/lib/libstdc++.so.6:ro
-    environment:
-      PYTHONPATH: /hailo
-      LD_LIBRARY_PATH: /hailo/lib
+  mosquitto:
+    ports:
+      # localhost-only plain MQTT for the host CV systemd service.
+      # Not exposed on 0.0.0.0 — remains inaccessible from the network.
+      - "127.0.0.1:1883:1883"
