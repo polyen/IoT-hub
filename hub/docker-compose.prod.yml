@@ -1,0 +1,24 @@
+# docker-compose.prod.yml — RPi5 production overrides (Hailo-8 HAT).
+#
+# Use alongside docker-compose.edge.yml:
+#   docker compose -f hub/docker-compose.edge.yml -f hub/docker-compose.prod.yml up -d
+# Or via make:
+#   make up-edge-prod
+#
+# What this adds to the base cv service:
+#   - /dev/hailo0 character device (Hailo-8 PCIe HAT)
+#   - hailo_platform Python package mounted from the host HailoRT install
+#   - libhailort.so shared library mounted from the host (aarch64-linux-gnu)
+#
+# Assumptions (Raspberry Pi OS / Debian bookworm on aarch64):
+#   hailo_platform  →  /usr/lib/python3/dist-packages/hailo_platform
+#   libhailort.so   →  /usr/lib/aarch64-linux-gnu/libhailort.so
+# If your HailoRT installed to a different path, adjust the source paths below.
+
+services:
+  cv:
+    devices:
+      - /dev/hailo0:/dev/hailo0
+    volumes:
+      - /usr/lib/python3/dist-packages/hailo_platform:/app/.venv/lib/python3.11/site-packages/hailo_platform:ro
+      - /usr/lib/aarch64-linux-gnu/libhailort.so:/usr/lib/aarch64-linux-gnu/libhailort.so:ro
