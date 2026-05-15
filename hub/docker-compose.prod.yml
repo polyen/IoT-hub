@@ -5,13 +5,15 @@
 # Or via make:
 #   make up-edge-prod
 #
-# Strategy: mount hailo_platform and its libs into /hailo/ (isolated path),
-# then expose them to Python via PYTHONPATH and to the linker via LD_LIBRARY_PATH.
-# This avoids symlink issues (libhailort.so.X.Y.Z) and lib path conflicts.
+# Strategy:
+#   - hailo_platform (pure Python + cpython-313 .so) → /hailo/hailo_platform
+#   - PYTHONPATH=/hailo so Python finds the package without touching the venv
+#   - libhailort.so.4.23.0 mounted three times (unversioned, SONAME, full) so
+#     the dynamic linker resolves all reference forms without following symlinks
+#   - LD_LIBRARY_PATH=/hailo/lib — searched before container system libs
 #
-# Assumptions (Raspberry Pi OS / Debian bookworm on aarch64):
-#   hailo_platform  →  /usr/lib/python3/dist-packages/hailo_platform
-#   hailo libs      →  /usr/lib/aarch64-linux-gnu/  (libhailort.so + versioned files)
+# Note: hailo_platform requires Python 3.13 (the .so is cpython-313).
+# The cv Dockerfile uses python:3.13-slim-bookworm to match.
 
 services:
   cv:
@@ -19,7 +21,9 @@ services:
       - /dev/hailo0:/dev/hailo0
     volumes:
       - /usr/lib/python3/dist-packages/hailo_platform:/hailo/hailo_platform:ro
-      - /usr/lib/aarch64-linux-gnu:/hailo/lib:ro
+      - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so.4.23.0:ro
+      - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so.4:ro
+      - /usr/lib/libhailort.so.4.23.0:/hailo/lib/libhailort.so:ro
     environment:
       PYTHONPATH: /hailo
       LD_LIBRARY_PATH: /hailo/lib
