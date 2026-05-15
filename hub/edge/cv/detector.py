@@ -214,7 +214,7 @@ class HailoDetector:
         bindings = self._configured.create_bindings()
         bindings.input().set_buffer(input_tensor)
         bindings.output().set_buffer(self._output_buf)
-        self._configured.run([bindings], timeout_ms=1000)
+        self._configured.run([bindings], timeout=1000)
 
         return self._postprocess(self._output_buf)
 
