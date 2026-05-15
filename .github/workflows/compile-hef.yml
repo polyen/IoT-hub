@@ -54,7 +54,7 @@ jobs:
 
       - name: Pull ONNX from DVC (GDrive)
         run: |
-          uv run dvc pull "models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx"
+          uv run dvc pull "models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx.dvc"
           echo "onnx_path=models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" >> "$GITHUB_ENV"
 
       - name: Pull calibration subset via DVC
