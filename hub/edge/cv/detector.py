@@ -209,7 +209,8 @@ class HailoDetector:
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(frame_rgb, (self._input_w, self._input_h))
-        input_tensor = resized.astype(np.float32) / 255.0  # (H, W, C)
+        # HEF compiled with static quantization — expects uint8 [0, 255] natively.
+        input_tensor = np.ascontiguousarray(resized)  # (H, W, C) uint8
 
         bindings = self._configured.create_bindings()
         bindings.input().set_buffer(input_tensor)
