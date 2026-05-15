@@ -30,6 +30,9 @@ mock-sensors: ## Run all mock sensors against RPi (port 8883, mTLS)
 down-edge: ## Stop and remove edge containers
 	$(COMPOSE) -f $(EDGE_COMPOSE) down
 
+down-edge-prod: ## Stop edge containers and remove Hailo platform mounts (for RPi5 prod setup)
+	$(COMPOSE) -f $(EDGE_COMPOSE) -f hub/docker-compose.prod.yml down
+
 down-edge-v: ## Stop edge containers and remove volumes
 	$(COMPOSE) -f $(EDGE_COMPOSE) down -v
 
