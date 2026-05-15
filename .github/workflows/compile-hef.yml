@@ -47,7 +47,11 @@ jobs:
       - name: Write GDrive OAuth credentials
         env:
           GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
         run: |
+          # Inject client_secret so DVC uses the correct OAuth app without
+          # storing it in the committed .dvc/config
+          dvc remote modify --local gdrive gdrive_client_secret "${GDRIVE_CLIENT_SECRET}"
           mkdir -p "/home/runner/.cache/pydrive2fs/${GDRIVE_CLIENT_ID}"
           echo '${{ secrets.GDRIVE_CREDENTIALS }}' \
             > "/home/runner/.cache/pydrive2fs/${GDRIVE_CLIENT_ID}/default.json"
