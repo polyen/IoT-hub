@@ -1,12 +1,16 @@
 """Hailo-8 inference wrapper for YOLO detection (YOLO26n primary, YOLO11n legacy).
 
-Requires HailoRT + hailo_platform installed on RPi5.
+Requires HailoRT 4.17+ + hailo_platform installed on RPi5.
 On other platforms, raises ImportError with a clear message.
 
 YOLO26n compilation note: Hailo hardware does not support NMS operations
 (GatherElements, TopK, ReduceMax). The HEF is therefore compiled with the graph
 cut at /model.23/Transpose (before the NMS decode head). The detector's
 inference loop applies CPU-side NMS after NPU inference.
+
+HailoRT API note: uses VDevice.create_infer_model (4.17+ API). The older
+InferVStreams/InputVStreamParams flow was removed and will raise AttributeError
+on HailoRT 4.23+.
 
 Model classes (fire/smoke dataset): 0=fire, 1=smoke.
 """
@@ -24,13 +28,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    from hailo_platform import (  # noqa: F401  # noqa: F401
-        HEF,
-        InferVStreams,
-        InputVStreamParams,
-        OutputVStreamParams,
-        VDevice,
-    )
+    from hailo_platform import VDevice  # noqa: F401
 
     HAILO_AVAILABLE = True
 except ImportError:
@@ -139,8 +137,8 @@ class HailoDetector:
     hardware limitation). CPU-side NMS is applied in detect() on the raw
     /model.23/Transpose output tensors.
 
-    The InferVStreams pipeline is opened once in load() and kept alive until
-    close() — avoid per-frame context-manager overhead.
+    Uses HailoRT 4.17+ create_infer_model API. The ConfiguredInferModel context
+    is kept alive via ExitStack for zero-overhead per-frame inference.
     """
 
     def __init__(
@@ -159,50 +157,45 @@ class HailoDetector:
         self._nms_on_cpu = nms_on_cpu
 
         self._device: Any = None
-        self._network_group: Any = None
-        self._infer_pipeline: Any = None
+        self._infer_model: Any = None
+        self._configured: Any = None
         self._exit_stack: Any = None
-        self._input_name: str = ""
-        self._output_name: str = ""
+        self._output_buf: Any = None
         self._input_h: int = 640
         self._input_w: int = 640
 
     def load(self) -> None:
-        """Load HEF, open Hailo device, and activate the inference pipeline.
+        """Load HEF and open the Hailo inference pipeline.
 
-        Uses HailoRT 4.17+ API: VDevice.configure(hef) without the removed
-        create_configure_params(). The network group and InferVStreams are kept
-        open via an ExitStack for zero-overhead per-frame inference.
+        Uses HailoRT 4.17+ create_infer_model API (replaces the removed
+        InferVStreams/InputVStreamParams flow). The ConfiguredInferModel is kept
+        open via ExitStack; a single output buffer is pre-allocated and reused
+        across frames to avoid per-inference allocation.
         """
-        hef = HEF(str(self._hef_path))
+        import numpy as np  # type: ignore[import]
+
         self._device = VDevice()
+        self._infer_model = self._device.create_infer_model(str(self._hef_path))
+        self._infer_model.set_batch_size(1)
 
-        network_groups = self._device.configure(hef)
-        self._network_group = network_groups[0]
-        network_group_params = self._network_group.create_params()
-
-        input_infos = hef.get_input_vstream_infos()
-        output_infos = hef.get_output_vstream_infos()
-        self._input_name = input_infos[0].name
-        self._output_name = output_infos[0].name
-        shape = input_infos[0].shape  # (H, W, C)
+        input_info = self._infer_model.input()
+        shape = input_info.shape  # (H, W, C) — no batch dimension
         self._input_h = int(shape[0])
         self._input_w = int(shape[1])
 
+        output_info = self._infer_model.output()
+        output_shape = tuple(int(d) for d in output_info.shape)
+
         self._exit_stack = contextlib.ExitStack()
-        activated = self._exit_stack.enter_context(
-            self._network_group.activate(network_group_params)
-        )
-        input_params = InputVStreamParams.make_from_network_group(activated, quantized=False)
-        output_params = OutputVStreamParams.make_from_network_group(activated, quantized=False)
-        self._infer_pipeline = self._exit_stack.enter_context(
-            InferVStreams(activated, input_params, output_params)
-        )
+        self._configured = self._exit_stack.enter_context(self._infer_model.configure())
+        self._output_buf = np.empty(output_shape, dtype=np.float32)
+
         logger.info(
-            "Hailo detector loaded: %s (input %dx%d, classes=%s)",
+            "Hailo detector loaded: %s (input %dx%d, output shape=%s, classes=%s)",
             self._hef_path.name,
             self._input_w,
             self._input_h,
+            output_shape,
             list(FIRE_SMOKE_CLASSES.values()),
         )
 
@@ -211,18 +204,19 @@ class HailoDetector:
         import cv2  # type: ignore[import]
         import numpy as np  # type: ignore[import]
 
-        if self._infer_pipeline is None:
+        if self._configured is None:
             raise RuntimeError("Call load() before detect()")
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(frame_rgb, (self._input_w, self._input_h))
-        # HailoRT expects float32 in [0, 1] when quantized=False
-        input_tensor = np.expand_dims(resized.astype(np.float32) / 255.0, axis=0)
+        input_tensor = resized.astype(np.float32) / 255.0  # (H, W, C)
 
-        results = self._infer_pipeline.infer({self._input_name: input_tensor})
-        raw = results[self._output_name][0]  # drop batch dim
+        bindings = self._configured.create_bindings()
+        bindings.input().set_buffer(input_tensor)
+        bindings.output().set_buffer(self._output_buf)
+        self._configured.run([bindings], timeout_ms=1000)
 
-        return self._postprocess(raw)
+        return self._postprocess(self._output_buf)
 
     def _postprocess(self, raw: Any) -> list[Detection]:
         """Convert raw YOLO26n output → Detection list with CPU NMS."""
@@ -292,6 +286,8 @@ class HailoDetector:
         if self._exit_stack is not None:
             self._exit_stack.close()
             self._exit_stack = None
+        self._configured = None
+        self._infer_model = None
         if self._device is not None:
             self._device.release()
             self._device = None
