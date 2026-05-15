@@ -62,8 +62,16 @@ jobs:
           uv run dvc pull "models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx.dvc"
           echo "onnx_path=models/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" >> "$GITHUB_ENV"
 
-      - name: Pull calibration subset via DVC
-        run: uv run dvc pull "datasets/${MODEL_NAME}/calibration/" --run-cache
+      - name: Pull calibration subset via DVC (optional)
+        run: |
+          if uv run dvc pull "datasets/${MODEL_NAME}/calibration.dvc" 2>/dev/null; then
+            echo "calib_flag=--calib-set /datasets/${MODEL_NAME}/calibration" >> "$GITHUB_ENV"
+            echo "calib_mount=-v $(pwd)/datasets/${MODEL_NAME}/calibration:/datasets/${MODEL_NAME}/calibration:ro" >> "$GITHUB_ENV"
+          else
+            echo "Calibration dataset not found in DVC — compiling without int8 calibration."
+            echo "calib_flag=" >> "$GITHUB_ENV"
+            echo "calib_mount=" >> "$GITHUB_ENV"
+          fi
 
       - name: Cache Hailo DFC Docker layers
         uses: actions/cache@v4
@@ -79,12 +87,13 @@ jobs:
             -v "$(pwd)/models/onnx:/onnx:ro" \
             -v "$(pwd)/hef_output:/hef_output" \
             -v "$(pwd)/training:/training:ro" \
+            ${calib_mount} \
             hailo/hailo_dfc:latest \
             python /training/convert_to_hef.py \
               --onnx "/onnx/${MODEL_NAME}_${MODEL_VERSION}.onnx" \
               --out /hef_output \
               --model-name "${MODEL_NAME}_${MODEL_VERSION}" \
-              --ci
+              ${calib_flag}
 
       - name: Install oras CLI
         run: |
