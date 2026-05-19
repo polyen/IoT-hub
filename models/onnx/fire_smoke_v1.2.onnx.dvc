@@ -1,0 +1,5 @@
+outs:
+- md5: 8e7276d834a69bdc4055308b4ed31600
+  size: 9806736
+  hash: md5
+  path: fire_smoke_v1.2.onnx
