@@ -44,14 +44,38 @@ HAAR_MIN_SIZE = (40, 40)
 
 
 def _load_face_cascade() -> Any:
-    """Load OpenCV's bundled Haar cascade for frontal-face detection."""
+    """Load OpenCV's bundled Haar cascade for frontal-face detection.
+
+    Tries cv2.data.haarcascades first (opencv-python full); falls back to
+    common system paths for opencv-python-headless or system OpenCV packages.
+    """
     import cv2  # type: ignore[import]
 
-    cascade_path = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
-    cascade = cv2.CascadeClassifier(str(cascade_path))
-    if cascade.empty():
-        raise RuntimeError(f"Failed to load Haar cascade at {cascade_path}")
-    return cascade
+    filename = "haarcascade_frontalface_default.xml"
+    candidates: list[Path] = []
+
+    # opencv-python (full package)
+    if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
+        candidates.append(Path(cv2.data.haarcascades) / filename)
+
+    # Common system paths (Debian/Ubuntu/RPi OS)
+    candidates += [
+        Path("/usr/share/opencv4/haarcascades") / filename,
+        Path("/usr/local/share/opencv4/haarcascades") / filename,
+        Path("/usr/share/opencv/haarcascades") / filename,
+        Path("/usr/local/share/opencv/haarcascades") / filename,
+    ]
+
+    for cascade_path in candidates:
+        if cascade_path.exists():
+            cascade = cv2.CascadeClassifier(str(cascade_path))
+            if not cascade.empty():
+                return cascade
+
+    raise RuntimeError(
+        f"Haar cascade '{filename}' not found. "
+        "Install opencv-python (not headless): pip install opencv-python"
+    )
 
 
 def _detect_face_bbox(image: Any, cascade: Any) -> tuple[int, int, int, int] | None:
