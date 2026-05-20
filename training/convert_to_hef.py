@@ -3,11 +3,20 @@
 Must run on x86_64 Ubuntu with hailo_sdk_client installed.
 In --ci mode, prints MLflow artifact paths as JSON to stdout.
 
-YOLO26 note: Hailo hardware does not support NMS operations (GatherElements,
-TopK, ReduceMax). The DFC will recommend end_node_names that cut the graph
-before those ops. This script auto-retries with the recommended end nodes, so
-NMS runs on CPU after NPU inference.  Pass --calib-set to enable int8
-quantization calibration (recommended; improves mAP by ~1-2 pts).
+YOLO26 note: Hailo hardware does not support the NMS-free head's top-k ops
+(GatherElements, TopK, ReduceMax). The DFC recommends end_node_names that cut
+the graph before those ops, and this script auto-retries with them — BUT the
+recommendation cuts at the concatenated head /model.23/Concat_3 (1, 7, 8400).
+That single tensor mixes box coords (~0-640) and class scores (0-1) under one
+uint8 quantisation scale, which collapses every class score to zero — the
+detector then never fires. For YOLO26 you MUST pass --end-nodes explicitly so
+box and class become SEPARATE outputs, each with its own scale:
+
+    --end-nodes /model.23/Mul_2 --end-nodes /model.23/Sigmoid
+
+Pass --calib-set to enable int8 quantization calibration (recommended; improves
+mAP by ~1-2 pts). Calibration images are normalised to [0,1], so the runtime
+(hub.edge.cv.detector) must feed [0,1] input too.
 """
 
 from __future__ import annotations
@@ -204,7 +213,9 @@ def main(argv: list[str] | None = None) -> None:
         metavar="NODE",
         action="append",
         default=None,
-        help="Explicit end node(s) to cut the graph (auto-detected for YOLO NMS ops if omitted)",
+        help="Explicit end node(s) to cut the graph. REQUIRED for YOLO26: pass "
+        "/model.23/Mul_2 and /model.23/Sigmoid as separate outputs — see module "
+        "docstring. Auto-detection (when omitted) produces a broken concat output.",
     )
     parser.add_argument(
         "--ci",

@@ -1,12 +1,22 @@
-"""Hailo-8 inference wrapper for YOLO detection (YOLO26n primary, YOLO11n legacy).
+"""Hailo-8 inference wrapper for YOLO26n detection.
 
 Requires HailoRT 4.17+ + hailo_platform installed on RPi5.
 On other platforms, raises ImportError with a clear message.
 
-YOLO26n compilation note: Hailo hardware does not support NMS operations
-(GatherElements, TopK, ReduceMax). The HEF is therefore compiled with the graph
-cut at /model.23/Transpose (before the NMS decode head). The detector's
-inference loop applies CPU-side NMS after NPU inference.
+YOLO26n / Hailo compilation note
+--------------------------------
+Hailo hardware does not support the NMS-free head's top-k ops (TopK,
+GatherElements, ReduceMax). The HEF is compiled with the graph cut into TWO
+separate output tensors, *before* those ops:
+
+    /model.23/Mul_2    -> box   (1, 4, 8400)  xyxy in input pixels
+    /model.23/Sigmoid  -> cls   (1, 3, 8400)  per-class score 0-1
+
+The cut must keep box and class as SEPARATE outputs. An earlier build cut at
+the concatenated /model.23/Concat_3 (1, 7, 8400): box (~0-640) and class (0-1)
+then shared one uint8 quantisation scale, so every class score collapsed into
+the zero bucket and the detector never fired. Keep the two-output cut — see
+``training/convert_to_hef.py --end-nodes``.
 
 HailoRT API note: uses VDevice.create_infer_model (4.17+ API). The older
 InferVStreams/InputVStreamParams flow was removed and will raise AttributeError
@@ -129,15 +139,17 @@ class Detection:
     class_id: int
     label: str
     confidence: float
-    bbox: tuple[float, float, float, float]  # x1, y1, x2, y2 normalized
+    bbox: tuple[float, float, float, float]  # x1, y1, x2, y2 normalized 0-1
 
 
 class HailoDetector:
-    """Batch=1 YOLO inference on Hailo-8 (YOLO26n primary; YOLO11n still loadable).
+    """Batch=1 YOLO26n inference on Hailo-8.
 
-    YOLO26n HEFs are compiled with the graph cut before the NMS head (Hailo
-    hardware limitation). CPU-side NMS is applied in detect() on the raw
-    /model.23/Transpose output tensors.
+    YOLO26n HEFs are compiled with the NMS-free head cut into two separate
+    output tensors — box (4 channels) and class (nc channels) — see the module
+    docstring. detect() reads both, applies the confidence threshold and a
+    CPU-side greedy NMS, and returns Detection objects with 0-1 normalised
+    boxes.
 
     Uses HailoRT 4.17+ create_infer_model API. The ConfiguredInferModel context
     is kept alive via ExitStack for zero-overhead per-frame inference.
@@ -147,7 +159,7 @@ class HailoDetector:
         self,
         hef_path: Path,
         confidence_threshold: float = 0.5,
-        nms_on_cpu: bool = True,
+        nms_free: bool = False,
     ) -> None:
         if not HAILO_AVAILABLE:
             raise ImportError(
@@ -156,42 +168,67 @@ class HailoDetector:
             )
         self._hef_path = hef_path
         self._confidence_threshold = confidence_threshold
-        self._nms_on_cpu = nms_on_cpu
+        # YOLO26's one2one head deduplicates predictions on-device; with
+        # nms_free=True the CPU-side NMS in _postprocess is skipped.
+        self._nms_free = nms_free
 
         self._device: Any = None
         self._infer_model: Any = None
         self._configured: Any = None
         self._exit_stack: Any = None
-        self._output_buf: Any = None
         self._input_h: int = 640
         self._input_w: int = 640
+
+        # Split-head outputs, resolved in load().
+        self._box_name: str | None = None
+        self._cls_name: str | None = None
+        self._box_buf: Any = None
+        self._cls_buf: Any = None
 
     def load(self) -> None:
         """Load HEF and open the Hailo inference pipeline.
 
-        Uses HailoRT 4.17+ create_infer_model API (replaces the removed
-        InferVStreams/InputVStreamParams flow). The ConfiguredInferModel is kept
-        open via ExitStack; a single output buffer is pre-allocated and reused
-        across frames to avoid per-inference allocation.
+        The HEF carries two outputs (box + class, see module docstring). Both
+        are requested as FLOAT32 so HailoRT dequantises each with its own
+        scale; a buffer per output is pre-allocated and reused across frames.
         """
-        import numpy as np  # type: ignore[import]
+        import numpy as np
 
         self._device = VDevice()
         self._infer_model = self._device.create_infer_model(str(self._hef_path))
         self._infer_model.set_batch_size(1)
 
-        # Ask HailoRT to auto-quantize input (float32→uint8) and auto-dequantize
-        # output (uint8→float32). The HEF carries the quant params.
+        # Auto-quantize input (float32 → uint8) and auto-dequantize outputs.
         self._infer_model.input().set_format_type(FormatType.FLOAT32)
-        self._infer_model.output().set_format_type(FormatType.FLOAT32)
-
         input_info = self._infer_model.input()
         shape = input_info.shape  # (H, W, C) — no batch dimension
         self._input_h = int(shape[0])
         self._input_w = int(shape[1])
 
-        output_info = self._infer_model.output()
-        output_shape = tuple(int(d) for d in output_info.shape)
+        outputs = list(self._infer_model.outputs)
+        if len(outputs) != 2:
+            raise RuntimeError(
+                f"HEF {self._hef_path.name} has {len(outputs)} output(s); expected 2 "
+                "(box + class). Recompile cutting the graph at the separate end-nodes "
+                "/model.23/Mul_2 and /model.23/Sigmoid — see the module docstring."
+            )
+
+        nc = len(DETECTION_CLASSES)
+        for o in outputs:
+            o.set_format_type(FormatType.FLOAT32)
+            out_shape = tuple(int(d) for d in o.shape)
+            if 4 in out_shape and nc not in out_shape:
+                self._box_name = o.name
+                self._box_buf = np.empty(out_shape, dtype=np.float32)
+            elif nc in out_shape:
+                self._cls_name = o.name
+                self._cls_buf = np.empty(out_shape, dtype=np.float32)
+        if self._box_name is None or self._cls_name is None:
+            raise RuntimeError(
+                "Could not map HEF outputs to box/class by shape "
+                f"({[tuple(int(d) for d in o.shape) for o in outputs]}); "
+                f"expected one with 4 channels and one with {nc}."
+            )
 
         self._exit_stack = contextlib.ExitStack()
         self._configured = self._exit_stack.enter_context(self._infer_model.configure())
@@ -199,81 +236,92 @@ class HailoDetector:
         activate_result = self._configured.activate()
         if hasattr(activate_result, "__enter__"):
             self._exit_stack.enter_context(activate_result)
-        self._output_buf = np.empty(output_shape, dtype=np.float32)
 
         logger.info(
-            "Hailo detector loaded: %s (input %dx%d, output shape=%s, classes=%s)",
+            "Hailo detector loaded: %s (input %dx%d, box=%s cls=%s, classes=%s)",
             self._hef_path.name,
             self._input_w,
             self._input_h,
-            output_shape,
+            self._box_buf.shape,
+            self._cls_buf.shape,
             list(DETECTION_CLASSES.values()),
         )
 
     def detect(self, frame_bgr: Any) -> list[Detection]:
         """Run inference on a BGR frame. Returns detections with confidence >= threshold."""
-        import cv2  # type: ignore[import]
-        import numpy as np  # type: ignore[import]
+        import cv2
+        import numpy as np
 
         if self._configured is None:
             raise RuntimeError("Call load() before detect()")
+        assert self._box_name is not None and self._cls_name is not None
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(frame_rgb, (self._input_w, self._input_h))
-        # FormatType.FLOAT32: HailoRT quantizes [0,255] float32 → uint8 before NPU.
-        input_tensor = np.ascontiguousarray(resized.astype(np.float32))  # (H, W, C) 0–255
+        # The HEF input is calibrated on [0,1] images (training.convert_to_hef
+        # divides pixels by 255) — feed the same range, not raw [0,255].
+        input_tensor = np.ascontiguousarray(resized.astype(np.float32) / 255.0)
 
         bindings = self._configured.create_bindings()
         bindings.input().set_buffer(input_tensor)
-        bindings.output().set_buffer(self._output_buf)
+        bindings.output(self._box_name).set_buffer(self._box_buf)
+        bindings.output(self._cls_name).set_buffer(self._cls_buf)
         self._configured.run([bindings], timeout=1000)
 
-        return self._postprocess(self._output_buf)
+        return self._postprocess(self._box_buf, self._cls_buf)
 
-    def _postprocess(self, raw: Any) -> list[Detection]:
-        """Convert raw YOLO26n output → Detection list with CPU NMS."""
-        import numpy as np  # type: ignore[import]
+    def _postprocess(self, box_raw: Any, cls_raw: Any) -> list[Detection]:
+        """Convert split box/class output tensors → Detection list with CPU NMS.
+
+        ``box_raw`` is xyxy in input-pixel space; ``cls_raw`` holds per-class
+        scores already passed through sigmoid. Boxes are normalised to 0-1 —
+        the unit ObjectTracker and the rest of the cascade expect.
+        """
+        import numpy as np
 
         nc = len(DETECTION_CLASSES)
-        # Output may be [4+nc, num_anchors] or [num_anchors, 4+nc]
-        if raw.ndim == 2 and raw.shape[0] == 4 + nc:
-            raw = raw.T  # → [num_anchors, 4+nc]
+        box = np.squeeze(np.asarray(box_raw))  # (4, A) or (A, 4)
+        cls = np.squeeze(np.asarray(cls_raw))  # (nc, A) or (A, nc)
+        if box.shape[0] == 4:
+            box = box.T
+        if cls.shape[0] == nc:
+            cls = cls.T
+        # box: (A, 4), cls: (A, nc)
 
-        boxes_cxcywh = raw[:, :4]
-        class_scores = raw[:, 4:]
-
-        class_ids = np.argmax(class_scores, axis=1)
-        confidences = class_scores[np.arange(len(class_ids)), class_ids]
+        class_ids = np.argmax(cls, axis=1)
+        confidences = cls[np.arange(len(class_ids)), class_ids]
 
         mask = confidences >= self._confidence_threshold
         if not mask.any():
             return []
 
-        boxes_cxcywh = boxes_cxcywh[mask]
+        box = box[mask].astype(np.float32)
         class_ids = class_ids[mask]
         confidences = confidences[mask]
 
-        # cx, cy, w, h → x1, y1, x2, y2
-        x1 = boxes_cxcywh[:, 0] - boxes_cxcywh[:, 2] / 2
-        y1 = boxes_cxcywh[:, 1] - boxes_cxcywh[:, 3] / 2
-        x2 = boxes_cxcywh[:, 0] + boxes_cxcywh[:, 2] / 2
-        y2 = boxes_cxcywh[:, 1] + boxes_cxcywh[:, 3] / 2
-        boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
+        # xyxy in input-pixel space → 0-1 normalised.
+        box[:, 0::2] /= self._input_w
+        box[:, 1::2] /= self._input_h
 
-        keep = self._nms(boxes_xyxy, confidences)
+        keep = list(range(len(confidences))) if self._nms_free else self._nms(box, confidences)
         return [
             Detection(
                 class_id=int(class_ids[i]),
                 label=DETECTION_CLASSES.get(int(class_ids[i]), "unknown"),
                 confidence=float(confidences[i]),
-                bbox=(float(x1[i]), float(y1[i]), float(x2[i]), float(y2[i])),
+                bbox=(
+                    float(box[i, 0]),
+                    float(box[i, 1]),
+                    float(box[i, 2]),
+                    float(box[i, 3]),
+                ),
             )
             for i in keep
         ]
 
     def _nms(self, boxes: Any, scores: Any, iou_threshold: float = 0.45) -> list[int]:
         """Greedy IoU-based NMS. Returns indices of kept boxes."""
-        import numpy as np  # type: ignore[import]
+        import numpy as np
 
         order = scores.argsort()[::-1]
         keep: list[int] = []
@@ -306,13 +354,14 @@ class HailoDetector:
 
 
 if __name__ == "__main__":
-    import cv2  # type: ignore[import]
+    import cv2
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
-    parser.add_argument("--hef", default="models/versions/fire_smoke-v1.0.hef")
+    parser.add_argument("--hef", default="models/versions/fire_smoke-v1.3.hef")
+    parser.add_argument("--conf", type=float, default=0.5)
     args = parser.parse_args()
-    detector = HailoDetector(Path(args.hef))
+    detector = HailoDetector(Path(args.hef), confidence_threshold=args.conf)
     detector.load()
     frame = cv2.imread(args.image)
     detections = detector.detect(frame)

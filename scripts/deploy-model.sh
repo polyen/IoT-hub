@@ -9,6 +9,10 @@
 #   scripts/deploy-model.sh --model fire_smoke --version v1.0
 #   scripts/deploy-model.sh --model fire_smoke --version v1.1 --weights runs/fire_smoke/train2/weights/best.pt
 #
+# Optional flags:
+#   --calib-dir <path>   directory of int8 calibration images (auto-probed if omitted)
+#   --end-nodes a,b      comma-separated graph cut nodes (auto-set for fire_smoke/YOLO26)
+#
 # Required env vars (or set in .env):
 #   GHCR_OWNER   — GitHub username
 #   GHCR_TOKEN   — GitHub PAT with write:packages scope
@@ -38,12 +42,16 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 MODEL=""
 VERSION=""
 WEIGHTS=""
+END_NODES=""
+CALIB_DIR_ARG=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --model)    MODEL="$2";   shift 2 ;;
-        --version)  VERSION="$2"; shift 2 ;;
-        --weights)  WEIGHTS="$2"; shift 2 ;;
+        --model)      MODEL="$2";         shift 2 ;;
+        --version)    VERSION="$2";       shift 2 ;;
+        --weights)    WEIGHTS="$2";       shift 2 ;;
+        --end-nodes)  END_NODES="$2";     shift 2 ;;
+        --calib-dir)  CALIB_DIR_ARG="$2"; shift 2 ;;
         *) error "Unknown argument: $1" ;;
     esac
 done
@@ -52,6 +60,14 @@ done
 [[ -n "$VERSION" ]] || error "Usage: $0 --model <name> --version <vX.Y> [--weights <path>]"
 
 WEIGHTS="${WEIGHTS:-runs/${MODEL}/train/weights/best.pt}"
+
+# YOLO26 detection HEFs must be cut into SEPARATE box + class outputs. A single
+# concatenated output shares one uint8 quantisation scale between box coords
+# (~0-640) and class scores (0-1), collapsing every class score to zero — the
+# detector then loads and runs but never fires. See training/convert_to_hef.py.
+if [[ -z "$END_NODES" && "$MODEL" == "fire_smoke" ]]; then
+    END_NODES="/model.23/Mul_2,/model.23/Sigmoid"
+fi
 
 # ---------------------------------------------------------------------------
 # Config
@@ -125,16 +141,37 @@ else
     info "Compiling HEF with $HAILO_DFC_IMAGE ..."
     mkdir -p "$HEF_DIR"
 
-    # Optional calibration set
+    # Calibration set: explicit --calib-dir wins, else probe known locations.
+    # Real images are mandatory for usable int8 accuracy — the convert_to_hef.py
+    # synthetic-random fallback badly degrades quantisation.
     CALIB_FLAG=""
     CALIB_MOUNT=""
-    if [[ -d "datasets/${MODEL}/calibration" ]]; then
+    CALIB_DIR="$CALIB_DIR_ARG"
+    if [[ -z "$CALIB_DIR" ]]; then
+        for cand in "datasets/${MODEL}/calibration" \
+                    "datasets/${MODEL}_mixed/valid/images" \
+                    "datasets/${MODEL}/valid/images"; do
+            if [[ -d "$cand" ]]; then CALIB_DIR="$cand"; break; fi
+        done
+    fi
+    if [[ -n "$CALIB_DIR" && -d "$CALIB_DIR" ]]; then
         CALIB_FLAG="--calib-set /calib"
-        CALIB_MOUNT="-v $(pwd)/datasets/${MODEL}/calibration:/calib:ro"
-        info "Calibration dataset found — using for int8 quantization."
+        CALIB_MOUNT="-v $(pwd)/${CALIB_DIR}:/calib:ro"
+        info "Calibration images: ${CALIB_DIR}"
     else
-        warn "No calibration dataset — compiling without int8 calibration."
-        warn "To add later: mkdir datasets/${MODEL}/calibration && copy ~200 images there."
+        warn "No calibration images found — compiling with synthetic data (poor int8 accuracy)."
+        warn "Pass --calib-dir <path>, or 'dvc pull' the dataset first."
+    fi
+
+    # End nodes: split the YOLO26 head into separate box/class outputs (see top
+    # of file). convert_to_hef.py takes one --end-nodes per node.
+    END_NODE_FLAGS=""
+    if [[ -n "$END_NODES" ]]; then
+        IFS=',' read -ra _end_nodes <<< "$END_NODES"
+        for _n in "${_end_nodes[@]}"; do
+            END_NODE_FLAGS+=" --end-nodes ${_n}"
+        done
+        info "Graph end-nodes: ${END_NODES}"
     fi
 
     docker run --rm --platform linux/amd64 \
@@ -147,6 +184,7 @@ else
             --onnx "/onnx/${MODEL}_${VERSION}.onnx" \
             --out /hef_output \
             --model-name "${MODEL}_${VERSION}" \
+            ${END_NODE_FLAGS} \
             ${CALIB_FLAG}
 
     [[ -f "$DEST_HEF" ]] || error "Compilation failed — HEF not found at $DEST_HEF"
