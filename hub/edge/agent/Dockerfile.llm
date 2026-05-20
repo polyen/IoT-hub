@@ -34,7 +34,7 @@ ENV MODEL_URL="https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3
 COPY hub/edge/agent/llm_entrypoint.sh /app/llm_entrypoint.sh
 RUN chmod +x /app/llm_entrypoint.sh
 
-RUN useradd --create-home --no-log-init -r llmuser && \
+RUN useradd --create-home --no-log-init -u 1001 llmuser && \
     mkdir -p /app/models && \
     chown llmuser:llmuser /app/models
 USER llmuser
