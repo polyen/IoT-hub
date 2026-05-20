@@ -18,8 +18,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install llama-cpp-python with server extras, NEON-optimized for ARM64
+# >=0.3.0 required for qwen35 (hybrid SSM+Transformer) architecture support
 ARG CMAKE_ARGS="-DLLAMA_NATIVE=ON"
-RUN pip install --no-cache-dir "llama-cpp-python[server]==0.2.90" \
+RUN pip install --no-cache-dir "llama-cpp-python[server]>=0.3.0" \
     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 
 ENV MODEL_URL="https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf" \
