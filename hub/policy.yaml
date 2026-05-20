@@ -1,0 +1,311 @@
+# ============================================================================
+# Action Policy — single source of truth for actuator authorization
+# ============================================================================
+# Завантажується edge/agent/policy.py (PolicyEngine).
+# Hot-reload по SIGHUP — без рестарту контейнера.
+# Зміни до цього файлу обов'язково через PR з описом мотивації.
+#
+# Кожен tool-call від агента (deterministic / local LLM / cloud LLM) проходить
+# через PolicyEngine, який повертає одне з:
+#   AUTO     — виконати одразу
+#   CONFIRM  — спитати користувача (push), default deny on timeout
+#   DENY     — заблокувати, залогувати в agent/audit (§10.8 PROJECT.md)
+#
+# Пріоритет правил (перше що матчиться — виграє):
+#   1. llm.reject_intent_patterns                → DENY
+#   2. llm.escalate_to_confirm_keywords          → CONFIRM
+#   3. schedules[active].overrides               → override class
+#   4. identities[caller].blocked_topics         → DENY
+#   5. tool-specific rule                        → клас з tools.* / mqtt_topics.*
+#   6. default                                   → DENY
+# ============================================================================
+
+version: 1
+
+# Якщо нічого не матчиться — заборонити. Безпечний дефолт.
+default: DENY
+
+# ----------------------------------------------------------------------------
+# Confirmation channels
+# ----------------------------------------------------------------------------
+confirmation:
+  default_timeout_sec: 60
+  default_decision_on_timeout: DENY   # тиша = ні
+  channels:
+    - telegram        # primary, доступний навіть з мобільної мережі
+    - pwa             # local LAN, switch-on коли вдома
+    - ntfy            # backup push
+  # Прив'язка одного підтвердження до одного intent — нема "так на все"
+  one_shot: true
+
+# ----------------------------------------------------------------------------
+# Tools — базовий клас для кожного агентного tool (див. §10.7 PROJECT.md)
+# ----------------------------------------------------------------------------
+tools:
+
+  get_home_state:
+    class: AUTO
+    description: read-only зріз станів сенсорів і пристроїв
+    tier_access: [T0, T1]
+
+  query_events_db:
+    class: AUTO
+    description: pgvector similarity search по подіях
+    tier_access: [T1]
+    rate_limit: 60/minute
+
+  set_timer:
+    class: AUTO
+    description: in-memory таймер на edge
+    rate_limit: 10/hour
+
+  send_push:
+    class: AUTO
+    description: ntfy/Telegram нотифікація користувачу
+    rate_limit: 30/hour
+    tier_access: [T1]
+
+  summarize_period:
+    class: AUTO
+    description: денний/тижневий дайджест подій
+    tier_access: [T1, T2]
+    # Єдиний tool якому дозволено фоллбек у cloud LLM (Gemini)
+    cloud_fallback:
+      enabled: true
+      max_tier_sent: T2          # сирі T1 події не йдуть у cloud, тільки агрегації
+      strip_pii: true            # імена → "person_1", кімнати → "room_a"
+
+  ask_user:
+    class: AUTO
+    description: уточнююче питання назад користувачу
+
+  mqtt_publish:
+    class: defer_to_topic
+    description: маршрутизується через mqtt_topics нижче
+
+# ----------------------------------------------------------------------------
+# MQTT topic rules — застосовуються коли agent викликає mqtt_publish
+# ----------------------------------------------------------------------------
+# Перший матч виграє. Більш специфічні patterns ВИЩЕ за catch-all.
+# Schema валідується JSON Schema перед публікацією — невалідне → DENY.
+# ----------------------------------------------------------------------------
+mqtt_topics:
+
+  # ── AUTO ────────────────────────────────────────────────────────────────
+
+  - pattern: "home/+/light"
+    class: AUTO
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        state: { type: string, enum: [on, off, toggle] }
+        brightness: { type: integer, minimum: 0, maximum: 100 }
+      required: [state]
+
+  - pattern: "home/+/media/cmd"
+    class: AUTO
+    rate_limit: 30/minute
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        action: { type: string, enum: [play, pause, next, prev, volume_set] }
+        value: { type: integer, minimum: 0, maximum: 100 }
+      required: [action]
+
+  # Generic relay для побутових пристроїв (вентилятор, лампа, чайник)
+  - pattern: "home/+/cmd"
+    class: AUTO
+    rate_limit: 20/minute
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        cmd: { type: string, enum: [relay_on, relay_off, relay_toggle] }
+      required: [cmd]
+
+  - pattern: "agent/notify"
+    class: AUTO
+
+  # ── CONFIRM ─────────────────────────────────────────────────────────────
+
+  # Клімат — CONFIRM бо може заморозити квартиру або перегріти
+  - pattern: "home/+/climate/cmd"
+    class: CONFIRM
+    confirm_message: "Змінити клімат у {room}: {payload.action}={payload.value}?"
+    confirm_timeout_sec: 60
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        action: { type: string, enum: [set_temp, set_mode] }
+        value:
+          oneOf:
+            - { type: number, minimum: 5, maximum: 30 }
+            - { type: string, enum: [heat, cool, auto, off] }
+      required: [action, value]
+
+  # Замки — завжди CONFIRM, коротший таймаут
+  - pattern: "home/+/lock/cmd"
+    class: CONFIRM
+    confirm_message: "{action} замок у {room}?"
+    confirm_timeout_sec: 30
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        action: { type: string, enum: [lock, unlock] }
+      required: [action]
+
+  # Безпека / сигналізація — CONFIRM з ідентифікацією
+  - pattern: "home/security/#"
+    class: CONFIRM
+    confirm_message: "Змінити стан безпеки: {payload.action}?"
+    confirm_timeout_sec: 30
+    require_identity: [vlad]    # тільки автентифікований known
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        action: { type: string, enum: [arm_home, arm_away, disarm] }
+      required: [action]
+
+  # ── DENY ─────────────────────────────────────────────────────────────────
+
+  # System / OTA / config — недоступно агенту
+  - pattern: "system/#"
+    class: DENY
+
+  - pattern: "models/#"
+    class: DENY
+
+  # Catch-all — будь-який невідомий topic блокується
+  - pattern: "**"
+    class: DENY
+
+# ----------------------------------------------------------------------------
+# Schedules — context-dependent overrides
+# ----------------------------------------------------------------------------
+schedules:
+
+  # Нічний тихий режим: гучні дії потребують підтвердження
+  - name: night_quiet
+    active_hours: "22:00-07:00"      # local time TZ Europe/Kiev
+    overrides:
+      - tool: mqtt_publish
+        topic_pattern: "home/+/media/cmd"
+        class_override: CONFIRM
+        confirm_message: "Нічний режим — точно увімкнути музику?"
+
+      - tool: mqtt_publish
+        topic_pattern: "home/+/light"
+        # Перевести яскравість >50% у CONFIRM (різке світло вночі)
+        when_payload: "brightness > 50"
+        class_override: CONFIRM
+        confirm_message: "Яскраве світло о {now_time}. Увімкнути?"
+
+      # Алярм-нотифікації — обходять "не турбувати"
+      - tool: send_push
+        when_payload: "priority == 'high'"
+        bypass_dnd: true
+
+  # Режим "поза домом" — більш суворо
+  - name: away
+    trigger: "identity_absent_for_min: 30"
+    overrides:
+      - tool: mqtt_publish
+        topic_pattern: "home/+/cmd"
+        class_override: CONFIRM
+        confirm_message: "Дома нікого. Виконати {payload.cmd} у {room}?"
+
+# ----------------------------------------------------------------------------
+# Identity-based rules
+# ----------------------------------------------------------------------------
+# MVP: один known identity (vlad). Multi-user — у Future Work (PROJECT.md §16).
+# Для невідомих джерел (наприклад голос з вулиці через відкрите вікно) —
+# дозволено тільки AUTO read-only tools.
+# ----------------------------------------------------------------------------
+identities:
+
+  default:
+    description: невідомий або непідтверджений caller
+    allowed_classes: [AUTO]
+    blocked_topics:
+      - "home/+/lock/#"
+      - "home/security/#"
+      - "home/+/climate/cmd"
+
+  vlad:
+    description: основний resident, верифікований через face + voice
+    allowed_classes: [AUTO, CONFIRM]
+
+  guest:
+    description: запрошений гість, тимчасова identity
+    allowed_classes: [AUTO]
+    blocked_topics:
+      - "home/+/lock/#"
+      - "home/security/#"
+      - "home/+/climate/cmd"
+
+# ----------------------------------------------------------------------------
+# LLM guardrails — захист від prompt injection через voice / text
+# ----------------------------------------------------------------------------
+llm:
+
+  # Регекси на сирий intent text. Якщо матч — DENY одразу, навіть до router'а.
+  # Логується як T1 audit з тегом "prompt_injection_attempt".
+  reject_intent_patterns:
+    - "(?i)ignore\\s+(previous|all|prior)"
+    - "(?i)disregard\\s+.*(rule|policy|safety|instruction)"
+    - "(?i)you\\s+are\\s+now"
+    - "(?i)system\\s+prompt"
+    - "(?i)(пере|за)будь\\s+(всі|попередні)"
+    - "(?i)нові\\s+інструкції"
+
+  # Якщо intent містить ці слова — навіть AUTO дія ескалюється до CONFIRM.
+  # Сила тут у тому що це ловить і непрямі формулювання які router може
+  # неправильно класифікувати.
+  escalate_to_confirm_keywords:
+    - вимкни безпеку
+    - вимкни сигналізацію
+    - відкрий двері
+    - відчини
+    - розблокуй
+    - disable security
+    - turn off alarm
+    - unlock
+
+  # Максимальна кількість tool-calls в одному агентному turn — захист від
+  # рекурсії або loop'у.
+  max_tool_calls_per_turn: 5
+
+  # Якщо local LLM повертає invalid JSON > N разів підряд — fallback на
+  # ask_user замість cloud (cloud не врятує від broken model).
+  max_constraint_violations_before_fallback: 2
+
+# ----------------------------------------------------------------------------
+# Audit
+# ----------------------------------------------------------------------------
+audit:
+  log_all_tool_calls: true
+  log_intent_text: true              # T1 — зашифрований at-rest
+  log_payload: true
+  retain_days: 90
+
+  # Сигнали аномалій → Telegram + Grafana alert
+  alerts:
+    - name: deny_burst
+      condition: count(class=DENY) > 5 in 1m
+      severity: warning
+      channel: telegram
+
+    - name: prompt_injection_attempt
+      condition: tag = prompt_injection_attempt
+      severity: high
+      channel: telegram
+
+    - name: confirm_timeout_burst
+      condition: count(decision=timeout_deny) > 3 in 5m
+      severity: info
+      channel: pwa

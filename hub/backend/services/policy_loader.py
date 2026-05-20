@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-_POLICY_PATH = Path(__file__).parents[3] / "materials" / "policy.yaml"
+_POLICY_PATH = Path(__file__).parents[3] / "hub" / "policy.yaml"
 _cached: dict[str, Any] | None = None
 
 

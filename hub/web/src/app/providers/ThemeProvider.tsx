@@ -9,10 +9,14 @@ interface ThemeCtx {
 
 const Ctx = createContext<ThemeCtx>({ theme: "dark", toggle: () => {} });
 
+function getInitialTheme(): Theme {
+  const stored = localStorage.getItem("theme") as Theme | null;
+  if (stored === "dark" || stored === "light") return stored;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(
-    () => (localStorage.getItem("theme") as Theme) ?? "dark",
-  );
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
 
   useEffect(() => {
     const root = document.documentElement;

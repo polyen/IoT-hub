@@ -2,7 +2,7 @@ import { clsx } from "clsx";
 import { ButtonHTMLAttributes, forwardRef } from "react";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "danger" | "ghost";
+  variant?: "primary" | "secondary" | "danger" | "ghost" | "glass";
   size?: "sm" | "md" | "lg";
 }
 
@@ -12,18 +12,24 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={clsx(
-          "inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none",
+          "inline-flex items-center justify-center rounded-xl font-medium transition-all duration-150",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
+          "disabled:opacity-50 disabled:pointer-events-none",
           {
-            "bg-blue-600 text-white hover:bg-blue-700": variant === "primary",
-            "bg-slate-700 text-slate-100 hover:bg-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600 light:bg-slate-200 light:text-slate-900 light:hover:bg-slate-300":
+            "bg-primary-600 text-white hover:bg-primary-700 shadow-sm hover:shadow-glow-primary":
+              variant === "primary",
+            "bg-[color:var(--raised)] text-[color:var(--text)] hover:bg-[color:var(--card-hover)] border border-[color:var(--border)]":
               variant === "secondary",
-            "bg-red-700 text-white hover:bg-red-600": variant === "danger",
-            "text-slate-300 hover:text-white hover:bg-slate-700 light:text-slate-600 light:hover:text-slate-900 light:hover:bg-slate-200":
+            "bg-red-600 text-white hover:bg-red-700":
+              variant === "danger",
+            "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)]":
               variant === "ghost",
+            "glass-card text-[color:var(--text)] hover:bg-[color:var(--raised)] border-[color:var(--glass-border)]":
+              variant === "glass",
           },
           {
-            "text-xs px-2.5 py-1.5 gap-1.5": size === "sm",
-            "text-sm px-3.5 py-2 gap-2": size === "md",
+            "text-xs px-3 py-1.5 gap-1.5": size === "sm",
+            "text-sm px-4 py-2 gap-2": size === "md",
             "text-base px-5 py-2.5 gap-2.5": size === "lg",
           },
           className,

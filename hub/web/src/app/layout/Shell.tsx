@@ -10,20 +10,23 @@ interface ShellProps {
 export function Shell({ children }: ShellProps) {
   return (
     <>
-      {/* Desktop layout: sidebar + topbar */}
+      {/* Desktop/tablet layout: sidebar + topbar */}
       <div className="hidden sm:block">
         <Sidebar />
         <TopBar />
-        <div className="ml-[220px] mt-14">
+        <div
+          className="min-h-screen"
+          style={{ marginLeft: "var(--sidebar-w)", paddingTop: "var(--topbar-h)" }}
+        >
           <OfflineBanner />
-          <main className="max-w-5xl mx-auto px-6 py-6">{children}</main>
+          <main className="max-w-5xl mx-auto px-6 py-6 animate-fade-in">{children}</main>
         </div>
       </div>
 
-      {/* Mobile layout: top offline banner + content + bottom nav */}
+      {/* Mobile layout: content + floating bottom nav */}
       <div className="sm:hidden flex flex-col min-h-screen">
         <OfflineBanner />
-        <main className="flex-1 px-4 py-4 pb-[76px] overflow-y-auto">{children}</main>
+        <main className="flex-1 px-4 py-4 pb-28 overflow-y-auto animate-fade-in">{children}</main>
         <BottomNav />
       </div>
     </>

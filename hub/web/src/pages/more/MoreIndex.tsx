@@ -1,37 +1,163 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import {
+  Activity,
+  Zap,
+  FileText,
+  Cpu,
+  Shield,
+  Server,
+  ScrollText,
+  Lock,
+  Settings,
+  Info,
+  Brain,
+  ChevronRight,
+  LucideIcon,
+} from "lucide-react";
 
-const ITEMS = [
-  { to: "/more/events", icon: "≋", key: "events" },
-  { to: "/more/scenarios", icon: "⏱", key: "scenarios" },
-  { to: "/more/digest", icon: "📋", key: "digest" },
-  { to: "/more/devices", icon: "⚙", key: "devices" },
-  { to: "/more/security", icon: "⚿", key: "security" },
-  { to: "/more/system", icon: "⬡", key: "system" },
-  { to: "/more/policy", icon: "📄", key: "policy" },
-  { to: "/more/privacy", icon: "🔒", key: "privacy" },
-  { to: "/more/settings", icon: "⚙", key: "settings" },
-  { to: "/more/about", icon: "ℹ", key: "about" },
-  { to: "/more/models", icon: "⬡", key: "models" },
-] as const;
+interface MoreItem {
+  to: string;
+  icon: LucideIcon;
+  key: string;
+  color: string;
+  bgColor: string;
+}
+
+interface MoreSection {
+  label: string;
+  items: MoreItem[];
+}
+
+const SECTIONS: MoreSection[] = [
+  {
+    label: "Моніторинг",
+    items: [
+      {
+        to: "/more/events",
+        icon: Activity,
+        key: "events",
+        color: "text-blue-400",
+        bgColor: "bg-blue-500/15",
+      },
+      {
+        to: "/more/digest",
+        icon: FileText,
+        key: "digest",
+        color: "text-violet-400",
+        bgColor: "bg-violet-500/15",
+      },
+      {
+        to: "/more/scenarios",
+        icon: Zap,
+        key: "scenarios",
+        color: "text-warm-400",
+        bgColor: "bg-warm-500/15",
+      },
+    ],
+  },
+  {
+    label: "Управління",
+    items: [
+      {
+        to: "/more/devices",
+        icon: Cpu,
+        key: "devices",
+        color: "text-cyan-400",
+        bgColor: "bg-cyan-500/15",
+      },
+      {
+        to: "/more/security",
+        icon: Shield,
+        key: "security",
+        color: "text-green-400",
+        bgColor: "bg-green-500/15",
+      },
+      {
+        to: "/more/models",
+        icon: Brain,
+        key: "models",
+        color: "text-pink-400",
+        bgColor: "bg-pink-500/15",
+      },
+      {
+        to: "/more/system",
+        icon: Server,
+        key: "system",
+        color: "text-orange-400",
+        bgColor: "bg-orange-500/15",
+      },
+    ],
+  },
+  {
+    label: "Конфігурація",
+    items: [
+      {
+        to: "/more/policy",
+        icon: ScrollText,
+        key: "policy",
+        color: "text-slate-400",
+        bgColor: "bg-slate-500/15",
+      },
+      {
+        to: "/more/privacy",
+        icon: Lock,
+        key: "privacy",
+        color: "text-indigo-400",
+        bgColor: "bg-indigo-500/15",
+      },
+      {
+        to: "/more/settings",
+        icon: Settings,
+        key: "settings",
+        color: "text-[color:var(--text-muted)]",
+        bgColor: "bg-[color:var(--raised)]",
+      },
+      {
+        to: "/more/about",
+        icon: Info,
+        key: "about",
+        color: "text-[color:var(--text-muted)]",
+        bgColor: "bg-[color:var(--raised)]",
+      },
+    ],
+  },
+];
 
 export default function MoreIndex() {
   const { t } = useTranslation("common");
+
   return (
-    <div>
-      <h1 className="text-xl font-semibold mb-4">{t("nav.more")}</h1>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {ITEMS.map((item) => (
-          <Link
-            key={item.to}
-            to={item.to}
-            className="flex flex-col items-center gap-2 p-4 rounded-xl bg-slate-800 light:bg-white border border-slate-700 light:border-slate-200 hover:border-blue-500 transition-colors"
-          >
-            <span className="text-2xl">{item.icon}</span>
-            <span className="text-sm text-center">{t(`more.${item.key}`)}</span>
-          </Link>
-        ))}
-      </div>
+    <div className="space-y-6 animate-fade-in">
+      <h1 className="text-2xl font-bold text-[color:var(--text)]">{t("nav.more")}</h1>
+
+      {SECTIONS.map((section) => (
+        <section key={section.label}>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[color:var(--text-faint)] mb-3 px-1">
+            {section.label}
+          </p>
+          <div className="card overflow-hidden divide-y divide-[color:var(--border)]">
+            {section.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-[color:var(--raised)] transition-colors"
+                >
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${item.bgColor}`}>
+                    <Icon size={18} strokeWidth={1.8} className={item.color} />
+                  </div>
+                  <span className="flex-1 text-sm font-medium text-[color:var(--text)]">
+                    {t(`more.${item.key}`)}
+                  </span>
+                  <ChevronRight size={15} className="text-[color:var(--text-faint)]" />
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }

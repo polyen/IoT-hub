@@ -15,7 +15,7 @@ from hub.edge.agent.policy import (
     ToolCall,
 )
 
-POLICY_PATH = Path(__file__).parents[2] / "materials" / "policy.yaml"
+POLICY_PATH = Path(__file__).parents[2] / "hub" / "policy.yaml"
 
 
 def make_engine() -> PolicyEngine:

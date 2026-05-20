@@ -55,7 +55,7 @@ class Decision:
 
 
 class PolicyEngine:
-    def __init__(self, policy_path: Path = Path("materials/policy.yaml")) -> None:
+    def __init__(self, policy_path: Path = Path("hub/policy.yaml")) -> None:
         self._policy_path = policy_path
         self._policy: dict[str, Any] = {}
 

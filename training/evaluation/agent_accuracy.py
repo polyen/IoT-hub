@@ -26,7 +26,7 @@ class AgentEvaluator:
     def __init__(
         self,
         llm_url: str = "http://localhost:8001",
-        policy_path: str = "materials/policy.yaml",
+        policy_path: str = "hub/policy.yaml",
     ) -> None:
         self.llm_url = llm_url.rstrip("/")
         self.policy_path = policy_path

@@ -5,10 +5,128 @@
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
   }
 }
 
-/* Safe area padding for mobile notch / home-bar */
-.safe-pb {
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+@layer components {
+  /* Glass morphism card */
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+  }
+
+  /* Standard card */
+  .card {
+    background-color: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+  }
+
+  .card-hover {
+    transition: background-color 0.15s, border-color 0.15s, transform 0.15s;
+  }
+  .card-hover:hover {
+    background-color: var(--card-hover);
+    border-color: var(--primary);
+  }
+
+  /* Status dot */
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  /* Nav link base */
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.625rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    transition: background-color 0.15s, color 0.15s;
+    position: relative;
+  }
+  .nav-item:hover {
+    background-color: var(--raised);
+    color: var(--text);
+  }
+  .nav-item.active {
+    background-color: var(--primary-dim);
+    color: #a5b4fc;
+  }
+}
+
+@layer utilities {
+  /* Safe area for mobile notch / home-bar */
+  .safe-pb {
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  .safe-pt {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+
+  /* Text using CSS vars */
+  .text-token {
+    color: var(--text);
+  }
+  .text-token-muted {
+    color: var(--text-muted);
+  }
+  .text-token-faint {
+    color: var(--text-faint);
+  }
+
+  /* Glow effects */
+  .glow-primary {
+    box-shadow: 0 0 24px var(--primary-glow);
+  }
+
+  /* Animate in */
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+  .animate-slide-up {
+    animation: slideUp 0.25s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 }

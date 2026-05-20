@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Camera, Eye, EyeOff, Crosshair, ImageDown } from "lucide-react";
 import { api } from "../../lib/api";
 import { CameraLive } from "./CameraLive";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
 import { Button } from "../../components/Button";
 import { Dialog } from "../../components/Dialog";
-import type { Camera } from "../../lib/types";
+import type { Camera as CameraType } from "../../lib/types";
 
 const FEEDBACK_LABELS = [
   { value: "stranger", label: "Незнайомець" },
@@ -19,7 +20,7 @@ const FEEDBACK_LABELS = [
 type FeedbackLabel = (typeof FEEDBACK_LABELS)[number]["value"];
 
 interface SnapshotDialogProps {
-  camera: Camera;
+  camera: CameraType;
   onClose: () => void;
 }
 
@@ -29,9 +30,10 @@ function SnapshotDialog({ camera, onClose }: SnapshotDialogProps) {
 
   const snapshotQuery = useQuery({
     queryKey: ["snapshot", camera.id],
-    queryFn: () => api.post<{ frame_url: string | null; camera_id: string }>(
-      `/api/cv/cameras/${camera.id}/snapshot`,
-    ),
+    queryFn: () =>
+      api.post<{ frame_url: string | null; camera_id: string }>(
+        `/api/cv/cameras/${camera.id}/snapshot`,
+      ),
     retry: false,
   });
 
@@ -60,27 +62,29 @@ function SnapshotDialog({ camera, onClose }: SnapshotDialogProps) {
         <img
           src={snapshotQuery.data.frame_url}
           alt="snapshot"
-          className="w-full rounded-lg mb-4 border border-slate-700"
+          className="w-full rounded-xl mb-4 border border-[color:var(--border)]"
         />
       ) : (
-        <div className="aspect-video bg-slate-900 rounded-lg mb-4 flex items-center justify-center text-slate-600 text-sm">
+        <div className="aspect-video bg-[color:var(--bg)] rounded-xl mb-4 flex items-center justify-center text-[color:var(--text-faint)] text-sm">
           Немає знімку
         </div>
       )}
 
-      <p className="text-sm font-medium mb-2">Що зображено?</p>
+      <p className="text-sm font-medium text-[color:var(--text)] mb-2">Що зображено?</p>
       <div className="space-y-2 mb-4">
         {FEEDBACK_LABELS.map((fb) => (
-          <label key={fb.value} className="flex items-center gap-2 cursor-pointer">
+          <label key={fb.value} className="flex items-center gap-2.5 cursor-pointer group">
             <input
               type="radio"
               name="feedback"
               value={fb.value}
               checked={label === fb.value}
               onChange={() => setLabel(fb.value)}
-              className="accent-blue-500"
+              className="accent-primary-500"
             />
-            <span className="text-sm">{fb.label}</span>
+            <span className="text-sm text-[color:var(--text)] group-hover:text-[color:var(--text)]">
+              {fb.label}
+            </span>
           </label>
         ))}
       </div>
@@ -91,12 +95,12 @@ function SnapshotDialog({ camera, onClose }: SnapshotDialogProps) {
           onChange={(e) => setComment(e.target.value)}
           placeholder="Коментар…"
           rows={2}
-          className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white mb-4 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          className="w-full rounded-xl border border-[color:var(--border)] bg-[color:var(--raised)] px-3 py-2 text-sm text-[color:var(--text)] mb-4 focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
         />
       )}
 
       <div className="flex gap-2 justify-end">
-        <Button variant="secondary" size="sm" onClick={onClose}>
+        <Button variant="ghost" size="sm" onClick={onClose}>
           Скасувати
         </Button>
         <Button
@@ -113,15 +117,15 @@ function SnapshotDialog({ camera, onClose }: SnapshotDialogProps) {
 }
 
 export default function CamerasPage() {
-  const { data: cameras, isLoading } = useQuery<Camera[]>({
+  const { data: cameras, isLoading } = useQuery<CameraType[]>({
     queryKey: ["cameras"],
-    queryFn: () => api.get<Camera[]>("/api/cv/cameras"),
+    queryFn: () => api.get<CameraType[]>("/api/cv/cameras"),
     staleTime: 30_000,
   });
   const [overlayEnabled, setOverlayEnabled] = useState(true);
   const [privacyMode, setPrivacyMode] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [snapshotCamera, setSnapshotCamera] = useState<Camera | null>(null);
+  const [snapshotCamera, setSnapshotCamera] = useState<CameraType | null>(null);
 
   if (isLoading) {
     return (
@@ -132,38 +136,52 @@ export default function CamerasPage() {
   }
 
   if (!cameras?.length) {
-    return <EmptyState message="Немає камер. Додай камери у план будинку." icon="⬛" />;
+    return (
+      <EmptyState
+        Icon={Camera}
+        message="Немає камер"
+        description="Додай камери у план будинку"
+      />
+    );
   }
 
   const selected = cameras.find((c) => c.id === selectedId) ?? cameras[0];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-xl font-semibold">Камери</h1>
-        <div className="flex gap-2 flex-wrap">
-          <Button
-            size="sm"
-            variant="ghost"
+        <h1 className="text-2xl font-bold text-[color:var(--text)]">Камери</h1>
+        <div className="flex items-center gap-2">
+          <button
             onClick={() => setPrivacyMode((v) => !v)}
-            title="Приватний режим (blur)"
+            title="Приватний режим"
+            className={`p-2 rounded-xl border transition-all ${
+              privacyMode
+                ? "border-primary-500/40 bg-primary-500/10 text-primary-400"
+                : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--raised)]"
+            }`}
           >
-            {privacyMode ? "🔒 Blur" : "👁 Видно"}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
+            {privacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+          <button
             onClick={() => setOverlayEnabled((v) => !v)}
             title="Overlay детекцій"
+            className={`p-2 rounded-xl border transition-all ${
+              overlayEnabled
+                ? "border-primary-500/40 bg-primary-500/10 text-primary-400"
+                : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--raised)]"
+            }`}
           >
-            {overlayEnabled ? "🎯 Overlay" : "○ Overlay"}
-          </Button>
+            <Crosshair size={16} />
+          </button>
           <Button
             size="sm"
             variant="secondary"
             onClick={() => setSnapshotCamera(selected)}
+            className="gap-1.5"
           >
-            📸 Знімок
+            <ImageDown size={14} />
+            Знімок
           </Button>
         </div>
       </div>
@@ -176,14 +194,15 @@ export default function CamerasPage() {
             <button
               key={cam.id}
               onClick={() => setSelectedId(cam.id)}
-              className={`shrink-0 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+              className={`shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border transition-all ${
                 cam.id === selected.id
-                  ? "border-blue-500 bg-blue-600/20 text-blue-300"
-                  : "border-slate-700 text-slate-400 hover:border-slate-500"
+                  ? "border-primary-500/50 bg-primary-500/10 text-primary-300"
+                  : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:border-[color:var(--text-faint)]"
               }`}
             >
-              ⬛ {cam.name}
-              {!cam.online && <span className="ml-1 text-red-400">●</span>}
+              <Camera size={13} />
+              {cam.name}
+              {!cam.online && <span className="h-1.5 w-1.5 rounded-full bg-red-500 ml-0.5" />}
             </button>
           ))}
         </div>
