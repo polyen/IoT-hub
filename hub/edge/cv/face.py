@@ -195,13 +195,19 @@ class FaceRecognizer:
         import numpy as np  # type: ignore[import]
 
         if self._embeddings_path.exists():
-            with open(self._embeddings_path, "rb") as f:
-                self._enrolled = pickle.load(f)  # noqa: S301 — local T0 file
-            logger.info(
-                "Loaded %d enrolled embeddings from %s",
-                len(self._enrolled),
-                self._embeddings_path,
-            )
+            try:
+                with open(self._embeddings_path, "rb") as f:
+                    self._enrolled = pickle.load(f)  # noqa: S301 — local T0 file
+                logger.info(
+                    "Loaded %d enrolled embeddings from %s",
+                    len(self._enrolled),
+                    self._embeddings_path,
+                )
+            except (EOFError, pickle.UnpicklingError):
+                logger.warning(
+                    "Embeddings file %s is empty or corrupt — recognition will return 'unknown'",
+                    self._embeddings_path,
+                )
         else:
             logger.warning(
                 "No embeddings file at %s — recognition will return 'unknown' only",
