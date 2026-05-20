@@ -98,17 +98,16 @@ services:
   # MLflow tracking server (T4.3)
   # ---------------------------------------------------------------------------
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v3.12.0
+    build:
+      context: ..
+      dockerfile: hub/mlflow/Dockerfile
     container_name: mlflow
     restart: unless-stopped
     command: >
-      sh -c "python -m pip install --no-cache-dir psycopg2-binary &&
-      exec mlflow server --host 0.0.0.0 --port 5001
+      server --host 0.0.0.0 --port 5001
       --backend-store-uri postgresql+psycopg2://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres-replica:5432/${POSTGRES_DB:-iothub}
-      --default-artifact-root /mlflow/artifacts"
+      --artifacts-destination /mlflow/artifacts
       --serve-artifacts
-    environment:
-      MLFLOW_S3_ENDPOINT_URL: ""
     volumes:
       - mlflow-artifacts:/mlflow/artifacts
     ports:

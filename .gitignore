@@ -114,6 +114,8 @@ CLAUDE.md
 # MLflow local tracking (laptop only)
 mlruns/
 
-# Compiled model artifacts — stored in GHCR OCI (HEF) and DVC/GDrive (ONNX)
+# Compiled model artifacts — stored in GHCR OCI (HEF) and DVC/GDrive (ONNX).
+# `models/onnx/` is left tracked so DVC pointer files (*.onnx.dvc) can be
+# committed; raw *.onnx weights are excluded by the DVC-managed
+# models/onnx/.gitignore. HEFs live only in GHCR — keep the whole dir ignored.
 models/hef/
-models/onnx/

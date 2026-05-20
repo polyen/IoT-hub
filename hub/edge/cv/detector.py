@@ -12,7 +12,9 @@ HailoRT API note: uses VDevice.create_infer_model (4.17+ API). The older
 InferVStreams/InputVStreamParams flow was removed and will raise AttributeError
 on HailoRT 4.23+.
 
-Model classes (fire/smoke dataset): 0=fire, 1=smoke.
+Model classes (mixed dataset built by ``training.datasets.prepare_mixed``):
+0=person, 1=fire, 2=smoke. The class order is locked by the data.yaml — keep
+it in sync when retraining.
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ except ImportError:
     HAILO_AVAILABLE = False
 
 
-FIRE_SMOKE_CLASSES: dict[int, str] = {0: "fire", 1: "smoke"}
+DETECTION_CLASSES: dict[int, str] = {0: "person", 1: "fire", 2: "smoke"}
 
 # Kept for backward-compatibility with scripts that import COCO_CLASSES.
 COCO_CLASSES = [
@@ -205,7 +207,7 @@ class HailoDetector:
             self._input_w,
             self._input_h,
             output_shape,
-            list(FIRE_SMOKE_CLASSES.values()),
+            list(DETECTION_CLASSES.values()),
         )
 
     def detect(self, frame_bgr: Any) -> list[Detection]:
@@ -232,7 +234,7 @@ class HailoDetector:
         """Convert raw YOLO26n output → Detection list with CPU NMS."""
         import numpy as np  # type: ignore[import]
 
-        nc = len(FIRE_SMOKE_CLASSES)
+        nc = len(DETECTION_CLASSES)
         # Output may be [4+nc, num_anchors] or [num_anchors, 4+nc]
         if raw.ndim == 2 and raw.shape[0] == 4 + nc:
             raw = raw.T  # → [num_anchors, 4+nc]
@@ -262,7 +264,7 @@ class HailoDetector:
         return [
             Detection(
                 class_id=int(class_ids[i]),
-                label=FIRE_SMOKE_CLASSES.get(int(class_ids[i]), "unknown"),
+                label=DETECTION_CLASSES.get(int(class_ids[i]), "unknown"),
                 confidence=float(confidences[i]),
                 bbox=(float(x1[i]), float(y1[i]), float(x2[i]), float(y2[i])),
             )

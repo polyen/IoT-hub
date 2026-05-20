@@ -1,4 +1,10 @@
-"""Fine-tune YOLO26n on fire/smoke dataset with MLflow tracking.
+"""Fine-tune YOLO26n on a YOLO-format dataset with MLflow tracking.
+
+The number of classes is read by Ultralytics from the ``names:`` field of the
+data.yaml passed via ``--data``. Default training target is the 3-class mixed
+dataset (person + fire + smoke) built by ``training.datasets.prepare_mixed``;
+pointing ``--data`` at ``datasets/fire_smoke/data.yaml`` reproduces the legacy
+2-class run.
 
 Default base model is ``yolo26n.pt`` (see params.yaml). YOLO26 exports NMS-free
 so downstream ``convert_to_hef.py`` should be called with ``--calib-set`` and
@@ -8,6 +14,7 @@ the Hailo detector loaded with ``nms_free=True``.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,11 +30,44 @@ except ImportError:
 
 try:
     from ultralytics import YOLO
+    from ultralytics.utils import SETTINGS as _ULTRA_SETTINGS
 
     _ULTRA_AVAILABLE = True
 except ImportError:
     YOLO = None  # noqa: F841
+    _ULTRA_SETTINGS = None  # noqa: F841
     _ULTRA_AVAILABLE = False
+
+
+def _disable_ultralytics_mlflow_callbacks(model: YOLO) -> None:
+    """Disable Ultralytics' built-in MLflow integration.
+
+    Mutating ``model.callbacks`` is not enough: ``BaseTrainer.__init__`` rebuilds
+    callbacks from ``default_callbacks`` and then calls ``add_integration_callbacks``,
+    which re-attaches the MLflow callback when ``SETTINGS["mlflow"]`` is True. The
+    integration's ``on_train_end`` hook also tries to ``log_artifact`` to whatever
+    artifact URI the server returns, which conflicts with our explicit logging and
+    fails outright when the server is configured in proxy-artifact mode but returns
+    a server-side filesystem path. Flipping the global setting prevents the import
+    in ``add_integration_callbacks`` from running at all.
+    """
+
+    if _ULTRA_SETTINGS is not None and _ULTRA_SETTINGS.get("mlflow"):
+        _ULTRA_SETTINGS.update({"mlflow": False})
+        print("Disabled Ultralytics MLflow integration via SETTINGS")
+
+    removed = 0
+    for event, callback_list in model.callbacks.items():
+        kept_callbacks = [
+            cb
+            for cb in callback_list
+            if "ultralytics.utils.callbacks.mlflow" not in getattr(cb, "__module__", "")
+        ]
+        removed += len(callback_list) - len(kept_callbacks)
+        model.callbacks[event] = kept_callbacks
+
+    if removed:
+        print(f"Removed {removed} pre-attached Ultralytics MLflow callback(s)")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -91,6 +131,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    # Keep environment URI aligned for any third-party code that inspects only
+    # MLFLOW_TRACKING_URI, while this script still uses explicit API calls.
+    os.environ["MLFLOW_TRACKING_URI"] = args.mlflow_uri
+
     mlflow.set_tracking_uri(args.mlflow_uri)
     mlflow.set_experiment(args.experiment)
 
@@ -119,9 +163,11 @@ def main(argv: list[str] | None = None) -> None:
             # scheduler) from last.pt — all other train() kwargs are ignored.
             print(f"Resuming from {last_pt}")
             model = YOLO(str(last_pt))
+            _disable_ultralytics_mlflow_callbacks(model)
             results = model.train(resume=True)
         else:
             model = YOLO(args.base_model)
+            _disable_ultralytics_mlflow_callbacks(model)
             results = model.train(
                 data=str(args.data),
                 epochs=args.epochs,
@@ -146,7 +192,10 @@ def main(argv: list[str] | None = None) -> None:
         # Log best.pt as MLflow artifact
         best_pt_path = run_dir / "weights" / "best.pt"
         if best_pt_path.exists():
-            mlflow.log_artifact(str(best_pt_path), artifact_path="model")
+            try:
+                mlflow.log_artifact(str(best_pt_path), artifact_path="model")
+            except Exception as exc:  # noqa: BLE001
+                print(f"MLflow artifact logging warning for best.pt (non-fatal): {exc}")
 
             # Export best.pt → ONNX (opset 17, NMS-free for YOLO26)
             onnx_path = best_pt_path.with_suffix(".onnx")
@@ -154,7 +203,10 @@ def main(argv: list[str] | None = None) -> None:
                 best_model = YOLO(str(best_pt_path))
                 best_model.export(format="onnx", opset=17, dynamic=False, simplify=True)
                 if onnx_path.exists():
-                    mlflow.log_artifact(str(onnx_path), artifact_path="model")
+                    try:
+                        mlflow.log_artifact(str(onnx_path), artifact_path="model")
+                    except Exception as exc:  # noqa: BLE001
+                        print(f"MLflow artifact logging warning for ONNX (non-fatal): {exc}")
                     print(f"ONNX logged: {onnx_path}")
             except Exception as exc:  # noqa: BLE001
                 print(f"ONNX export error (non-fatal): {exc}")
@@ -181,7 +233,10 @@ def main(argv: list[str] | None = None) -> None:
                         check=False,
                     )
                     if proc.returncode == 0 and hef_path.exists():
-                        mlflow.log_artifact(str(hef_path), artifact_path="model")
+                        try:
+                            mlflow.log_artifact(str(hef_path), artifact_path="model")
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"MLflow artifact logging warning for HEF (non-fatal): {exc}")
                         print(f"HEF logged: {hef_path}")
                     else:
                         print(f"HEF conversion skipped or failed: {proc.stderr.strip()}")

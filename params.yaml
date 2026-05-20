@@ -3,13 +3,17 @@
 
 train:
   fire_smoke:
-    base_model: yolo26n.pt
+    # 3-class mixed dataset (person/fire/smoke). Build with:
+    #   uv run python -m training.datasets.prepare_mixed
+    # Fall back to datasets/fire_smoke/data.yaml for the legacy 2-class run.
+    data: datasets/fire_smoke_mixed/data.yaml
+    base_model: yolo11n.pt
     epochs: 50
     imgsz: 640
     batch: 8
     lr: 0.001
     device: mps
-    mlflow_uri: file:///Users/vlad/VSProjects/IoT-hub/IoT-hub/mlruns
+    mlflow_uri: http://localhost:5001
 
 mining:
   db_url: postgresql+asyncpg://iothub:iothub@localhost:5432/iothub

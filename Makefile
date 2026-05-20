@@ -91,6 +91,12 @@ evaluate-cv: ## Run CV evaluation (fire/smoke mAP, fall F1, latency FPS)
 	uv run python -m training.evaluation.cv_fall --dataset datasets/fall_validation --output $(RESULTS_DIR) $(EVAL_FLAGS)
 	uv run python -m training.evaluation.cv_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
 
+evaluate-cv-compare: ## P1.1: Comparative YOLO26 vs YOLOv11 vs YOLOv8 on Hailo-8 (needs HEFs on RPi 5)
+	uv run python -m training.evaluation.cv_detector_compare \
+		--config materials/evaluation_results/cv_detector_compare/config.yaml \
+		--dataset datasets/fire_smoke_mixed/test \
+		--output materials/evaluation_results/cv_detector_compare $(EVAL_FLAGS)
+
 evaluate-stt: ## Run STT latency benchmark (Hailo Whisper vs faster-whisper)
 	uv run python -m training.evaluation.stt_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
 

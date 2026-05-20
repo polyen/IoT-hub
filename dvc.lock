@@ -2,32 +2,32 @@ schema: '2.0'
 stages:
   train_fire_smoke:
     cmd: "uv run python -m training.fire_smoke.train --data datasets/fire_smoke_mixed/data.yaml
-      --base-model yolo26n.pt --epochs 50 --imgsz 640 --batch 8 --lr 0.001 --device
-      mps --mlflow-uri file:///Users/vlad/VSProjects/IoT-hub/IoT-hub/mlruns --resume\n"
+      --base-model yolo11n.pt --epochs 50 --imgsz 640 --batch 8 --lr 0.001 --device
+      mps --mlflow-uri http://localhost:5001 --resume\n"
     deps:
     - path: datasets/fire_smoke_mixed
       hash: md5
-      md5: b7fc847aa8fbc0f242c5ee7532bf5f94.dir
-      size: 4379968888
-      nfiles: 59053
+      md5: 0948f21f02d72acfbe4908409fb04709.dir
+      size: 4385298323
+      nfiles: 59055
     - path: training/fire_smoke/train.py
       hash: md5
-      md5: 114b2b256dd3d4c079b052c369580f45
-      size: 7266
+      md5: cab22b0fdcdb089c3a441fef179a18cf
+      size: 9669
     params:
       params.yaml:
         train.fire_smoke:
           data: datasets/fire_smoke_mixed/data.yaml
-          base_model: yolo26n.pt
+          base_model: yolo11n.pt
           epochs: 50
           imgsz: 640
           batch: 8
           lr: 0.001
           device: mps
-          mlflow_uri: file:///Users/vlad/VSProjects/IoT-hub/IoT-hub/mlruns
+          mlflow_uri: http://localhost:5001
     outs:
     - path: runs/fire_smoke
       hash: md5
-      md5: 769de74d1d6500817e7d1609a3c751ac.dir
+      md5: b3209de5b4a650f0c4d34c854cde460e.dir
       size: 26295312
       nfiles: 25

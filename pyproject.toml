@@ -33,6 +33,7 @@ training = [
     "ultralytics>=8.4.0",
     "mlflow>=3.0.0",
     "opencv-python>=4.10.0",
+    "pycocotools>=2.0.7",
 ]
 voice = [
     "faster-whisper>=1.0.3",
@@ -112,6 +113,7 @@ exclude = [
     "training/wake_word/",
     "training/mining\\.py",
     "training/convert_to_hef\\.py",
+    "training/datasets/",
 ]
 
 [[tool.mypy.overrides]]
@@ -168,6 +170,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["mlflow.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pycocotools.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

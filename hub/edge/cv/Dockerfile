@@ -29,6 +29,8 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 ENV RTSP_URL="" \
     HEF_PATH="/app/models/current_yolo.hef" \
     POSE_HEF_PATH="/app/models/current_pose.hef" \
+    FACE_HEF_PATH="/app/models/current_face.hef" \
+    FACE_EMBEDDINGS_PATH="/app/models/embeddings.pkl" \
     MQTT_HOST="mosquitto" \
     MQTT_PORT="1883" \
     ROOM="living_room" \

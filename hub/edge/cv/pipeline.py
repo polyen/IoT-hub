@@ -1,12 +1,15 @@
-"""Async CV cascade: RTSP -> detect -> track -> pose -> fall_rule -> MQTT.
+"""Async CV cascade: RTSP -> detect -> track -> pose -> fall_rule -> face -> MQTT.
 
 Pipeline composition (T2.13):
     Stage 1  YOLO26n detect (Hailo, NMS-free)-> Detection[]
     Stage 2  ByteTrack tracker               -> Track[]
     Stage 3  YOLO26n-pose on person tracks   -> Keypoints       [optional]
     Stage 4  FallDetector rule               -> FallEvent       [optional]
-    Stage 5  MQTT publish:
+    Stage 5  ArcFace recognition (Hailo)     -> Identity        [optional,
+             throttled 1×/sec/track]
+    Stage 6  MQTT publish:
                 home/{room}/camera/event     (every detection)
+                home/{room}/camera/identity  (face recognition results)
                 home/{room}/alert            (fall events)
 
 A separate FusionEngine task subscribes to camera/event + sensors and emits
@@ -35,6 +38,14 @@ from hub.edge.cv.detector import Detection, HailoDetector
 from hub.edge.cv.fall_rule import FallDetector
 from hub.edge.cv.fusion import FusionEngine
 from hub.edge.cv.tracker import ObjectTracker, Track
+
+try:
+    from hub.edge.cv.face import FaceRecognizer
+
+    FACE_IMPORT_OK = True
+except ImportError:
+    FACE_IMPORT_OK = False
+    FaceRecognizer = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +103,14 @@ if PROM_AVAILABLE:
         "iot_hub_cv_model_reloads_total",
         "Total successful model reloads (SIGHUP)",
     )
+    IDENTITY_COUNTER: Any = Counter(
+        "iot_hub_cv_identity_events_total",
+        "Total face recognition events published",
+        ["identity_class"],
+    )
 else:
     FPS_GAUGE = INFERENCE_HIST = DETECTIONS_COUNTER = FALL_COUNTER = RELOAD_COUNTER = None
+    IDENTITY_COUNTER = None
 
 
 async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator[Any, None]:
@@ -159,10 +176,14 @@ class CVPipeline:
         room: str,
         target_fps: int = 15,
         confidence_threshold: float = 0.5,
+        face_hef_path: Path | None = None,
+        face_embeddings_path: Path | None = None,
     ) -> None:
         self.rtsp_url = rtsp_url
         self.hef_path = hef_path
         self.pose_hef_path = pose_hef_path
+        self.face_hef_path = face_hef_path
+        self.face_embeddings_path = face_embeddings_path
         self.mqtt_host = mqtt_host
         self.mqtt_port = mqtt_port
         self.room = room
@@ -171,6 +192,7 @@ class CVPipeline:
 
         self._detector: HailoDetector | None = None
         self._pose: PoseEstimator | None = None
+        self._face: FaceRecognizer | None = None
         self._tracker = ObjectTracker()
         self._fall = FallDetector()
         self._reload_requested = False
@@ -211,6 +233,26 @@ class CVPipeline:
         else:
             self._pose = None
 
+        if FACE_IMPORT_OK and self.face_hef_path is not None and self.face_hef_path.exists():
+            try:
+                if self._face is not None:
+                    self._face.close()
+                face_resolved = (
+                    self.face_hef_path.resolve()
+                    if self.face_hef_path.is_symlink()
+                    else self.face_hef_path
+                )
+                assert FaceRecognizer is not None
+                emb_path = self.face_embeddings_path or Path("models/embeddings.pkl")
+                self._face = FaceRecognizer(face_resolved, emb_path)
+                self._face.load()
+                logger.info("Loaded ArcFace HEF: %s", face_resolved)
+            except (ImportError, NotImplementedError, RuntimeError) as e:
+                logger.warning("Face stage disabled (%s); cascade will skip recognition", e)
+                self._face = None
+        else:
+            self._face = None
+
     def request_reload(self) -> None:
         """Set the reload flag — picked up at the start of the next frame."""
         logger.info("SIGHUP received — model reload queued for next frame")
@@ -227,6 +269,35 @@ class CVPipeline:
             "track_id": track.track_id,
             "tier": 1,
         }
+
+    async def _maybe_run_face(self, frame: Any, track: Track, mqtt: Any) -> None:
+        """Run ArcFace on a person track (throttled 1×/sec); publish identity."""
+        if self._face is None or track.detection.label != "person":
+            return
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                self._face.recognize_from_person_bbox,
+                frame,
+                track.detection.bbox,
+                track.track_id,
+            )
+        except (NotImplementedError, RuntimeError) as e:
+            logger.debug("Face recognize skipped: %s", e)
+            return
+        if result is None:
+            return
+        if IDENTITY_COUNTER is not None:
+            IDENTITY_COUNTER.labels(identity_class=result.identity).inc()
+        payload = {
+            "room": self.room,
+            "event_type": "identity",
+            "track_id": result.track_id,
+            "identity": result.identity,
+            "sim": round(result.similarity, 4),
+            "tier": 1,
+        }
+        await mqtt.publish(f"home/{self.room}/camera/identity", json.dumps(payload))
 
     async def _maybe_run_fall(self, frame: Any, track: Track, mqtt: Any) -> None:
         """Run pose + fall_rule on a person track; publish alert if triggered."""
@@ -314,6 +385,7 @@ class CVPipeline:
                                     json.dumps(self._publish_detection_payload(track)),
                                 )
                                 await self._maybe_run_fall(frame, track, mqtt)
+                                await self._maybe_run_face(frame, track, mqtt)
                         return  # RTSP stream ended cleanly
                 except aiomqtt.MqttError as exc:
                     logger.warning("MQTT error (%s) — retrying in %ds", exc, _mqtt_retry_delay)
@@ -324,6 +396,8 @@ class CVPipeline:
                 self._detector.close()
             if self._pose is not None:
                 self._pose.close()
+            if self._face is not None:
+                self._face.close()
 
 
 async def run_pipeline_with_fusion(
@@ -336,6 +410,8 @@ async def run_pipeline_with_fusion(
     target_fps: int = 15,
     confidence_threshold: float = 0.5,
     enable_fusion: bool = True,
+    face_hef_path: Path | None = None,
+    face_embeddings_path: Path | None = None,
 ) -> None:
     """Top-level entry: run the cascade + FusionEngine concurrently.
 
@@ -351,6 +427,8 @@ async def run_pipeline_with_fusion(
         room=room,
         target_fps=target_fps,
         confidence_threshold=confidence_threshold,
+        face_hef_path=face_hef_path,
+        face_embeddings_path=face_embeddings_path,
     )
 
     loop = asyncio.get_running_loop()
@@ -404,11 +482,15 @@ if __name__ == "__main__":
         start_http_server(int(os.environ.get("METRICS_PORT", "8002")))
 
     pose_path_env = os.environ.get("POSE_HEF_PATH")
+    face_path_env = os.environ.get("FACE_HEF_PATH")
+    face_emb_env = os.environ.get("FACE_EMBEDDINGS_PATH")
     asyncio.run(
         run_pipeline_with_fusion(
             rtsp_url=os.environ["RTSP_URL"],
             hef_path=Path(os.environ.get("HEF_PATH", "/app/models/current_yolo.hef")),
             pose_hef_path=Path(pose_path_env) if pose_path_env else None,
+            face_hef_path=Path(face_path_env) if face_path_env else None,
+            face_embeddings_path=Path(face_emb_env) if face_emb_env else None,
             mqtt_host=os.environ.get("MQTT_HOST", "mosquitto"),
             mqtt_port=int(os.environ.get("MQTT_PORT", "1883")),
             room=os.environ.get("ROOM", "living_room"),

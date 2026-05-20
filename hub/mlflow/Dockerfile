@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-    "mlflow==2.18.0" \
+    "mlflow==3.12.0" \
     "psycopg2-binary>=2.9.0"
 
 EXPOSE 5001
