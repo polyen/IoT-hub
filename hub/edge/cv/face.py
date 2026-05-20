@@ -111,10 +111,13 @@ def crop_face_from_keypoints(
 ) -> Any | None:
     """Crop a face region from COCO pose keypoints (nose, eyes, ears).
 
-    Uses indices 0..4 of ``keypoints.points``. Falls back to
-    ``crop_face_from_bbox`` if face keypoints are absent or have low
-    confidence.
+    Uses indices 0..4 of ``keypoints.points``.  The derived bbox is already a
+    tight face region, so it is cropped directly — NOT forwarded through
+    ``crop_face_from_bbox``, which would incorrectly apply the person-bbox
+    top-fraction heuristic a second time.  Falls back to ``crop_face_from_bbox``
+    when face keypoints are absent or have low confidence.
     """
+    import cv2  # type: ignore[import]
     import numpy as np  # type: ignore[import]
 
     pts = getattr(keypoints, "points", None)
@@ -129,11 +132,19 @@ def crop_face_from_keypoints(
     ys = np.array([p[1] for p in face_pts])
     cx, cy = float(xs.mean()), float(ys.mean())
     extent = float(max(xs.max() - xs.min(), ys.max() - ys.min()))
-    half = max(extent * 1.2, 0.05)  # pad by 20 %, min 5 % of frame
+    half = max(extent * 1.2, 0.05)  # pad 20 %, min 5 % of frame
 
-    fx1, fy1 = cx - half, cy - half
-    fx2, fy2 = cx + half, cy + half
-    return crop_face_from_bbox(frame, (fx1, fy1, fx2, fy2))
+    h, w = frame.shape[:2]
+    px1 = max(0, int((cx - half) * w))
+    py1 = max(0, int((cy - half) * h))
+    px2 = min(w, int((cx + half) * w))
+    py2 = min(h, int((cy + half) * h))
+    if px2 <= px1 or py2 <= py1:
+        return crop_face_from_bbox(frame, person_bbox)
+    crop = frame[py1:py2, px1:px2]
+    if crop.size == 0:
+        return crop_face_from_bbox(frame, person_bbox)
+    return cv2.resize(crop, (INPUT_W, INPUT_H)).astype(np.uint8)
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -258,11 +269,20 @@ class FaceRecognizer:
             return "uncertain", best_sim
         return best_name, best_sim
 
+    def get_throttle_state(self) -> dict[int, float]:
+        """Return a snapshot of the per-track throttle timestamps."""
+        return dict(self._last_inference)
+
+    def set_throttle_state(self, state: dict[int, float]) -> None:
+        """Restore per-track throttle timestamps (used after SIGHUP reload)."""
+        self._last_inference = dict(state)
+
     def recognize_from_person_bbox(
         self,
         frame: Any,
         person_bbox: tuple[float, float, float, float],
         track_id: int,
+        keypoints: Any | None = None,
     ) -> RecognitionResult | None:
         """Throttled recognition on a person crop.
 
@@ -270,13 +290,20 @@ class FaceRecognizer:
         face crop is empty, or when the embedding fails. Returns a
         ``RecognitionResult`` with ``identity="unknown"`` when no enrolled
         embedding matches confidently — the caller decides whether to publish.
+
+        When ``keypoints`` (pose stage output) are provided, uses the 5 face
+        keypoints (nose, eyes, ears) for a tighter crop instead of the top-bbox
+        heuristic.
         """
         now = time.monotonic()
         if now - self._last_inference.get(track_id, 0.0) < 1.0:
             return None
         self._last_inference[track_id] = now
 
-        crop = crop_face_from_bbox(frame, person_bbox)
+        if keypoints is not None:
+            crop = crop_face_from_keypoints(frame, keypoints, person_bbox)
+        else:
+            crop = crop_face_from_bbox(frame, person_bbox)
         if crop is None:
             return None
 

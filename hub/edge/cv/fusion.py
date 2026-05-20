@@ -11,8 +11,13 @@ FUSION_WEIGHTS: dict[str, dict[str, float]] = {
     "fire": {"camera": 0.7, "smoke_sensor": 0.6, "combined_bonus": 0.2},
     "motion": {"camera": 0.8, "pir": 0.5, "combined_bonus": 0.15},
     "gas": {"camera": 0.3, "gas_sensor": 0.9, "combined_bonus": 0.1},
+    "person": {"camera": 0.8, "pir": 0.5, "combined_bonus": 0.1},
 }
 FUSION_WINDOW_SEC = 30
+# Confidence multiplier applied to person events when the camera sees a person
+# but no PIR trigger exists for that room in the fusion window.  A PIR-less
+# person detection is a possible glare / false-positive (see §7.2).
+PERSON_NO_PIR_FACTOR: float = 0.7
 
 
 @dataclass
@@ -73,12 +78,73 @@ class FusionEngine:
             return sensor_conf * weights.get(sensor_key or "", 0.5)
         return 0.0
 
+    def _person_pir_factor(self, room: str) -> float:
+        """Return <1.0 when camera sees a person but no PIR triggered recently.
+
+        This penalises glare / false-positive person detections that lack a
+        corresponding passive-IR event for the same room (§7.2 cross-check).
+        """
+        buf = self._buffers.get(room)
+        if buf is None:
+            return PERSON_NO_PIR_FACTOR
+        has_pir = any(
+            ev.get("sensor_type") == "pir" and float(ev.get("value", 0)) > 0
+            for _, ev in buf.sensor_events
+        )
+        return 1.0 if has_pir else PERSON_NO_PIR_FACTOR
+
     def ingest_camera(self, room: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         if room not in self._buffers:
             self._buffers[room] = RoomBuffer()
         self._buffers[room].camera_events.append((time.time(), payload))
         self._prune(room)
         return self._maybe_fuse(room, payload.get("event_type", ""))
+
+    def ingest_detection_frame(self, room: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Handle a full-frame detection payload (``event_type="detection"``).
+
+        Extracts per-label max-confidence from ``dets``, stores synthetic
+        per-label camera events so ``_compute_confidence`` can find them, then
+        returns one fused event per label that has a fusion rule.  Person events
+        are penalised by ``PERSON_NO_PIR_FACTOR`` when no PIR trigger exists for
+        the room in the current window (§7.2 cross-check).
+        """
+        if room not in self._buffers:
+            self._buffers[room] = RoomBuffer()
+
+        ts = time.time()
+        dets: list[dict[str, Any]] = payload.get("dets", [])
+
+        # Extract per-label max confidence and store as synthetic camera events
+        # so _compute_confidence can look them up by event_type.
+        labels_conf: dict[str, float] = {}
+        for det in dets:
+            label = det.get("label", "")
+            if label in FUSION_WEIGHTS:
+                conf = float(det.get("confidence", FUSION_WEIGHTS[label]["camera"]))
+                labels_conf[label] = max(labels_conf.get(label, 0.0), conf)
+
+        for label, conf in labels_conf.items():
+            self._buffers[room].camera_events.append(
+                (ts, {"event_type": label, "confidence": conf})
+            )
+
+        self._prune(room)
+
+        results: list[dict[str, Any]] = []
+        for label in labels_conf:
+            fused = self._maybe_fuse(room, label)
+            if fused is None:
+                continue
+            if label == "person":
+                factor = self._person_pir_factor(room)
+                if factor < 1.0:
+                    fused = dict(fused)
+                    fused["confidence"] = round(fused["confidence"] * factor, 4)
+                    fused["pir_adjusted"] = True
+            results.append(fused)
+
+        return results
 
     def ingest_sensor(self, room: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         if room not in self._buffers:
@@ -129,14 +195,13 @@ class FusionEngine:
                     payload: dict[str, Any] = json.loads(message.payload)
                 except Exception:
                     continue
-                fused: dict[str, Any] | None = None
                 if topic_str.endswith("/camera/event"):
-                    fused = self.ingest_camera(room, payload)
+                    for fused in self.ingest_detection_frame(room, payload):
+                        await client.publish(f"home/{room}/event/fused", json.dumps(fused))
                 elif topic_str.endswith("/sensors"):
                     fused = self.ingest_sensor(room, payload)
-                if fused is not None:
-                    fused_topic = f"home/{room}/event/fused"
-                    await client.publish(fused_topic, json.dumps(fused))
+                    if fused is not None:
+                        await client.publish(f"home/{room}/event/fused", json.dumps(fused))
 
 
 def _sensor_key_for(event_type: str) -> str | None:

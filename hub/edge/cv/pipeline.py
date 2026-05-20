@@ -229,6 +229,9 @@ class CVPipeline:
         self._tracker = ObjectTracker()
         self._fall = FallDetector()
         self._reload_requested = False
+        # Track IDs seen in the previous frame — used to call FallDetector.clear_track()
+        # when a track disappears so its history doesn't accumulate indefinitely.
+        self._active_track_ids: set[int] = set()
         # Whether the previous frame published any detections — drives a single
         # trailing empty camera/event so the UI overlay clears on an empty room.
         self._had_dets = False
@@ -275,6 +278,7 @@ class CVPipeline:
 
         if FACE_IMPORT_OK and self.face_hef_path is not None and self.face_hef_path.exists():
             try:
+                old_throttle = self._face.get_throttle_state() if self._face is not None else {}
                 if self._face is not None:
                     self._face.close()
                 face_resolved = (
@@ -286,7 +290,12 @@ class CVPipeline:
                 emb_path = self.face_embeddings_path or Path("models/embeddings.pkl")
                 self._face = FaceRecognizer(face_resolved, emb_path)
                 self._face.load()
-                logger.info("Loaded ArcFace HEF: %s", face_resolved)
+                self._face.set_throttle_state(old_throttle)
+                logger.info(
+                    "Loaded ArcFace HEF: %s (throttle restored for %d tracks)",
+                    face_resolved,
+                    len(old_throttle),
+                )
             except (ImportError, NotImplementedError, RuntimeError) as e:
                 logger.warning("Face stage disabled (%s); cascade will skip recognition", e)
                 self._face = None
@@ -345,8 +354,14 @@ class CVPipeline:
             "track_id": track.track_id,
         }
 
-    async def _maybe_run_face(self, frame: Any, track: Track, mqtt: Any) -> None:
-        """Run ArcFace on a person track (throttled 1×/sec); publish identity."""
+    async def _maybe_run_face(
+        self, frame: Any, track: Track, mqtt: Any, keypoints: Any | None = None
+    ) -> None:
+        """Run ArcFace on a person track (throttled 1×/sec); publish identity.
+
+        ``keypoints`` is the pose output from ``_maybe_run_fall``; when present
+        the 5 face keypoints (nose, eyes, ears) are used for a tighter crop.
+        """
         if self._face is None or track.detection.label != "person":
             return
         try:
@@ -356,6 +371,7 @@ class CVPipeline:
                 frame,
                 track.detection.bbox,
                 track.track_id,
+                keypoints,
             )
         except (NotImplementedError, RuntimeError) as e:
             logger.debug("Face recognize skipped: %s", e)
@@ -374,34 +390,41 @@ class CVPipeline:
         }
         await mqtt.publish(f"home/{self.room}/camera/identity", json.dumps(payload))
 
-    async def _maybe_run_fall(self, frame: Any, track: Track, mqtt: Any) -> None:
-        """Run pose + fall_rule on a person track; publish alert if triggered."""
+    async def _maybe_run_fall(self, frame: Any, track: Track, mqtt: Any) -> Keypoints | None:
+        """Run pose + fall_rule on a person track; publish alert if triggered.
+
+        Returns the computed ``Keypoints`` when pose succeeds (regardless of
+        whether a fall was detected) so the caller can forward them to
+        ``_maybe_run_face`` for a tighter face crop.
+        """
         if self._pose is None or track.detection.label != "person":
-            return
+            return None
         try:
             keypoints = self._pose.estimate(frame, track.detection.bbox)
         except (NotImplementedError, RuntimeError) as e:
             # Hailo pipeline not available at runtime — degrade silently.
             logger.debug("Pose estimate skipped: %s", e)
-            return
+            return None
         if keypoints is None:
-            return
+            return None
         fall = self._fall.update(track.track_id, keypoints, track.detection.bbox)
-        if fall is None:
-            return
-        if FALL_COUNTER is not None:
-            FALL_COUNTER.labels(confidence_bucket="high" if fall.confidence >= 1.0 else "low").inc()
-        alert = {
-            "room": self.room,
-            "event_type": "fall",
-            "track_id": fall.track_id,
-            "confidence": fall.confidence,
-            "bbox_ratio": round(fall.bbox_ratio, 3),
-            "spine_angle_deg": round(fall.spine_angle_deg, 1),
-            "tier": 1,
-        }
-        await mqtt.publish(f"home/{self.room}/alert", json.dumps(alert))
-        logger.info("Fall alert published: track=%d conf=%.2f", fall.track_id, fall.confidence)
+        if fall is not None:
+            if FALL_COUNTER is not None:
+                FALL_COUNTER.labels(
+                    confidence_bucket="high" if fall.confidence >= 1.0 else "low"
+                ).inc()
+            alert = {
+                "room": self.room,
+                "event_type": "fall",
+                "track_id": fall.track_id,
+                "confidence": fall.confidence,
+                "bbox_ratio": round(fall.bbox_ratio, 3),
+                "spine_angle_deg": round(fall.spine_angle_deg, 1),
+                "tier": 1,
+            }
+            await mqtt.publish(f"home/{self.room}/alert", json.dumps(alert))
+            logger.info("Fall alert published: track=%d conf=%.2f", fall.track_id, fall.confidence)
+        return keypoints
 
     async def run(self) -> None:
         """Main pipeline loop. Runs until cancelled."""
@@ -463,12 +486,18 @@ class CVPipeline:
                                 fps_window_start = time.monotonic()
 
                             det_dicts: list[dict[str, Any]] = []
+                            current_ids: set[int] = set()
                             for track in tracks:
                                 if DETECTIONS_COUNTER is not None:
                                     DETECTIONS_COUNTER.labels(label=track.detection.label).inc()
                                 det_dicts.append(self._detection_dict(track))
-                                await self._maybe_run_fall(frame, track, mqtt)
-                                await self._maybe_run_face(frame, track, mqtt)
+                                current_ids.add(track.track_id)
+                                kps = await self._maybe_run_fall(frame, track, mqtt)
+                                await self._maybe_run_face(frame, track, mqtt, kps)
+
+                            for lost_id in self._active_track_ids - current_ids:
+                                self._fall.clear_track(lost_id)
+                            self._active_track_ids = current_ids
 
                             # One camera/event per frame carrying every
                             # detection — the backend bridges it to the live

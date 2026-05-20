@@ -3,28 +3,35 @@
 Stage 3 of the CV cascade. Invoked once per tracked person per frame; the
 caller (``pipeline.CVPipeline``) already throttles by track state.
 
-Production HEF (2026-05): ``yolov8n_relu6_coco_pose`` from Hailo Model Zoo —
-production-validated, single-class person pose, ~5 ms on Hailo-8 for a 640×640
-crop. YOLO26n-pose is a planned upgrade once Hailo Model Zoo publishes a
-production-ready HEF (community-tier compile is in progress as of May 2026 but
-relies on a split HEF + ONNX postprocess flow that adds CPU latency).
+Production HEF (2026-05): ``yolov8s_pose`` from Hailo Model Zoo v2.14.0
+(hailo8, 640×640, downloaded via hailo-rpi5-examples/download_resources.sh).
 
-Output convention: keypoints are returned in **frame-normalized** ``[0, 1]``
-coordinates (same convention as ``Detection.bbox``) so downstream consumers
-(``fall_rule.py``, ``face.crop_face_from_keypoints``) can use them without
-knowing about the intermediate crop.
+Supported HEF layouts
+---------------------
+Multi-output — ``yolov8s_pose`` / ``yolov8m_pose`` (9 tensors, 3 scales):
+    [H, W, 64]  DFL bbox regression — not used; we only need keypoints.
+    [H, W,  1]  objectness/confidence — sigmoid already applied by Hailo.
+    [H, W, 51]  17 COCO keypoints × (x, y, visibility).
+                x, y are in input-pixel coords [0, input_w/h].
+                visibility is a raw logit; ``_decode_multi`` applies sigmoid.
+  Input must be normalised to [0, 1] (Hailo Model Zoo calibration convention).
 
-YOLO-pose HEF layout (compatible with both v8 and v26): output is
-``[num_anchors, 4 + 1 + 17 * 3]`` (cxcywh + conf + 17 × (x, y, v)). The parser
-also tolerates the transposed ``[4 + 1 + 17 * 3, num_anchors]`` layout — both
-v8 and v26 HEFs are picked up automatically without code changes (the
-``current_pose.hef`` symlink decides which weights are loaded at runtime).
+Single-output (legacy, shape [num_anchors, 56] or [56, num_anchors]):
+    Kept for forward-compat in case a single-output HEF is loaded.
+    Input is sent as [0, 255] float32 (original calibration assumption).
+
+Output convention
+-----------------
+Keypoints are returned in **frame-normalised** [0, 1] coordinates so
+downstream consumers (``fall_rule.py``, ``face.crop_face_from_keypoints``)
+can use them without knowing the intermediate crop geometry.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,23 +47,29 @@ except ImportError:
 
 
 NUM_KEYPOINTS = 17
-_POSE_VECTOR_LEN = 4 + 1 + NUM_KEYPOINTS * 3  # 56
+_POSE_VECTOR_LEN = 4 + 1 + NUM_KEYPOINTS * 3  # 56 — single-output legacy layout
 
 
 @dataclass
 class Keypoints:
-    """17 COCO keypoints as normalized ``(x, y, confidence)`` tuples."""
+    """17 COCO keypoints as normalised ``(x, y, confidence)`` tuples."""
 
     points: list[tuple[float, float, float]]
     track_id: int = -1
 
 
-class PoseEstimator:
-    """Runs a YOLO-pose HEF (yolov8n-pose / yolo26n-pose) on person crops via Hailo NPU.
+def _sigmoid(x: float) -> float:
+    return 1.0 / (1.0 + math.exp(-max(-500.0, min(500.0, x))))
 
-    Mirrors ``HailoDetector`` lifecycle: ``load()`` opens an inference context
-    that is kept alive via ``ExitStack``; ``estimate()`` is called once per
-    person per frame.
+
+class PoseEstimator:
+    """Runs a YOLO-pose HEF on person crops via Hailo NPU.
+
+    Supports both the 9-output yolov8s_pose layout (Hailo Model Zoo v2.14+)
+    and the legacy single-output layout. Layout is detected automatically in
+    ``load()``.
+
+    Lifecycle: ``load()`` → many ``estimate()`` calls → ``close()``.
     """
 
     def __init__(
@@ -73,49 +86,70 @@ class PoseEstimator:
         self._infer_model: Any = None
         self._configured: Any = None
         self._exit_stack: Any = None
-        self._output_buf: Any = None
         self._input_h: int = 640
         self._input_w: int = 640
 
+        # Multi-output path (yolov8s_pose — 9 tensors)
+        self._multi_output: bool = False
+        self._out_bufs: dict[str, Any] = {}  # name → ndarray
+
+        # Single-output legacy path
+        self._output_buf: Any = None
+
     def load(self) -> None:
-        """Open HEF + allocate persistent input/output buffers."""
+        """Open HEF, detect output layout, allocate per-output buffers."""
         import numpy as np  # type: ignore[import]
 
         self._device = VDevice()
         self._infer_model = self._device.create_infer_model(str(self._hef_path))
         self._infer_model.set_batch_size(1)
         self._infer_model.input().set_format_type(FormatType.FLOAT32)
-        self._infer_model.output().set_format_type(FormatType.FLOAT32)
 
         input_info = self._infer_model.input()
         shape = input_info.shape  # (H, W, C)
         self._input_h = int(shape[0])
         self._input_w = int(shape[1])
 
-        output_info = self._infer_model.output()
-        output_shape = tuple(int(d) for d in output_info.shape)
+        outputs = list(self._infer_model.outputs)
+        self._multi_output = len(outputs) > 1
+
+        if self._multi_output:
+            # yolov8s_pose: 9 outputs — one buffer per output, keyed by name.
+            for o in outputs:
+                o.set_format_type(FormatType.FLOAT32)
+                self._out_bufs[o.name] = np.empty(tuple(int(d) for d in o.shape), dtype=np.float32)
+            logger.info(
+                "Pose HEF loaded: %s (multi-output, %d tensors, input %dx%d)",
+                self._hef_path.name,
+                len(outputs),
+                self._input_w,
+                self._input_h,
+            )
+        else:
+            # Legacy single-output layout.
+            outputs[0].set_format_type(FormatType.FLOAT32)
+            output_shape = tuple(int(d) for d in outputs[0].shape)
+            self._output_buf = np.empty(output_shape, dtype=np.float32)
+            logger.info(
+                "Pose HEF loaded: %s (single-output shape=%s, input %dx%d)",
+                self._hef_path.name,
+                output_shape,
+                self._input_w,
+                self._input_h,
+            )
 
         self._exit_stack = contextlib.ExitStack()
         self._configured = self._exit_stack.enter_context(self._infer_model.configure())
         activate_result = self._configured.activate()
         if hasattr(activate_result, "__enter__"):
             self._exit_stack.enter_context(activate_result)
-        self._output_buf = np.empty(output_shape, dtype=np.float32)
-
-        logger.info(
-            "Pose HEF loaded: %s (input %dx%d, output shape=%s)",
-            self._hef_path.name,
-            self._input_w,
-            self._input_h,
-            output_shape,
-        )
 
     def estimate(self, frame: Any, bbox: tuple[float, float, float, float]) -> Keypoints | None:
         """Extract 17 COCO keypoints for a single person crop.
 
-        ``frame`` is the full BGR frame (``ndarray``); ``bbox`` is normalized
-        ``(x1, y1, x2, y2)`` from the detector. Returns ``None`` when the crop
-        is empty or no detection clears the confidence threshold.
+        ``frame`` is the full BGR frame; ``bbox`` is normalised (x1,y1,x2,y2).
+        Returns ``None`` when the crop is empty or no detection clears the
+        confidence threshold.
         """
         import cv2  # type: ignore[import]
         import numpy as np  # type: ignore[import]
@@ -137,19 +171,106 @@ class PoseEstimator:
         crop_bgr = frame[py1:py2, px1:px2]
         crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(crop_rgb, (self._input_w, self._input_h))
-        input_tensor = np.ascontiguousarray(resized.astype(np.float32))
 
         bindings = self._configured.create_bindings()
-        bindings.input().set_buffer(input_tensor)
-        bindings.output().set_buffer(self._output_buf)
-        self._configured.run([bindings], timeout=1000)
 
-        raw = self._output_buf
-        # Output may be [num_anchors, 56] or [56, num_anchors].
+        if self._multi_output:
+            # Hailo Model Zoo models: calibrated on [0, 1] input.
+            input_tensor = np.ascontiguousarray(resized.astype(np.float32) / 255.0)
+            bindings.input().set_buffer(input_tensor)
+            for name, buf in self._out_bufs.items():
+                bindings.output(name).set_buffer(buf)
+            self._configured.run([bindings], timeout=1000)
+            kp_pts = self._decode_multi()
+        else:
+            # Legacy: calibrated on [0, 255].
+            input_tensor = np.ascontiguousarray(resized.astype(np.float32))
+            bindings.input().set_buffer(input_tensor)
+            bindings.output().set_buffer(self._output_buf)
+            self._configured.run([bindings], timeout=1000)
+            kp_pts = self._decode_single(self._output_buf)
+
+        if kp_pts is None:
+            return None
+
+        # Convert crop-relative [0, 1] → frame-normalised [0, 1].
+        points: list[tuple[float, float, float]] = [
+            (
+                (px1 + kp_x * crop_w) / w,
+                (py1 + kp_y * crop_h) / h,
+                vis,
+            )
+            for kp_x, kp_y, vis in kp_pts
+        ]
+        return Keypoints(points=points)
+
+    def _decode_multi(self) -> list[tuple[float, float, float]] | None:
+        """Decode yolov8s_pose 9-tensor output → 17 crop-relative [0,1] keypoints.
+
+        Groups tensors by spatial size.  For each scale picks the grid cell
+        with highest confidence.  The best cell across all three scales provides
+        the keypoints.
+
+        Channel legend (confirmed by HEF diagnostic):
+          [H, W, 64]  DFL bbox — ignored.
+          [H, W,  1]  confidence — sigmoid already applied by Hailo.
+          [H, W, 51]  keypoints — x,y in input-pixel coords [0, input_w/h],
+                      visibility is a raw logit.
+        """
+        import numpy as np  # type: ignore[import]
+
+        # Group output buffers by spatial dimensions (H, W).
+        by_scale: dict[tuple[int, int], dict[int, Any]] = {}
+        for _name, buf in self._out_bufs.items():
+            if buf.ndim != 3:
+                continue
+            bh, bw, bc = buf.shape
+            by_scale.setdefault((bh, bw), {})[bc] = buf
+
+        best_conf = self._confidence_threshold
+        best_kpts_raw: Any = None
+
+        for (_sh, sw), tensors in by_scale.items():
+            conf_map = tensors.get(1)  # [H, W, 1] — confidence
+            kpts_map = tensors.get(51)  # [H, W, 51] — keypoints
+            if conf_map is None or kpts_map is None:
+                continue
+
+            conf = conf_map[..., 0]  # [H, W]
+            # Defensive sigmoid: Hailo applies it, but guard against raw logits.
+            if float(conf.max()) > 1.01:
+                conf = 1.0 / (1.0 + np.exp(-conf.clip(-500, 500)))
+
+            idx = int(np.argmax(conf))
+            gy, gx = divmod(idx, sw)
+            score = float(conf[gy, gx])
+
+            if score > best_conf:
+                best_conf = score
+                best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
+
+        if best_kpts_raw is None:
+            return None
+
+        # Decode keypoints: x,y in input-pixel space → normalise to [0,1].
+        # Visibility is a raw logit → sigmoid.
+        kps = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
+        points: list[tuple[float, float, float]] = []
+        for kp_x, kp_y, kp_v in kps:
+            nx = float(kp_x) / self._input_w
+            ny = float(kp_y) / self._input_h
+            vis = _sigmoid(float(kp_v))
+            points.append((nx, ny, vis))
+        return points
+
+    def _decode_single(self, raw: Any) -> list[tuple[float, float, float]] | None:
+        """Decode legacy single-output [num_anchors, 56] layout."""
+        import numpy as np  # type: ignore[import]
+
         if raw.ndim == 2 and raw.shape[0] == _POSE_VECTOR_LEN:
             raw = raw.T
         if raw.ndim != 2 or raw.shape[1] != _POSE_VECTOR_LEN:
-            logger.debug("Unexpected pose output shape: %s", raw.shape)
+            logger.debug("Unexpected single-output pose shape: %s", raw.shape)
             return None
 
         confs = raw[:, 4]
@@ -157,18 +278,15 @@ class PoseEstimator:
         if confs[best_idx] < self._confidence_threshold:
             return None
 
-        # Each kp: (x, y, v) in model-input pixel coords [0, input_w/h].
         kps = raw[best_idx, 5:].reshape(NUM_KEYPOINTS, 3)
-        points: list[tuple[float, float, float]] = []
-        for kp_x, kp_y, kp_v in kps:
-            # Model-input coords → crop-relative [0, 1] → frame-normalized [0, 1].
-            nx_crop = float(kp_x) / self._input_w
-            ny_crop = float(kp_y) / self._input_h
-            frame_x = (px1 + nx_crop * crop_w) / w
-            frame_y = (py1 + ny_crop * crop_h) / h
-            points.append((frame_x, frame_y, float(kp_v)))
-
-        return Keypoints(points=points)
+        return [
+            (
+                float(kp_x) / self._input_w,
+                float(kp_y) / self._input_h,
+                float(kp_v),
+            )
+            for kp_x, kp_y, kp_v in kps
+        ]
 
     def close(self) -> None:
         if self._exit_stack is not None:
