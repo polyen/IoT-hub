@@ -63,8 +63,11 @@ async def ws_cv(camera_id: str, websocket: WebSocket) -> None:
     """Stream CV detections for a specific camera from Redis pub/sub."""
     await websocket.accept()
     try:
-        # Resolve camera_id (UUID) → room name so we can subscribe to the
-        # correct Redis channel (cv:detections:{room}) that the MQTT subscriber writes.
+        # Resolve camera_id (UUID) → MQTT room slug so we can subscribe to the
+        # correct Redis channel (cv:detections:{mqtt_room}) that the MQTT
+        # subscriber writes.  The slug comes from the CV service's ROOM env var
+        # (e.g. "living_room") stored in DevicePlacement.config["mqtt_room"].
+        # Fallback chain: config["mqtt_room"] → room.name → camera UUID.
         channel = f"cv:detections:{camera_id}"  # fallback
         try:
             uid = uuid.UUID(camera_id)
@@ -76,8 +79,12 @@ async def ws_cv(camera_id: str, websocket: WebSocket) -> None:
                     .limit(1)
                 )
                 placement = res.scalar_one_or_none()
-                if placement and placement.room:
-                    channel = f"cv:detections:{placement.room.name}"
+                if placement:
+                    mqtt_room: str | None = (placement.config or {}).get("mqtt_room")
+                    if mqtt_room:
+                        channel = f"cv:detections:{mqtt_room}"
+                    elif placement.room:
+                        channel = f"cv:detections:{placement.room.name}"
         except Exception:
             pass  # keep fallback channel
 
