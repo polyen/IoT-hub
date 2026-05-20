@@ -28,6 +28,6 @@ stages:
     outs:
     - path: runs/fire_smoke
       hash: md5
-      md5: b3209de5b4a650f0c4d34c854cde460e.dir
+      md5: f81edc4af66c0cca46cdff189feb267d.dir
       size: 26295312
       nfiles: 25

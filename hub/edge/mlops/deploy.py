@@ -427,10 +427,16 @@ class ModelStore:
         self.validate_on_holdout(candidate_path=hef_path)
 
         # Atomic symlink swap via temp link + os.replace (POSIX, same fs).
+        # The link target is stored RELATIVE to models_dir so it resolves
+        # correctly regardless of where the models tree is mounted: the
+        # cv/backend containers see it at /app/models, while the host-side
+        # iot-hub-cv systemd service sees it at /opt/iot-hub/models. An
+        # absolute container path (/app/models/...) would dangle on the host.
+        rel_target = os.path.relpath(hef_path, self.models_dir)
         tmp_link = self.models_dir / f"active_{self.kind}.tmp.hef"
         if tmp_link.exists() or tmp_link.is_symlink():
             tmp_link.unlink()
-        tmp_link.symlink_to(hef_path)
+        tmp_link.symlink_to(rel_target)
         os.replace(tmp_link, self.active_link)
 
         # Keep legacy current.hef alias for yolo kind so older code (pipeline.py
@@ -439,7 +445,7 @@ class ModelStore:
             tmp_alias = self.models_dir / "active_legacy.tmp.hef"
             if tmp_alias.exists() or tmp_alias.is_symlink():
                 tmp_alias.unlink()
-            tmp_alias.symlink_to(hef_path)
+            tmp_alias.symlink_to(rel_target)
             os.replace(tmp_alias, self._legacy_alias)
 
         record = DeploymentRecord(

@@ -156,6 +156,14 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
             cap.release()
 
 
+# How often (seconds) the pipeline re-checks its model symlinks for an
+# out-of-band swap by ModelStore.promote(). This is the reload path for the
+# host systemd deployment, where `docker kill --signal=SIGHUP cv` can't reach
+# the pipeline (see CLAUDE.md prod gotcha). SIGHUP still works for the
+# containerised deployment.
+MODEL_POLL_INTERVAL_SEC = 5.0
+
+
 class CVPipeline:
     """Stateful cascade pipeline with SIGHUP-triggered model reload.
 
@@ -196,6 +204,10 @@ class CVPipeline:
         self._tracker = ObjectTracker()
         self._fall = FallDetector()
         self._reload_requested = False
+        # Fingerprint of the active model symlinks; refreshed on every
+        # _load_models() and polled in run() to self-trigger reloads.
+        self._model_sig: tuple[Any, ...] = ()
+        self._last_model_check = 0.0
 
     def _load_models(self) -> None:
         """Load (or reload) detector + pose models from their HEF paths.
@@ -252,6 +264,28 @@ class CVPipeline:
                 self._face = None
         else:
             self._face = None
+
+        self._model_sig = self._model_signature()
+
+    def _model_signature(self) -> tuple[Any, ...]:
+        """Cheap fingerprint of the active model symlinks.
+
+        Each entry follows the symlink to its target file and records
+        (inode, mtime, size). It changes whenever ModelStore.promote() swaps a
+        ``current_*.hef`` symlink to a different version, letting run() detect
+        an out-of-band deploy and self-reload when SIGHUP can't reach us.
+        """
+        sig: list[Any] = []
+        for p in (self.hef_path, self.pose_hef_path, self.face_hef_path):
+            if p is None:
+                sig.append(None)
+                continue
+            try:
+                st = p.stat()  # follows symlink → target's inode/mtime/size
+                sig.append((st.st_ino, int(st.st_mtime), st.st_size))
+            except OSError:
+                sig.append(None)
+        return tuple(sig)
 
     def request_reload(self) -> None:
         """Set the reload flag — picked up at the start of the next frame."""
@@ -343,6 +377,14 @@ class CVPipeline:
                         logger.info("MQTT connected to %s:%d", self.mqtt_host, self.mqtt_port)
                         _mqtt_retry_delay = 5  # reset on successful connect
                         async for frame in _capture_frames(self.rtsp_url, self.target_fps):
+                            now = time.monotonic()
+                            if now - self._last_model_check >= MODEL_POLL_INTERVAL_SEC:
+                                self._last_model_check = now
+                                sig = self._model_signature()
+                                if sig != self._model_sig:
+                                    logger.info("Model symlink change detected — reload queued")
+                                    self._reload_requested = True
+
                             if self._reload_requested:
                                 try:
                                     self._load_models()
