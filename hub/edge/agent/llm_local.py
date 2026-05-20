@@ -41,9 +41,13 @@ class LocalLLMClient:
             }
             if stop:
                 payload["stop"] = stop
-            resp = await client.post(f"{self._base_url}/completion", json=payload)
+            resp = await client.post(f"{self._base_url}/v1/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
+            # OpenAI-compatible response: choices[0].text
+            choices = data.get("choices")
+            if choices:
+                return str(choices[0].get("text", ""))
             return str(data.get("content", ""))
 
     async def generate_constrained(
@@ -61,17 +65,20 @@ class LocalLLMClient:
                 "grammar": grammar,
                 "stream": False,
             }
-            resp = await client.post(f"{self._base_url}/completion", json=payload)
+            resp = await client.post(f"{self._base_url}/v1/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
-            content = str(data.get("content", "{}"))
+            choices = data.get("choices")
+            content = (
+                str(choices[0].get("text", "{}")) if choices else str(data.get("content", "{}"))
+            )
             return dict(json.loads(content))
 
     async def health(self) -> bool:
         """Return True if LLM server is reachable."""
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                resp = await client.get(f"{self._base_url}/health")
+                resp = await client.get(f"{self._base_url}/v1/models")
                 return resp.status_code == 200
         except Exception:
             return False
