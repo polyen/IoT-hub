@@ -164,6 +164,25 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
 MODEL_POLL_INTERVAL_SEC = 5.0
 
 
+def _fetch_pipeline_config(backend_url: str) -> dict[str, Any] | None:
+    """Blocking GET of the CV pipeline config from the backend.
+
+    Returns the parsed JSON (``{"room": ..., "camera_id": ...}``) or None on
+    any failure — caller falls back to the current/env room. Runs in an
+    executor so it never blocks the frame loop.
+    """
+    import urllib.request
+
+    url = f"{backend_url.rstrip('/')}/api/cv/pipeline-config"
+    try:
+        with urllib.request.urlopen(url, timeout=3) as resp:
+            data: dict[str, Any] = json.loads(resp.read())
+            return data
+    except Exception as exc:  # noqa: BLE001 — best-effort; keep current room
+        logger.debug("pipeline-config fetch failed (%s) — keeping room %s", exc, "")
+        return None
+
+
 class CVPipeline:
     """Stateful cascade pipeline with SIGHUP-triggered model reload.
 
@@ -186,6 +205,7 @@ class CVPipeline:
         confidence_threshold: float = 0.5,
         face_hef_path: Path | None = None,
         face_embeddings_path: Path | None = None,
+        backend_url: str = "http://localhost:8000",
     ) -> None:
         self.rtsp_url = rtsp_url
         self.hef_path = hef_path
@@ -194,7 +214,12 @@ class CVPipeline:
         self.face_embeddings_path = face_embeddings_path
         self.mqtt_host = mqtt_host
         self.mqtt_port = mqtt_port
+        # `room` is the publish slug. It seeds from the ROOM env, but the
+        # backend is the source of truth — _refresh_room() overrides it from
+        # the camera's floor-plan placement so moving the camera in the editor
+        # re-targets publishing with no env change or restart.
         self.room = room
+        self.backend_url = backend_url
         self.target_fps = target_fps
         self.confidence_threshold = confidence_threshold
 
@@ -295,6 +320,21 @@ class CVPipeline:
         logger.info("SIGHUP received — model reload queued for next frame")
         self._reload_requested = True
 
+    async def _refresh_room(self) -> None:
+        """Re-fetch the camera's room slug from the backend and adopt it.
+
+        The backend resolves the camera's floor-plan placement → room slug, so
+        moving the camera to another room in the editor re-targets publishing
+        live. On any fetch failure the current room is kept unchanged.
+        """
+        cfg = await asyncio.get_event_loop().run_in_executor(
+            None, _fetch_pipeline_config, self.backend_url
+        )
+        room = cfg.get("room") if cfg else None
+        if room and str(room) != self.room:
+            logger.info("Room reassigned by backend: %s -> %s", self.room, room)
+            self.room = str(room)
+
     def _detection_dict(self, track: Track) -> dict[str, Any]:
         """One detection entry inside the per-frame camera/event payload."""
         det = track.detection
@@ -366,6 +406,7 @@ class CVPipeline:
     async def run(self) -> None:
         """Main pipeline loop. Runs until cancelled."""
         self._load_models()
+        await self._refresh_room()  # adopt the backend's room before publishing
 
         frame_count = 0
         fps_window_start = time.monotonic()
@@ -381,6 +422,7 @@ class CVPipeline:
                             now = time.monotonic()
                             if now - self._last_model_check >= MODEL_POLL_INTERVAL_SEC:
                                 self._last_model_check = now
+                                await self._refresh_room()
                                 sig = self._model_signature()
                                 if sig != self._model_sig:
                                     logger.info("Model symlink change detected — reload queued")
@@ -472,6 +514,7 @@ async def run_pipeline_with_fusion(
     enable_fusion: bool = True,
     face_hef_path: Path | None = None,
     face_embeddings_path: Path | None = None,
+    backend_url: str = "http://localhost:8000",
 ) -> None:
     """Top-level entry: run the cascade + FusionEngine concurrently.
 
@@ -489,6 +532,7 @@ async def run_pipeline_with_fusion(
         confidence_threshold=confidence_threshold,
         face_hef_path=face_hef_path,
         face_embeddings_path=face_embeddings_path,
+        backend_url=backend_url,
     )
 
     loop = asyncio.get_running_loop()
@@ -553,7 +597,10 @@ if __name__ == "__main__":
             face_embeddings_path=Path(face_emb_env) if face_emb_env else None,
             mqtt_host=os.environ.get("MQTT_HOST", "mosquitto"),
             mqtt_port=int(os.environ.get("MQTT_PORT", "1883")),
+            # ROOM is only the startup fallback — the backend (camera's
+            # floor-plan placement) is the source of truth, see _refresh_room.
             room=os.environ.get("ROOM", "living_room"),
+            backend_url=os.environ.get("BACKEND_URL", "http://localhost:8000"),
             target_fps=int(os.environ.get("TARGET_FPS", "15")),
             enable_fusion=os.environ.get("ENABLE_FUSION", "true").lower() == "true",
         )

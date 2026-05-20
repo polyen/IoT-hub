@@ -18,7 +18,11 @@ Environment=HEF_PATH=/opt/iot-hub/models/current_yolo.hef
 Environment=POSE_HEF_PATH=/opt/iot-hub/models/current_pose.hef
 Environment=MQTT_HOST=127.0.0.1
 Environment=MQTT_PORT=1883
+# ROOM is only the startup fallback — the pipeline polls BACKEND_URL
+# /api/cv/pipeline-config and adopts the room of the camera's floor-plan
+# placement, so moving the camera in the editor needs no change here.
 Environment=ROOM=living_room
+Environment=BACKEND_URL=http://localhost:8000
 Environment=TARGET_FPS=15
 Environment=METRICS_PORT=8002
 Environment=ENABLE_FUSION=true

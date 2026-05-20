@@ -58,6 +58,30 @@ async def snapshot(camera_id: str, session: SessionDep) -> dict[str, Any]:
     return {"camera_id": camera_id, "frame_url": cfg.get("snapshot_url")}
 
 
+@router.get("/api/cv/pipeline-config")
+async def pipeline_config(session: SessionDep) -> dict[str, Any]:
+    """CV pipeline self-config: which room slug to publish detections under.
+
+    The edge CV pipeline polls this so moving the camera between rooms in the
+    floor-plan editor re-targets its MQTT room with no env change or restart.
+    Single-camera assumption — returns the first camera placement.
+    """
+    res = await session.execute(
+        select(DevicePlacement)
+        .options(selectinload(DevicePlacement.room))
+        .where(DevicePlacement.kind == "camera")
+        .limit(1)
+    )
+    placement = res.scalar_one_or_none()
+    if placement is None or placement.room is None:
+        return {"room": None, "camera_id": None}
+    cfg: dict[str, Any] = placement.config or {}
+    return {
+        "room": cfg.get("mqtt_room") or placement.room.slug,
+        "camera_id": str(placement.id),
+    }
+
+
 @router.websocket("/ws/cv/{camera_id}")
 async def ws_cv(camera_id: str, websocket: WebSocket) -> None:
     """Stream CV detections for a specific camera from Redis pub/sub."""
