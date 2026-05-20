@@ -18,10 +18,10 @@ mkdir -p "${MODEL_DIR}"
 # Sanity check: MODEL_PATH should look like it matches MODEL_URL by basename.
 # This catches the historical bug where the Dockerfile said qwen3.5-4b but the
 # URL pointed at qwen2.5-3b → operator silently got the wrong model.
-url_basename="$(basename "${MODEL_URL%%\?*}")"
-path_basename="$(basename "${MODEL_PATH}")"
+url_basename="$(basename "${MODEL_URL%%\?*}" | tr '[:upper:]' '[:lower:]')"
+path_basename="$(basename "${MODEL_PATH}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${url_basename}" != "${path_basename}" ]]; then
-    echo "[ERROR] MODEL_URL basename (${url_basename}) does not match MODEL_PATH basename (${path_basename})." >&2
+    echo "[ERROR] MODEL_URL basename ($(basename "${MODEL_URL%%\?*}")) does not match MODEL_PATH basename ($(basename "${MODEL_PATH}"))." >&2
     echo "[ERROR] Refusing to download — the file would be misnamed and downstream code would load the wrong model." >&2
     exit 2
 fi
