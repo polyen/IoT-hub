@@ -4,31 +4,74 @@ const { chromium } = require('@playwright/test');
   const executablePath = process.argv[2];
   const browser = await chromium.launch({ headless: true, executablePath });
 
-  // Zoom into the bottom nav area
-  async function shotCrop(name, url, theme, w, h, cropY) {
-    const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme === 'light' ? 'light' : 'dark' });
-    const page = await ctx.newPage();
-    await page.addInitScript((t) => localStorage.setItem('theme', t), theme);
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
-    await page.waitForTimeout(800);
-    await page.screenshot({ path: `/tmp/${name}.png`, clip: { x: 0, y: cropY, width: w, height: h - cropY } });
-    await ctx.close();
-    console.log(`saved /tmp/${name}.png`);
-  }
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  await page.addInitScript(() => localStorage.setItem('theme', 'dark'));
+  await page.goto('http://localhost:3456/more/events', { waitUntil: 'networkidle', timeout: 15000 });
 
-  await shotCrop('nav_dark', 'http://localhost:3456/', 'dark', 375, 812, 700);
-  await shotCrop('nav_light', 'http://localhost:3456/', 'light', 375, 812, 700);
-  await shotCrop('nav_more', 'http://localhost:3456/more', 'dark', 375, 812, 700);
+  // Inject mock events into the WebSocket IDB cache, then reload
+  await page.evaluate(() => {
+    const now = new Date();
+    const ts = (offsetMin) => new Date(now - offsetMin * 60000).toISOString();
 
-  // Also grab the sidebar brand area
-  const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+    const mockEvents = [
+      { id: "1", type: "fire", room: "Кухня", tier: 0, timestamp: ts(1), payload: { class: "fire", conf: 0.92 }, model_version: "yolo26n-v3" },
+      { id: "2", type: "camera/identity", room: "Вітальня", tier: 1, timestamp: ts(3), payload: { name: "Влад", confidence: 0.97, track_id: 4 }, model_version: null },
+      { id: "3", type: "stranger", room: "Коридор", tier: 0, timestamp: ts(7), payload: { conf: 0.78, track_id: 9 }, model_version: null },
+      { id: "4", type: "fall_detected", room: "Спальня", tier: 0, timestamp: ts(12), payload: { confidence: 0.89 }, model_version: "yolov8s_pose" },
+      { id: "5", type: "sensor/dht", room: "Кухня", tier: 2, timestamp: ts(15), payload: { temperature: 23.4, humidity: 61.0 }, model_version: null },
+      { id: "6", type: "motion", room: "Коридор", tier: 2, timestamp: ts(22), payload: { pir: true }, model_version: null },
+      { id: "7", type: "sensor/mq2", room: "Кухня", tier: 1, timestamp: ts(35), payload: { ppm: 87, raw: 312 }, model_version: null },
+      { id: "8", type: "camera/event", room: "Вітальня", tier: 1, timestamp: ts(48), payload: { class: "person", conf: 0.95, track_id: 2 }, model_version: "yolo26n-v3" },
+      { id: "9", type: "sensor/door", room: "Коридор", tier: 2, timestamp: ts(60), payload: { open: true }, model_version: null },
+    ];
+
+    // Write to IDB
+    const req = indexedDB.open("iot-hub", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("events", { keyPath: "id" });
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction("events", "readwrite");
+      const store = tx.objectStore("events");
+      mockEvents.forEach(e => store.put(e));
+    };
+  });
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(1000);
+
+  await page.screenshot({ path: '/tmp/events_dark_mobile.png' });
+  await ctx.close();
+
+  // Light mode
+  const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'light' });
   const page2 = await ctx2.newPage();
-  await page2.addInitScript(() => localStorage.setItem('theme', 'dark'));
-  await page2.goto('http://localhost:3456/', { waitUntil: 'networkidle', timeout: 15000 });
-  await page2.waitForTimeout(800);
-  await page2.screenshot({ path: '/tmp/sidebar_brand.png', clip: { x: 0, y: 0, width: 240, height: 900 } });
+  await page2.addInitScript(() => localStorage.setItem('theme', 'light'));
+  await page2.goto('http://localhost:3456/more/events', { waitUntil: 'networkidle', timeout: 15000 });
+  await page2.evaluate(() => {
+    const now = new Date();
+    const ts = (offsetMin) => new Date(now - offsetMin * 60000).toISOString();
+    const mockEvents = [
+      { id: "1", type: "fire", room: "Кухня", tier: 0, timestamp: ts(1), payload: { class: "fire", conf: 0.92 }, model_version: "yolo26n-v3" },
+      { id: "2", type: "camera/identity", room: "Вітальня", tier: 1, timestamp: ts(3), payload: { name: "Влад", confidence: 0.97, track_id: 4 }, model_version: null },
+      { id: "3", type: "stranger", room: "Коридор", tier: 0, timestamp: ts(7), payload: { conf: 0.78, track_id: 9 }, model_version: null },
+      { id: "4", type: "fall_detected", room: "Спальня", tier: 0, timestamp: ts(12), payload: { confidence: 0.89 }, model_version: "yolov8s_pose" },
+      { id: "5", type: "sensor/dht", room: "Кухня", tier: 2, timestamp: ts(15), payload: { temperature: 23.4, humidity: 61.0 }, model_version: null },
+      { id: "6", type: "motion", room: "Коридор", tier: 2, timestamp: ts(22), payload: { pir: true }, model_version: null },
+    ];
+    const req = indexedDB.open("iot-hub", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("events", { keyPath: "id" });
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction("events", "readwrite");
+      const store = tx.objectStore("events");
+      mockEvents.forEach(e => store.put(e));
+    };
+  });
+  await page2.reload({ waitUntil: 'networkidle' });
+  await page2.waitForTimeout(1000);
+  await page2.screenshot({ path: '/tmp/events_light_mobile.png' });
   await ctx2.close();
-  console.log('saved /tmp/sidebar_brand.png');
 
   await browser.close();
   console.log('done');
