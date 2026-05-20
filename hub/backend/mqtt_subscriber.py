@@ -29,7 +29,11 @@ SUBSCRIPTIONS = [
     "home/+/sensors",
     "home/+/alert",
     "home/+/camera/event",
+    "home/+/camera/identity",
 ]
+
+# How long a face recognition result is cached in Redis for overlay enrichment.
+_IDENTITY_TTL_SEC = 10
 
 _DEAD_LETTER_KEY = "mqtt:dead-letter"
 _DEAD_LETTER_MAX = 1000
@@ -92,6 +96,13 @@ async def _handle(
     # the live-overlay channel, but only newly-seen tracks hit the DB.
     if type_ == "camera/event":
         await _handle_camera_event(redis_client, room, tier, payload)
+        MQTT_MSGS.labels(topic=type_, status="ok").inc()
+        return
+
+    # Face recognition results are cached in Redis (for overlay enrichment) and
+    # persisted to DB only for non-"unknown" identities to avoid log flooding.
+    if type_ == "camera/identity":
+        await _handle_identity_event(redis_client, room, tier, payload)
         MQTT_MSGS.labels(topic=type_, status="ok").inc()
         return
 
@@ -167,6 +178,29 @@ def _new_tracks(room: str, dets: list[Any]) -> list[dict[str, Any]]:
     return new
 
 
+async def _handle_identity_event(
+    redis_client: _RedisClient,
+    room: str | None,
+    tier: int,
+    payload: dict[str, Any],
+) -> None:
+    """Cache face recognition result in Redis and persist known/uncertain identities to DB."""
+    if not room:
+        return
+    track_id = payload.get("track_id")
+    identity = payload.get("identity", "unknown")
+
+    if track_id is not None:
+        key = f"cv:identity:{room}:{track_id}"
+        result = redis_client.setex(key, _IDENTITY_TTL_SEC, str(identity))
+        if isinstance(result, Awaitable):
+            await result
+
+    # Don't persist pure-unknown hits — they're too noisy and carry no information.
+    if identity != "unknown":
+        await _persist_event(redis_client, room, "camera/identity", tier, payload)
+
+
 async def _handle_camera_event(
     redis_client: _RedisClient,
     room: str | None,
@@ -179,28 +213,38 @@ async def _handle_camera_event(
     The whole frame is forwarded to ``cv:detections:{room}`` every time so the
     UI overlay stays current; a DB event is written only for track_ids not
     seen recently (see _new_tracks), so the feed shows one row per object.
+
+    Each person detection is enriched with the latest cached face identity from
+    Redis (key ``cv:identity:{room}:{track_id}``), so the frontend overlay can
+    show names without waiting for the next identity inference cycle.
     """
     dets = payload.get("dets")
     if not room or not isinstance(dets, list):
         return
 
-    # 1. Live overlay — forward the whole frame every time.
-    cv_frame = json.dumps(
-        {
-            "ts": datetime.now(UTC).isoformat(),
-            "dets": [
-                {
-                    "bbox": d.get("bbox", []),
-                    "cls": d.get("label", "unknown"),
-                    "conf": d.get("confidence", 0.0),
-                    "track_id": d.get("track_id"),
-                    "face_id": d.get("face_id"),
-                }
-                for d in dets
-                if isinstance(d, dict)
-            ],
+    # 1. Build enriched detection list, injecting cached face identities.
+    enriched: list[dict[str, Any]] = []
+    for d in dets:
+        if not isinstance(d, dict):
+            continue
+        det: dict[str, Any] = {
+            "bbox": d.get("bbox", []),
+            "cls": d.get("label", "unknown"),
+            "conf": d.get("confidence", 0.0),
+            "track_id": d.get("track_id"),
+            "face_id": d.get("face_id"),
         }
-    )
+        tid = d.get("track_id")
+        if tid is not None:
+            cached = redis_client.get(f"cv:identity:{room}:{tid}")
+            if isinstance(cached, Awaitable):
+                cached = await cached
+            if cached is not None:
+                det["face_id"] = cached.decode() if isinstance(cached, bytes) else str(cached)
+        enriched.append(det)
+
+    # 2. Live overlay — forward the whole frame every time.
+    cv_frame = json.dumps({"ts": datetime.now(UTC).isoformat(), "dets": enriched})
     await redis_client.publish(f"cv:detections:{room}", cv_frame)
 
     # 2. Persist one DB event per newly-appeared track.

@@ -37,7 +37,9 @@ export function DetectionOverlay({ frame, videoWidth, videoHeight, visible }: Pr
       const rw = (x2 - x1) * videoWidth;
       const rh = (y2 - y1) * videoHeight;
 
-      const color = CLS_COLORS[det.cls] ?? "#94a3b8";
+      const effectiveCls =
+        det.face_id === "unknown" ? "stranger" : det.cls;
+      const color = CLS_COLORS[effectiveCls] ?? "#94a3b8";
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.strokeRect(rx, ry, rw, rh);
