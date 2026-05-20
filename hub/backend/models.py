@@ -166,6 +166,9 @@ class Room(Base):
         index=True,
     )
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # Stable ASCII MQTT identity (home/{slug}/..., cv:detections:{slug}).
+    # Generated from `name` on create — see hub.backend.slug.slugify_room.
+    slug: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     polygon: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     color: Mapped[str | None] = mapped_column(String(16))

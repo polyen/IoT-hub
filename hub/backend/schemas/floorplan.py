@@ -11,6 +11,7 @@ class RoomOut(BaseModel):
     id: uuid.UUID
     floor_plan_id: uuid.UUID
     name: str
+    slug: str
     type: str
     polygon: list[list[float]]
     color: str | None

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -25,7 +25,7 @@ async def list_cameras(session: SessionDep) -> list[CameraOut]:
     res = await session.execute(select(DevicePlacement).where(DevicePlacement.kind == "camera"))
     cameras: list[CameraOut] = []
     for p in res.scalars():
-        cfg: dict = p.config or {}
+        cfg: dict[str, Any] = p.config or {}
         stream_hls = cfg.get("stream_hls") or f"/hls/{p.device_id}/index.m3u8"
         cameras.append(
             CameraOut(
@@ -40,7 +40,7 @@ async def list_cameras(session: SessionDep) -> list[CameraOut]:
 
 
 @router.post("/api/cv/cameras/{camera_id}/snapshot")
-async def snapshot(camera_id: str, session: SessionDep) -> dict:
+async def snapshot(camera_id: str, session: SessionDep) -> dict[str, Any]:
     """Return current frame URL for a camera (from config or MediaMTX)."""
     try:
         uid = uuid.UUID(camera_id)
@@ -54,7 +54,7 @@ async def snapshot(camera_id: str, session: SessionDep) -> dict:
     placement = res.scalar_one_or_none()
     if not placement:
         raise HTTPException(status_code=404, detail="Camera not found")
-    cfg: dict = placement.config or {}
+    cfg: dict[str, Any] = placement.config or {}
     return {"camera_id": camera_id, "frame_url": cfg.get("snapshot_url")}
 
 
@@ -64,10 +64,10 @@ async def ws_cv(camera_id: str, websocket: WebSocket) -> None:
     await websocket.accept()
     try:
         # Resolve camera_id (UUID) → MQTT room slug so we can subscribe to the
-        # correct Redis channel (cv:detections:{mqtt_room}) that the MQTT
-        # subscriber writes.  The slug comes from the CV service's ROOM env var
-        # (e.g. "living_room") stored in DevicePlacement.config["mqtt_room"].
-        # Fallback chain: config["mqtt_room"] → room.name → camera UUID.
+        # correct Redis channel (cv:detections:{slug}) that the MQTT subscriber
+        # writes. The slug is the room's stable MQTT identity and must match the
+        # CV service's ROOM env var (see hub.backend.slug).
+        # Fallback chain: config["mqtt_room"] override → room.slug → camera UUID.
         channel = f"cv:detections:{camera_id}"  # fallback
         try:
             uid = uuid.UUID(camera_id)
@@ -84,7 +84,7 @@ async def ws_cv(camera_id: str, websocket: WebSocket) -> None:
                     if mqtt_room:
                         channel = f"cv:detections:{mqtt_room}"
                     elif placement.room:
-                        channel = f"cv:detections:{placement.room.name}"
+                        channel = f"cv:detections:{placement.room.slug}"
         except Exception:
             pass  # keep fallback channel
 

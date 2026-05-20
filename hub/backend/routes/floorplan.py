@@ -19,6 +19,7 @@ from hub.backend.schemas.floorplan import (
     FloorPlanOut,
     RoomOut,
 )
+from hub.backend.slug import slugify_room
 
 router = APIRouter(prefix="/api/floorplan", tags=["floorplan"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -61,8 +62,15 @@ async def get_floorplan(session: SessionDep) -> FloorPlanDataOut:
         plan = FloorPlan(name="Мій дім", floor=1, width=1.0, height=0.7)
         session.add(plan)
         await session.flush()
+        seed_taken: set[str] = set()
         for rd in DEFAULT_ROOMS:
-            session.add(Room(floor_plan_id=plan.id, **rd))
+            session.add(
+                Room(
+                    floor_plan_id=plan.id,
+                    slug=slugify_room(str(rd["name"]), seed_taken),
+                    **rd,
+                )
+            )
         await session.commit()
         await session.refresh(plan)
         plans = [plan]
@@ -104,11 +112,13 @@ async def put_floorplan(body: FloorPlanIn, session: SessionDep) -> FloorPlanData
     await session.flush()
 
     room_id_map: dict[str, uuid.UUID] = {}
+    slug_taken: set[str] = set()
     for ri in body.rooms:
         room = Room(
             id=ri.id or uuid.uuid4(),
             floor_plan_id=plan.id,
             name=ri.name,
+            slug=slugify_room(ri.name, slug_taken),
             type=ri.type,
             polygon=ri.polygon,
             color=ri.color,
