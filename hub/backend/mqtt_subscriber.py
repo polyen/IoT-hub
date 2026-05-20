@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Any
@@ -34,6 +35,12 @@ _DEAD_LETTER_KEY = "mqtt:dead-letter"
 _DEAD_LETTER_MAX = 1000
 
 _RedisClient = Any
+
+# Per-room {track_id: last-seen monotonic ts}. A camera detection is persisted
+# to the DB only when its track_id is absent here — i.e. the object just
+# entered frame — so the events feed shows one row per object, not per frame.
+_SEEN_TRACK_TTL_SEC = 10.0
+_seen_tracks: dict[str, dict[Any, float]] = {}
 
 
 async def run(redis_client: _RedisClient) -> None:
@@ -81,6 +88,31 @@ async def _handle(
         MQTT_MSGS.labels(topic=type_, status="dead_letter").inc()
         return
 
+    # Camera detections take a separate path: the whole frame is bridged to
+    # the live-overlay channel, but only newly-seen tracks hit the DB.
+    if type_ == "camera/event":
+        await _handle_camera_event(redis_client, room, tier, payload)
+        MQTT_MSGS.labels(topic=type_, status="ok").inc()
+        return
+
+    if await _persist_event(redis_client, room, type_, tier, payload) is None:
+        MQTT_MSGS.labels(topic=type_, status="db_error").inc()
+        return
+
+    MQTT_MSGS.labels(topic=type_, status="ok").inc()
+
+
+async def _persist_event(
+    redis_client: _RedisClient,
+    room: str | None,
+    type_: str,
+    tier: int,
+    payload: dict[str, Any],
+) -> Event | None:
+    """Write one Event row and notify WebSocket subscribers.
+
+    Returns the persisted Event, or None if the DB write failed.
+    """
     event = Event(
         timestamp=datetime.now(UTC),
         room=room,
@@ -89,20 +121,16 @@ async def _handle(
         payload=payload,
         model_version=payload.get("model_version"),
     )
-
     try:
         async with AsyncSessionLocal() as session:
             session.add(event)
             await session.commit()
             await session.refresh(event)
     except Exception as exc:
-        logger.error("DB write failed for topic %s: %s", topic_str, exc, exc_info=True)
-        MQTT_MSGS.labels(topic=type_, status="db_error").inc()
-        return
+        logger.error("DB write failed for type %s: %s", type_, exc, exc_info=True)
+        return None
 
     logger.info("Saved event id=%s type=%s room=%s", event.id, type_, room)
-
-    # Publish to WebSocket subscribers
     await redis_client.publish(
         "events:new",
         json.dumps(
@@ -117,26 +145,76 @@ async def _handle(
             }
         ),
     )
+    return event
 
-    # Bridge camera detections to per-room CV WebSocket channel
-    if type_ == "camera/event" and room and payload.get("event_type") == "detection":
-        cv_frame = json.dumps(
-            {
-                "ts": event.timestamp.isoformat(),
-                "dets": [
-                    {
-                        "bbox": payload.get("bbox", []),
-                        "cls": payload.get("label", "unknown"),
-                        "conf": payload.get("confidence", 0.0),
-                        "track_id": payload.get("track_id"),
-                        "face_id": payload.get("face_id"),
-                    }
-                ],
-            }
-        )
-        await redis_client.publish(f"cv:detections:{room}", cv_frame)
 
-    MQTT_MSGS.labels(topic=type_, status="ok").inc()
+def _new_tracks(room: str, dets: list[Any]) -> list[dict[str, Any]]:
+    """Return detections whose track_id was not seen within the TTL window."""
+    now = time.monotonic()
+    seen = _seen_tracks.setdefault(room, {})
+    for tid in [t for t, ts in seen.items() if now - ts > _SEEN_TRACK_TTL_SEC]:
+        del seen[tid]
+    new: list[dict[str, Any]] = []
+    for det in dets:
+        if not isinstance(det, dict):
+            continue
+        tid = det.get("track_id")
+        if tid is None:
+            continue
+        if tid not in seen:
+            new.append(det)
+        seen[tid] = now
+    return new
+
+
+async def _handle_camera_event(
+    redis_client: _RedisClient,
+    room: str | None,
+    tier: int,
+    payload: dict[str, Any],
+) -> None:
+    """Bridge a per-frame camera/event to the live overlay and persist new tracks.
+
+    The pipeline publishes one camera/event per frame with a ``dets`` array.
+    The whole frame is forwarded to ``cv:detections:{room}`` every time so the
+    UI overlay stays current; a DB event is written only for track_ids not
+    seen recently (see _new_tracks), so the feed shows one row per object.
+    """
+    dets = payload.get("dets")
+    if not room or not isinstance(dets, list):
+        return
+
+    # 1. Live overlay — forward the whole frame every time.
+    cv_frame = json.dumps(
+        {
+            "ts": datetime.now(UTC).isoformat(),
+            "dets": [
+                {
+                    "bbox": d.get("bbox", []),
+                    "cls": d.get("label", "unknown"),
+                    "conf": d.get("confidence", 0.0),
+                    "track_id": d.get("track_id"),
+                    "face_id": d.get("face_id"),
+                }
+                for d in dets
+                if isinstance(d, dict)
+            ],
+        }
+    )
+    await redis_client.publish(f"cv:detections:{room}", cv_frame)
+
+    # 2. Persist one DB event per newly-appeared track.
+    for det in _new_tracks(room, dets):
+        det_payload = {
+            "room": room,
+            "event_type": "detection",
+            "label": det.get("label", "unknown"),
+            "confidence": det.get("confidence", 0.0),
+            "bbox": det.get("bbox", []),
+            "track_id": det.get("track_id"),
+            "tier": tier,
+        }
+        await _persist_event(redis_client, room, "camera/event", tier, det_payload)
 
 
 async def _dead_letter(

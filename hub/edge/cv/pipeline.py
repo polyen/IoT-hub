@@ -8,7 +8,7 @@ Pipeline composition (T2.13):
     Stage 5  ArcFace recognition (Hailo)     -> Identity        [optional,
              throttled 1×/sec/track]
     Stage 6  MQTT publish:
-                home/{room}/camera/event     (every detection)
+                home/{room}/camera/event     (one per frame, all detections)
                 home/{room}/camera/identity  (face recognition results)
                 home/{room}/alert            (fall events)
 
@@ -204,6 +204,9 @@ class CVPipeline:
         self._tracker = ObjectTracker()
         self._fall = FallDetector()
         self._reload_requested = False
+        # Whether the previous frame published any detections — drives a single
+        # trailing empty camera/event so the UI overlay clears on an empty room.
+        self._had_dets = False
         # Fingerprint of the active model symlinks; refreshed on every
         # _load_models() and polled in run() to self-trigger reloads.
         self._model_sig: tuple[Any, ...] = ()
@@ -292,16 +295,14 @@ class CVPipeline:
         logger.info("SIGHUP received — model reload queued for next frame")
         self._reload_requested = True
 
-    def _publish_detection_payload(self, track: Track) -> dict[str, Any]:
+    def _detection_dict(self, track: Track) -> dict[str, Any]:
+        """One detection entry inside the per-frame camera/event payload."""
         det = track.detection
         return {
-            "room": self.room,
-            "event_type": "detection",
             "label": det.label,
             "confidence": det.confidence,
             "bbox": list(det.bbox),
             "track_id": track.track_id,
-            "tier": 1,
         }
 
     async def _maybe_run_face(self, frame: Any, track: Track, mqtt: Any) -> None:
@@ -419,15 +420,32 @@ class CVPipeline:
                                 frame_count = 0
                                 fps_window_start = time.monotonic()
 
+                            det_dicts: list[dict[str, Any]] = []
                             for track in tracks:
                                 if DETECTIONS_COUNTER is not None:
                                     DETECTIONS_COUNTER.labels(label=track.detection.label).inc()
-                                await mqtt.publish(
-                                    f"home/{self.room}/camera/event",
-                                    json.dumps(self._publish_detection_payload(track)),
-                                )
+                                det_dicts.append(self._detection_dict(track))
                                 await self._maybe_run_fall(frame, track, mqtt)
                                 await self._maybe_run_face(frame, track, mqtt)
+
+                            # One camera/event per frame carrying every
+                            # detection — the backend bridges it to the live
+                            # overlay and persists only newly-seen tracks. Also
+                            # emit a single empty frame when the last object
+                            # leaves so the UI overlay clears.
+                            if det_dicts or self._had_dets:
+                                await mqtt.publish(
+                                    f"home/{self.room}/camera/event",
+                                    json.dumps(
+                                        {
+                                            "room": self.room,
+                                            "event_type": "detection",
+                                            "tier": 1,
+                                            "dets": det_dicts,
+                                        }
+                                    ),
+                                )
+                            self._had_dets = bool(det_dicts)
                         return  # RTSP stream ended cleanly
                 except aiomqtt.MqttError as exc:
                     logger.warning("MQTT error (%s) — retrying in %ds", exc, _mqtt_retry_delay)
