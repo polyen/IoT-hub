@@ -348,7 +348,7 @@ class ModelStore:
             return True
 
         try:
-            import cv2  # type: ignore[import]
+            import cv2
         except ImportError:
             logger.warning("validate_on_holdout: opencv not available — skipping inference check")
             return True
@@ -393,11 +393,26 @@ class ModelStore:
     # ------------------------------------------------------------------
 
     def _sighup_container(self) -> None:
-        result = subprocess.run(
-            ["docker", "kill", "--signal=SIGHUP", self.container],
-            check=False,
-            capture_output=True,
-        )
+        """Best-effort reload signal to the inference container.
+
+        Strictly non-fatal: promote() has already swapped the symlink and
+        recorded history by the time this runs. The container deployment
+        hot-reloads on SIGHUP; the host systemd CV service instead picks the
+        swap up via symlink polling (see cv/pipeline.py). The backend image
+        may not even ship the docker CLI — a missing binary must not fail the
+        promote.
+        """
+        try:
+            result = subprocess.run(
+                ["docker", "kill", "--signal=SIGHUP", self.container],
+                check=False,
+                capture_output=True,
+            )
+        except OSError as exc:
+            # docker CLI absent / socket unreachable — FileNotFoundError is an
+            # OSError subclass; check=False does NOT suppress it.
+            logger.warning("docker kill SIGHUP %s skipped: %s", self.container, exc)
+            return
         if result.returncode != 0:
             logger.warning(
                 "docker kill SIGHUP %s failed (rc=%d): %s",

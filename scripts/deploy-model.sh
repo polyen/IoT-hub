@@ -99,7 +99,7 @@ docker image inspect "$HAILO_DFC_IMAGE" &>/dev/null \
     || error "Hailo DFC image '$HAILO_DFC_IMAGE' not found. Run: docker load -i hailo8_ai_sw_suite_*.tar.gz"
 
 # ---------------------------------------------------------------------------
-# Step 1 & 2: Export ONNX → models/onnx/
+# Step 1 & 2: ensure the ONNX exists at models/onnx/ (export from .pt if absent)
 # ---------------------------------------------------------------------------
 if [[ -f "$DEST_ONNX" ]]; then
     warn "ONNX already exists: $DEST_ONNX — skipping export."
@@ -118,13 +118,20 @@ else
     mkdir -p "$DEST_DIR"
     cp "$ONNX_CANDIDATE" "$DEST_ONNX"
     info "Copied → $DEST_ONNX"
+fi
 
-    # Step 3: DVC add + push
+# ---------------------------------------------------------------------------
+# Step 3 & 4: ensure the DVC pointer exists + is pushed, then commit it.
+# Runs whether the ONNX was just exported or placed manually (e.g. a recompile
+# under a new version), so models/onnx always carries a matching .dvc file.
+# ---------------------------------------------------------------------------
+if [[ -f "${DEST_ONNX}.dvc" ]]; then
+    info "DVC pointer exists: ${DEST_ONNX}.dvc — skipping dvc add."
+else
     info "DVC add + push ..."
     dvc add "$DEST_ONNX"
     dvc push "${DEST_ONNX}.dvc"
 
-    # Step 4: git commit pointer
     git add "${DEST_ONNX}.dvc" "${DEST_DIR}/.gitignore" 2>/dev/null || true
     if ! git diff --cached --quiet; then
         git commit -m "feat: add ONNX for ${MODEL} ${VERSION}"
