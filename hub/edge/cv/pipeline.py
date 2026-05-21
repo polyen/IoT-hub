@@ -40,6 +40,14 @@ from hub.edge.cv.fusion import FusionEngine
 from hub.edge.cv.tracker import ObjectTracker, Track
 
 try:
+    from hailo_platform import VDevice as HailoVDevice  # noqa: F401
+
+    HAILO_AVAILABLE = True
+except ImportError:
+    HAILO_AVAILABLE = False
+    HailoVDevice = None  # type: ignore[assignment,misc]
+
+try:
     from hub.edge.cv.face import FaceRecognizer
 
     FACE_IMPORT_OK = True
@@ -223,6 +231,7 @@ class CVPipeline:
         self.target_fps = target_fps
         self.confidence_threshold = confidence_threshold
 
+        self._hailo_device: Any = None  # shared VDevice across all Hailo models
         self._detector: HailoDetector | None = None
         self._pose: PoseEstimator | None = None
         self._face: FaceRecognizer | None = None
@@ -252,15 +261,36 @@ class CVPipeline:
                 self._detector.close()
             except Exception:
                 logger.exception("Detector close failed during reload")
+        if self._pose is not None:
+            try:
+                self._pose.close()
+            except Exception:
+                pass
+            self._pose = None
+        if self._face is not None:
+            try:
+                self._face.close()
+            except Exception:
+                pass
+            self._face = None
+        # Release old shared device AFTER closing all models that reference it.
+        if self._hailo_device is not None:
+            try:
+                self._hailo_device.release()
+            except Exception:
+                logger.warning("Failed to release Hailo VDevice during reload")
+            self._hailo_device = None
+        # One shared VDevice for all models — Hailo-8 allows only one per process.
+        if HAILO_AVAILABLE and HailoVDevice is not None:
+            self._hailo_device = HailoVDevice()
+
         resolved = self.hef_path.resolve() if self.hef_path.is_symlink() else self.hef_path
         self._detector = HailoDetector(resolved, self.confidence_threshold)
-        self._detector.load()
+        self._detector.load(device=self._hailo_device)
         logger.info("Loaded detector HEF: %s", resolved)
 
         if POSE_IMPORT_OK and self.pose_hef_path is not None and self.pose_hef_path.exists():
             try:
-                if self._pose is not None:
-                    self._pose.close()
                 pose_resolved = (
                     self.pose_hef_path.resolve()
                     if self.pose_hef_path.is_symlink()
@@ -268,7 +298,7 @@ class CVPipeline:
                 )
                 assert PoseEstimator is not None
                 self._pose = PoseEstimator(pose_resolved)
-                self._pose.load()
+                self._pose.load(device=self._hailo_device)
                 logger.info("Loaded pose HEF: %s", pose_resolved)
             except (ImportError, NotImplementedError, RuntimeError) as e:
                 logger.warning("Pose stage disabled (%s); cascade will skip fall detection", e)
@@ -278,9 +308,7 @@ class CVPipeline:
 
         if FACE_IMPORT_OK and self.face_hef_path is not None and self.face_hef_path.exists():
             try:
-                old_throttle = self._face.get_throttle_state() if self._face is not None else {}
-                if self._face is not None:
-                    self._face.close()
+                old_throttle = {}
                 face_resolved = (
                     self.face_hef_path.resolve()
                     if self.face_hef_path.is_symlink()
@@ -289,7 +317,7 @@ class CVPipeline:
                 assert FaceRecognizer is not None
                 emb_path = self.face_embeddings_path or Path("models/embeddings.pkl")
                 self._face = FaceRecognizer(face_resolved, emb_path)
-                self._face.load()
+                self._face.load(device=self._hailo_device)
                 self._face.set_throttle_state(old_throttle)
                 logger.info(
                     "Loaded ArcFace HEF: %s (throttle restored for %d tracks)",

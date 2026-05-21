@@ -179,8 +179,11 @@ class FaceRecognizer:
         self._exit_stack: Any = None
         self._output_buf: Any = None
 
-    def load(self) -> None:
+    def load(self, device: Any = None) -> None:
         """Open the ArcFace HEF and load enrolled embeddings (if any).
+
+        Pass an already-open VDevice as `device` to share it with other models.
+        When `device` is None a new VDevice is created and owned by this instance.
 
         Mirrors ``HailoDetector.load`` — HailoRT 4.17+ ``create_infer_model``
         API with ``ExitStack`` keeping the configured context alive. Missing
@@ -214,7 +217,8 @@ class FaceRecognizer:
                 self._embeddings_path,
             )
 
-        self._device = VDevice()
+        self._owns_device = device is None
+        self._device = VDevice() if device is None else device
         self._infer_model = self._device.create_infer_model(str(self._hef_path))
         self._infer_model.set_batch_size(1)
         self._infer_model.input().set_format_type(FormatType.FLOAT32)
@@ -347,6 +351,6 @@ class FaceRecognizer:
             self._exit_stack = None
         self._configured = None
         self._infer_model = None
-        if self._device is not None:
+        if self._device is not None and getattr(self, "_owns_device", True):
             self._device.release()
-            self._device = None
+        self._device = None

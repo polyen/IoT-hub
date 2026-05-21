@@ -96,11 +96,16 @@ class PoseEstimator:
         # Single-output legacy path
         self._output_buf: Any = None
 
-    def load(self) -> None:
-        """Open HEF, detect output layout, allocate per-output buffers."""
+    def load(self, device: Any = None) -> None:
+        """Open HEF, detect output layout, allocate per-output buffers.
+
+        Pass an already-open VDevice as `device` to share it with other models.
+        When `device` is None a new VDevice is created and owned by this instance.
+        """
         import numpy as np  # type: ignore[import]
 
-        self._device = VDevice()
+        self._owns_device = device is None
+        self._device = VDevice() if device is None else device
         self._infer_model = self._device.create_infer_model(str(self._hef_path))
         self._infer_model.set_batch_size(1)
         self._infer_model.input().set_format_type(FormatType.FLOAT32)
@@ -294,6 +299,6 @@ class PoseEstimator:
             self._exit_stack = None
         self._configured = None
         self._infer_model = None
-        if self._device is not None:
+        if self._device is not None and getattr(self, "_owns_device", True):
             self._device.release()
-            self._device = None
+        self._device = None

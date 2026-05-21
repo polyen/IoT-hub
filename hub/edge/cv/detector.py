@@ -185,16 +185,21 @@ class HailoDetector:
         self._box_buf: Any = None
         self._cls_buf: Any = None
 
-    def load(self) -> None:
+    def load(self, device: Any = None) -> None:
         """Load HEF and open the Hailo inference pipeline.
 
         The HEF carries two outputs (box + class, see module docstring). Both
         are requested as FLOAT32 so HailoRT dequantises each with its own
         scale; a buffer per output is pre-allocated and reused across frames.
+
+        Pass an already-open VDevice as `device` to share it with other models
+        (the Hailo-8 allows only one VDevice owner per process). When `device`
+        is None a new VDevice is created and owned by this instance.
         """
         import numpy as np
 
-        self._device = VDevice()
+        self._owns_device = device is None
+        self._device = VDevice() if device is None else device
         self._infer_model = self._device.create_infer_model(str(self._hef_path))
         self._infer_model.set_batch_size(1)
 
@@ -348,9 +353,9 @@ class HailoDetector:
             self._exit_stack = None
         self._configured = None
         self._infer_model = None
-        if self._device is not None:
+        if self._device is not None and getattr(self, "_owns_device", True):
             self._device.release()
-            self._device = None
+        self._device = None
 
 
 if __name__ == "__main__":
