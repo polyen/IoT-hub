@@ -96,11 +96,12 @@ class PoseEstimator:
         # Single-output legacy path
         self._output_buf: Any = None
 
-    def load(self, device: Any = None) -> None:
+    def load(self, device: Any = None, scheduled: bool = False) -> None:
         """Open HEF, detect output layout, allocate per-output buffers.
 
         Pass an already-open VDevice as `device` to share it with other models.
         When `device` is None a new VDevice is created and owned by this instance.
+        Set `scheduled=True` when the VDevice uses ROUND_ROBIN scheduler.
         """
         import numpy as np  # type: ignore[import]
 
@@ -145,9 +146,10 @@ class PoseEstimator:
 
         self._exit_stack = contextlib.ExitStack()
         self._configured = self._exit_stack.enter_context(self._infer_model.configure())
-        activate_result = self._configured.activate()
-        if hasattr(activate_result, "__enter__"):
-            self._exit_stack.enter_context(activate_result)
+        if not scheduled:
+            activate_result = self._configured.activate()
+            if hasattr(activate_result, "__enter__"):
+                self._exit_stack.enter_context(activate_result)
 
     def estimate(self, frame: Any, bbox: tuple[float, float, float, float]) -> Keypoints | None:
         """Extract 17 COCO keypoints for a single person crop.

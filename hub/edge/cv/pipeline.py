@@ -290,8 +290,9 @@ class CVPipeline:
             self._hailo_device = HailoVDevice(params)
 
         resolved = self.hef_path.resolve() if self.hef_path.is_symlink() else self.hef_path
+        _scheduled = self._hailo_device is not None
         self._detector = HailoDetector(resolved, self.confidence_threshold)
-        self._detector.load(device=self._hailo_device)
+        self._detector.load(device=self._hailo_device, scheduled=_scheduled)
         logger.info("Loaded detector HEF: %s", resolved)
 
         if POSE_IMPORT_OK and self.pose_hef_path is not None and self.pose_hef_path.exists():
@@ -303,7 +304,7 @@ class CVPipeline:
                 )
                 assert PoseEstimator is not None
                 self._pose = PoseEstimator(pose_resolved)
-                self._pose.load(device=self._hailo_device)
+                self._pose.load(device=self._hailo_device, scheduled=_scheduled)
                 logger.info("Loaded pose HEF: %s", pose_resolved)
             except (ImportError, NotImplementedError, RuntimeError) as e:
                 logger.warning("Pose stage disabled (%s); cascade will skip fall detection", e)
@@ -322,7 +323,7 @@ class CVPipeline:
                 assert FaceRecognizer is not None
                 emb_path = self.face_embeddings_path or Path("models/embeddings.pkl")
                 self._face = FaceRecognizer(face_resolved, emb_path)
-                self._face.load(device=self._hailo_device)
+                self._face.load(device=self._hailo_device, scheduled=_scheduled)
                 self._face.set_throttle_state(old_throttle)
                 logger.info(
                     "Loaded ArcFace HEF: %s (throttle restored for %d tracks)",

@@ -185,7 +185,7 @@ class HailoDetector:
         self._box_buf: Any = None
         self._cls_buf: Any = None
 
-    def load(self, device: Any = None) -> None:
+    def load(self, device: Any = None, scheduled: bool = False) -> None:
         """Load HEF and open the Hailo inference pipeline.
 
         The HEF carries two outputs (box + class, see module docstring). Both
@@ -195,6 +195,8 @@ class HailoDetector:
         Pass an already-open VDevice as `device` to share it with other models
         (the Hailo-8 allows only one VDevice owner per process). When `device`
         is None a new VDevice is created and owned by this instance.
+        Set `scheduled=True` when the VDevice uses ROUND_ROBIN scheduler —
+        manual .activate() is forbidden in that mode; the scheduler handles it.
         """
         import numpy as np
 
@@ -237,10 +239,13 @@ class HailoDetector:
 
         self._exit_stack = contextlib.ExitStack()
         self._configured = self._exit_stack.enter_context(self._infer_model.configure())
-        # HailoRT 4.23: streams must be explicitly activated after configure().
-        activate_result = self._configured.activate()
-        if hasattr(activate_result, "__enter__"):
-            self._exit_stack.enter_context(activate_result)
+        # HailoRT 4.23: explicit activate() required in non-scheduled mode only.
+        # With ROUND_ROBIN scheduler, activate() is forbidden — the scheduler
+        # manages network activation automatically.
+        if not scheduled:
+            activate_result = self._configured.activate()
+            if hasattr(activate_result, "__enter__"):
+                self._exit_stack.enter_context(activate_result)
 
         logger.info(
             "Hailo detector loaded: %s (input %dx%d, box=%s cls=%s, classes=%s)",

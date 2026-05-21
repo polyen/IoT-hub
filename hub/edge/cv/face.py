@@ -179,11 +179,12 @@ class FaceRecognizer:
         self._exit_stack: Any = None
         self._output_buf: Any = None
 
-    def load(self, device: Any = None) -> None:
+    def load(self, device: Any = None, scheduled: bool = False) -> None:
         """Open the ArcFace HEF and load enrolled embeddings (if any).
 
         Pass an already-open VDevice as `device` to share it with other models.
         When `device` is None a new VDevice is created and owned by this instance.
+        Set `scheduled=True` when the VDevice uses ROUND_ROBIN scheduler.
 
         Mirrors ``HailoDetector.load`` — HailoRT 4.17+ ``create_infer_model``
         API with ``ExitStack`` keeping the configured context alive. Missing
@@ -229,9 +230,10 @@ class FaceRecognizer:
 
         self._exit_stack = contextlib.ExitStack()
         self._configured = self._exit_stack.enter_context(self._infer_model.configure())
-        activate_result = self._configured.activate()
-        if hasattr(activate_result, "__enter__"):
-            self._exit_stack.enter_context(activate_result)
+        if not scheduled:
+            activate_result = self._configured.activate()
+            if hasattr(activate_result, "__enter__"):
+                self._exit_stack.enter_context(activate_result)
         self._output_buf = np.empty(output_shape, dtype=np.float32)
 
         logger.info("ArcFace HEF loaded: %s (output shape=%s)", self._hef_path.name, output_shape)
