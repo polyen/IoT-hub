@@ -1,3 +1,4 @@
+import React from "react";
 import { Sun, Moon, WifiOff } from "lucide-react";
 import { useTheme } from "../providers/ThemeProvider";
 import { useOnlineStatus } from "../../hooks/useOnlineStatus";
@@ -11,13 +12,11 @@ function Clock() {
   }, []);
 
   return (
-    <span className="text-sm font-medium text-[color:var(--text-muted)] tabular-nums">
+    <span className="text-sm font-mono font-medium text-[color:var(--text-muted)] tabular-nums tracking-wide">
       {time.toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}
     </span>
   );
 }
-
-import React from "react";
 
 export function TopBar() {
   const { theme, toggle } = useTheme();

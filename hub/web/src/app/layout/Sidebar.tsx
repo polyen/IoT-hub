@@ -66,7 +66,7 @@ function NavItemLink({ item }: { item: NavItem }) {
 
 function SectionLabel({ label }: { label: string }) {
   return (
-    <p className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[color:var(--text-faint)]">
+    <p className="px-3 pt-5 pb-1 text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
       {label}
     </p>
   );
@@ -112,19 +112,29 @@ export function Sidebar() {
       }}
     >
       {/* Brand */}
-      <div className="px-5 py-5 flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shrink-0">
-          <Home size={16} strokeWidth={2.5} className="text-white" />
+      <div className="px-5 py-5 flex items-center gap-3">
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{
+            background: "var(--primary-dim)",
+            border: "1px solid rgba(201,168,76,0.3)",
+          }}
+        >
+          <Home size={15} strokeWidth={1.5} className="text-primary-400" />
         </div>
         <div>
-          <p className="font-bold text-sm text-[color:var(--text)] leading-none">IoT Hub</p>
-          <p className="text-[10px] text-[color:var(--text-faint)] mt-0.5">Smart Home</p>
+          <p className="font-display font-semibold text-sm leading-none tracking-wide text-[color:var(--text)]">
+            IoT Hub
+          </p>
+          <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-[color:var(--text-faint)] mt-0.5">
+            Smart Home
+          </p>
         </div>
       </div>
 
       <div
         className="mx-4 mb-1"
-        style={{ height: "1px", background: "var(--border)" }}
+        style={{ height: "1px", background: "var(--border-subtle)" }}
       />
 
       {/* Navigation */}

@@ -36,7 +36,24 @@ const DEVICE_KINDS: DeviceKind[] = [
   "sensor_pir", "sensor_door", "sensor_dht", "sensor_mq2", "sensor_power", "speaker",
 ];
 
-const ROOM_FILL_COLORS = ["#1e3a5f", "#1a3a2a", "#3a1e2a", "#2a1e3a", "#3a2a1e"];
+const ROOM_FILL_COLORS = ["#0c1a30", "#091420", "#130a18", "#091614", "#180e0a"];
+
+// Canvas color constants (hardcoded for Konva — cannot use CSS vars in canvas props)
+const C = {
+  grid:                "#0d1824",
+  roomStroke:          "#1a2e4a",
+  roomStrokeSelected:  "#c9a84c",
+  roomText:            "#c8c4b8",
+  vertexFill:          "#c9a84c",
+  vertexStroke:        "#f2dfa0",
+  pendingStroke:       "#c9a84c",
+  pendingStrokeClose:  "#e8c95a",
+  deviceFill:          "#08132a",
+  deviceFillSelected:  "#1a2840",
+  deviceStroke:        "#1e3050",
+  deviceStrokeSelected:"#c9a84c",
+  deviceLabel:         "#7a8ba8",
+} as const;
 const SNAP = 0.05;
 
 function uuid4(): string {
@@ -327,24 +344,33 @@ export function FloorPlanEditor() {
               ? "Перетягни для переміщення. Del — видалити."
               : "Клацни кімнату або пристрій для вибору.";
 
+  const modeLabel: Record<string, string> = {
+    select:       "↖ Вибір",
+    "add-room":   "⬡ + Кімната",
+    "add-device": "· + Пристрій",
+  };
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Mode switcher */}
-        <div className="flex gap-0.5 rounded-lg border border-slate-700 bg-slate-800 p-1">
+        <div
+          className="flex gap-1 rounded-xl p-1"
+          style={{ background: "var(--raised)", border: "1px solid var(--border)" }}
+        >
           {(["select", "add-room", "add-device"] as const).map((m) => (
             <button
               key={m}
               onClick={() => { setMode(m); setPending(null); setSelectedId(null); }}
               className={[
-                "rounded px-3 py-1 text-xs font-medium transition-colors",
+                "rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150",
                 mode === m
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-400 hover:bg-slate-700 hover:text-white",
+                  ? "bg-primary-600 text-white shadow-gold"
+                  : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--card)]",
               ].join(" ")}
             >
-              {m === "select" ? "Вибір" : m === "add-room" ? "+ Кімната" : "+ Пристрій"}
+              {modeLabel[m]}
             </button>
           ))}
         </div>
@@ -354,7 +380,7 @@ export function FloorPlanEditor() {
           onClick={undo}
           disabled={!canUndo}
           title="Скасувати (Ctrl+Z)"
-          className="rounded p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-30"
+          className="rounded-lg p-1.5 text-sm text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)] transition-colors disabled:opacity-25"
         >
           ↩
         </button>
@@ -362,19 +388,20 @@ export function FloorPlanEditor() {
           onClick={redo}
           disabled={!canRedo}
           title="Повторити (Ctrl+Y)"
-          className="rounded p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white disabled:opacity-30"
+          className="rounded-lg p-1.5 text-sm text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)] transition-colors disabled:opacity-25"
         >
           ↪
         </button>
 
-        {/* Edit / Delete selected */}
+        {/* Context actions for selected element */}
         {selectedId && draft?.placements.some((p) => p.id === selectedId) && (
           <button
             onClick={() => {
               const p = draft!.placements.find((pl) => pl.id === selectedId)!;
               setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id });
             }}
-            className="rounded px-2.5 py-1 text-xs font-medium bg-blue-900/50 text-blue-300 hover:bg-blue-800 hover:text-white"
+            className="rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
+            style={{ background: "var(--primary-dim)", color: "var(--primary)", border: "1px solid rgba(201,168,76,0.2)" }}
           >
             Редагувати
           </button>
@@ -382,7 +409,7 @@ export function FloorPlanEditor() {
         {selectedId && (
           <button
             onClick={deleteSelected}
-            className="rounded px-2.5 py-1 text-xs font-medium bg-red-900/50 text-red-300 hover:bg-red-800 hover:text-white"
+            className="rounded-lg px-2.5 py-1.5 text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
           >
             Видалити
           </button>
@@ -405,64 +432,84 @@ export function FloorPlanEditor() {
 
       {/* ── Device palette ── */}
       {mode === "add-device" && (
-        <div className="space-y-2">
+        <div className="space-y-2 animate-fade-in">
           {/* Generic kinds */}
-          <div className="flex flex-wrap gap-1 rounded-lg border border-slate-700 bg-slate-800/60 p-2">
-            <p className="w-full text-xs text-slate-500 mb-1">Тип пристрою:</p>
-            {DEVICE_KINDS.map((k) => (
-              <button
-                key={k}
-                onClick={() => { setPendingDeviceKind(k); setPendingDeviceId(null); }}
-                className={[
-                  "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors",
-                  pendingDeviceKind === k && !pendingDeviceId
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-700 text-slate-300 hover:bg-slate-600",
-                ].join(" ")}
-              >
-                <span aria-hidden>{KIND_ICON[k]}</span>
-                <span>{k.replace("sensor_", "")}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Discovered devices (pre-existing) */}
-          {discoveredDevices && discoveredDevices.length > 0 && (
-            <div className="flex flex-wrap gap-1 rounded-lg border border-slate-600 bg-slate-900/60 p-2">
-              <p className="w-full text-xs text-slate-500 mb-1">Виявлені пристрої:</p>
-              {discoveredDevices.map((d) => (
+          <div
+            className="rounded-xl p-3 space-y-2"
+            style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+          >
+            <p className="text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+              Тип пристрою
+            </p>
+            <div className="grid grid-cols-4 gap-1 sm:grid-cols-6">
+              {DEVICE_KINDS.map((k) => (
                 <button
-                  key={d.device_id}
-                  onClick={() => { setPendingDeviceKind(d.kind_guess); setPendingDeviceId(d.device_id); }}
+                  key={k}
+                  onClick={() => { setPendingDeviceKind(k); setPendingDeviceId(null); }}
                   className={[
-                    "flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors border",
-                    pendingDeviceId === d.device_id
-                      ? "bg-green-700 border-green-500 text-white"
-                      : "bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700",
+                    "flex flex-col items-center gap-1 rounded-lg py-2 px-1 text-center transition-all duration-150",
+                    pendingDeviceKind === k && !pendingDeviceId
+                      ? "bg-primary-600/20 text-primary-300"
+                      : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)]",
                   ].join(" ")}
-                  title={`${d.source} · ${d.device_id}`}
+                  style={pendingDeviceKind === k && !pendingDeviceId ? { border: "1px solid rgba(201,168,76,0.35)" } : { border: "1px solid transparent" }}
                 >
-                  <span aria-hidden>{KIND_ICON[d.kind_guess] ?? "⚙"}</span>
-                  <span className="font-mono max-w-[120px] truncate">{d.device_id}</span>
+                  <span className="text-base leading-none" aria-hidden>{KIND_ICON[k]}</span>
+                  <span className="text-[9px] font-mono leading-tight">{k.replace("sensor_", "")}</span>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Discovered devices from MQTT */}
+          {discoveredDevices && discoveredDevices.length > 0 && (
+            <div
+              className="rounded-xl p-3 space-y-2"
+              style={{ border: "1px solid var(--border-subtle)", background: "var(--card)" }}
+            >
+              <p className="text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+                Виявлені пристрої (MQTT)
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {discoveredDevices.map((d) => (
+                  <button
+                    key={d.device_id}
+                    onClick={() => { setPendingDeviceKind(d.kind_guess); setPendingDeviceId(d.device_id); }}
+                    title={`${d.source} · ${d.device_id}`}
+                    className={[
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-150",
+                      pendingDeviceId === d.device_id
+                        ? "bg-primary-600/20 text-primary-300"
+                        : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)]",
+                    ].join(" ")}
+                    style={pendingDeviceId === d.device_id ? { border: "1px solid rgba(201,168,76,0.35)" } : { border: "1px solid var(--border)" }}
+                  >
+                    <span aria-hidden>{KIND_ICON[d.kind_guess] ?? "⚙"}</span>
+                    <span className="font-mono max-w-[120px] truncate">{d.device_id}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
       )}
 
       {/* ── Hint ── */}
-      <p className="text-xs text-slate-500 min-h-[1.25rem]">{hint}</p>
+      <p className="text-xs font-mono text-[color:var(--text-faint)] min-h-[1.25rem] px-0.5">{hint}</p>
 
       {/* ── Canvas ── */}
       <div
         ref={containerRef}
-        className="rounded-xl overflow-hidden border border-slate-700 bg-slate-900 touch-none"
-        style={{ cursor: mode === "add-room" || mode === "add-device" ? "crosshair" : "default" }}
+        className="rounded-xl overflow-hidden touch-none"
+        style={{
+          border: "1px solid var(--border)",
+          background: "#020817",
+          cursor: mode === "add-room" || mode === "add-device" ? "crosshair" : "default",
+        }}
       >
         {stageW === 0 && (
           <div className="flex items-center justify-center py-16">
-            <span className="text-slate-600 text-sm">Ініціалізація…</span>
+            <span className="text-xs font-mono text-[color:var(--text-faint)]">Ініціалізація…</span>
           </div>
         )}
         {stageW > 0 && <Stage
@@ -478,14 +525,14 @@ export function FloorPlanEditor() {
               <Line
                 key={`gv${n}`}
                 points={[n * stageW, 0, n * stageW, stageH]}
-                stroke="#1e293b"
+                stroke={C.grid}
                 strokeWidth={0.5}
                 listening={false}
               />,
               <Line
                 key={`gh${n}`}
                 points={[0, n * stageH, stageW, n * stageH]}
-                stroke="#1e293b"
+                stroke={C.grid}
                 strokeWidth={0.5}
                 listening={false}
               />,
@@ -507,7 +554,7 @@ export function FloorPlanEditor() {
                     closed
                     fill={fill}
                     opacity={0.8}
-                    stroke={isSelected ? "#60a5fa" : "#475569"}
+                    stroke={isSelected ? C.roomStrokeSelected : C.roomStroke}
                     strokeWidth={isSelected ? 2 : 1}
                     listening={inSelectMode}
                     draggable={inSelectMode}
@@ -535,8 +582,8 @@ export function FloorPlanEditor() {
                     width={120}
                     text={room.name}
                     fontSize={13}
-                    fontFamily="system-ui, sans-serif"
-                    fill="#e2e8f0"
+                    fontFamily='"DM Sans", system-ui, sans-serif'
+                    fill={C.roomText}
                     align="center"
                     listening={false}
                   />
@@ -562,8 +609,8 @@ export function FloorPlanEditor() {
                         x={nx * stageW}
                         y={ny * stageH}
                         radius={5}
-                        fill="#3b82f6"
-                        stroke="#ffffff"
+                        fill={C.vertexFill}
+                        stroke={C.vertexStroke}
                         strokeWidth={1.5}
                         draggable
                         onDragStart={() => pushHistory()}
@@ -606,8 +653,8 @@ export function FloorPlanEditor() {
                 >
                   <Circle
                     radius={12}
-                    fill={isSelected ? "#1d4ed8" : "#1e3a5f"}
-                    stroke={isSelected ? "#60a5fa" : "#3b82f6"}
+                    fill={isSelected ? C.deviceFillSelected : C.deviceFill}
+                    stroke={isSelected ? C.deviceStrokeSelected : C.deviceStroke}
                     strokeWidth={isSelected ? 2 : 1}
                   />
                   <Text
@@ -621,7 +668,7 @@ export function FloorPlanEditor() {
                     <Text
                       text={p.label}
                       fontSize={9}
-                      fill="#94a3b8"
+                      fill={C.deviceLabel}
                       offsetX={30}
                       y={14}
                       width={60}
@@ -639,7 +686,7 @@ export function FloorPlanEditor() {
                 {pending.vertices.length >= 2 && (
                   <Line
                     points={pending.vertices.flatMap(([x, y]) => [x * stageW, y * stageH])}
-                    stroke="#f59e0b"
+                    stroke={C.pendingStroke}
                     strokeWidth={2}
                     dash={[5, 3]}
                   />
@@ -653,7 +700,7 @@ export function FloorPlanEditor() {
                       pending.vertices[0][0] * stageW,
                       pending.vertices[0][1] * stageH,
                     ]}
-                    stroke="#f59e0b"
+                    stroke={C.pendingStroke}
                     strokeWidth={1}
                     dash={[3, 4]}
                     opacity={0.4}
@@ -668,7 +715,7 @@ export function FloorPlanEditor() {
                       pending.cursor[0] * stageW,
                       pending.cursor[1] * stageH,
                     ]}
-                    stroke="#f59e0b"
+                    stroke={C.pendingStroke}
                     strokeWidth={1.5}
                     dash={[2, 3]}
                     opacity={0.7}
@@ -676,7 +723,7 @@ export function FloorPlanEditor() {
                 )}
                 {/* Vertex dots */}
                 {pending.vertices.map(([nx, ny], i) => (
-                  <Circle key={i} x={nx * stageW} y={ny * stageH} radius={4} fill="#f59e0b" />
+                  <Circle key={i} x={nx * stageW} y={ny * stageH} radius={4} fill={C.pendingStroke} />
                 ))}
                 {/* Highlight first vertex as close target */}
                 {pending.vertices.length >= 3 && (
@@ -685,7 +732,7 @@ export function FloorPlanEditor() {
                     y={pending.vertices[0][1] * stageH}
                     radius={7}
                     fill="transparent"
-                    stroke="#f59e0b"
+                    stroke={C.pendingStrokeClose}
                     strokeWidth={2}
                   />
                 )}
@@ -697,12 +744,30 @@ export function FloorPlanEditor() {
 
       {/* ── New room name dialog ── */}
       {newRoomState && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="w-80 space-y-4 rounded-xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
-            <h3 className="font-semibold text-white">Назва кімнати</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in"
+          style={{ background: "rgba(2,8,23,0.8)", backdropFilter: "blur(4px)" }}
+        >
+          <div
+            className="w-80 space-y-4 rounded-2xl p-6 shadow-glass animate-slide-up"
+            style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+          >
+            <div>
+              <h3 className="font-display font-semibold text-base text-[color:var(--text)]">
+                Назва кімнати
+              </h3>
+              <p className="text-xs font-mono text-[color:var(--text-faint)] mt-1">
+                Будь-яка назва — Спальня, Кухня, Офіс
+              </p>
+            </div>
             <input
               autoFocus
-              className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-xl px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+              style={{
+                background: "var(--raised)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+              }}
               value={newRoomState.name}
               onChange={(e) => setNewRoomState({ ...newRoomState, name: e.target.value })}
               onKeyDown={(e) => {
@@ -726,18 +791,37 @@ export function FloorPlanEditor() {
       {editPlacement && (() => {
         const p = draft?.placements.find((pl) => pl.id === editPlacement.id);
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="w-96 space-y-4 rounded-xl border border-slate-700 bg-slate-800 p-6 shadow-xl">
-              <h3 className="font-semibold text-white">
-                {KIND_ICON[p?.kind ?? ""] ?? "⚙"} Редагувати пристрій
-              </h3>
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in"
+            style={{ background: "rgba(2,8,23,0.8)", backdropFilter: "blur(4px)" }}
+          >
+            <div
+              className="w-96 space-y-5 rounded-2xl p-6 shadow-glass animate-slide-up"
+              style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+            >
+              <div>
+                <h3 className="font-display font-semibold text-base text-[color:var(--text)] flex items-center gap-2">
+                  <span>{KIND_ICON[p?.kind ?? ""] ?? "⚙"}</span>
+                  Редагувати пристрій
+                </h3>
+                <p className="text-xs font-mono text-[color:var(--text-faint)] mt-1">
+                  {p?.kind ?? ""}
+                </p>
+              </div>
 
               <div className="space-y-3">
-                <label className="block space-y-1">
-                  <span className="text-xs text-slate-400">Мітка (відображається на плані)</span>
+                <label className="block space-y-1.5">
+                  <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                    Мітка
+                  </span>
                   <input
                     autoFocus
-                    className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-xl px-3 py-2 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    style={{
+                      background: "var(--raised)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                    }}
                     placeholder="напр. PIR Вітальня"
                     value={editPlacement.label}
                     onChange={(e) => setEditPlacement({ ...editPlacement, label: e.target.value })}
@@ -745,22 +829,29 @@ export function FloorPlanEditor() {
                   />
                 </label>
 
-                <label className="block space-y-1">
-                  <span className="text-xs text-slate-400">Device ID — має збігатися з MQTT-топіком</span>
+                <label className="block space-y-1.5">
+                  <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                    Device ID
+                  </span>
                   <input
-                    className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 font-mono text-sm text-green-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full rounded-xl px-3 py-2 font-mono text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    style={{
+                      background: "var(--raised)",
+                      border: "1px solid var(--border)",
+                      color: "var(--primary)",
+                    }}
                     placeholder="напр. pir_living_room"
                     value={editPlacement.device_id}
                     onChange={(e) => setEditPlacement({ ...editPlacement, device_id: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
                   />
-                  <p className="text-[10px] text-slate-500">
-                    Перевірити: <code className="text-slate-400">mosquitto_sub -t 'home/#' -v</code>
+                  <p className="text-[10px] font-mono text-[color:var(--text-faint)]">
+                    Має збігатися з MQTT-топіком · <code>mosquitto_sub -t 'home/#' -v</code>
                   </p>
                 </label>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 pt-1">
                 <button
                   onClick={() => {
                     if (!draft) return;
@@ -769,7 +860,7 @@ export function FloorPlanEditor() {
                     setEditPlacement(null);
                     setSelectedId(null);
                   }}
-                  className="rounded px-2.5 py-1.5 text-xs font-medium bg-red-900/50 text-red-300 hover:bg-red-800 hover:text-white"
+                  className="rounded-lg px-2.5 py-1.5 text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
                 >
                   Видалити
                 </button>

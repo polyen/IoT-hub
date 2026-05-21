@@ -156,8 +156,10 @@ export default function HomePage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[color:var(--text)]">Мій дім</h1>
-          <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
+          <h1 className="font-display font-semibold text-2xl text-[color:var(--text)] tracking-wide">
+            Мій дім
+          </h1>
+          <p className="text-xs font-mono text-[color:var(--text-muted)] mt-1 tracking-wide uppercase">
             {new Date().toLocaleDateString("uk-UA", {
               weekday: "long",
               day: "numeric",

@@ -2,9 +2,9 @@ import { useState } from "react";
 import type { FloorPlanData, Room } from "../../lib/types";
 
 const ROOM_COLORS: Record<string, string> = {
-  idle: "#334155",
-  alert: "#7f1d1d",
-  presence: "#14532d",
+  idle: "#0d1a2e",
+  alert: "#2d0a0a",
+  presence: "#0a1e10",
 };
 
 const KIND_ICON: Record<string, string> = {
@@ -40,7 +40,10 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
   };
 
   return (
-    <div className="relative w-full rounded-xl overflow-hidden border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100">
+    <div
+      className="relative w-full rounded-xl overflow-hidden"
+      style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+    >
       <svg
         viewBox="0 0 100 100"
         className="w-full"
@@ -60,7 +63,7 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
                 points={pts}
                 fill={roomColor(room)}
                 fillOpacity={isHovered ? 0.9 : 0.7}
-                stroke={isHovered ? "#60a5fa" : "#475569"}
+                stroke={isHovered ? "#c9a84c" : "#1a2e4a"}
                 strokeWidth={isHovered ? 0.6 : 0.4}
                 className="cursor-pointer transition-all"
                 onMouseEnter={() => setHovered(room.id)}
@@ -73,7 +76,7 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize="3.5"
-                fill="#e2e8f0"
+                fill="#c8c4b8"
                 className="pointer-events-none select-none"
               >
                 {room.name}
