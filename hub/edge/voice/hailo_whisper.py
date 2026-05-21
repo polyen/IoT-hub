@@ -1,7 +1,9 @@
 """Hailo Whisper STT wrapper — encoder on Hailo NPU, decoder on CPU.
 
-Falls back to faster-whisper large-v3-turbo (int8) if Hailo pipeline is
-unavailable or NPU times out (contention with CV cascade).
+Primary STT is Moonshine ONNX (see moonshine_stt.py).  This module provides:
+  - HailoWhisperBackend: Whisper encoder on Hailo-8 NPU + CPU decoder (secondary)
+  - FasterWhisperBackend: faster-whisper large-v3-turbo CPU (tertiary fallback)
+  - get_backend(): selects Moonshine → Hailo → faster-whisper in priority order
 
 Hybrid architecture (Hailo path, ~250ms target):
     audio bytes
@@ -188,21 +190,35 @@ def get_backend(
     force_cpu: bool = False,
     language: str = DEFAULT_LANGUAGE,
     npu_timeout_sec: float = DEFAULT_NPU_TIMEOUT_SEC,
+    moonshine_model: str | None = None,
 ) -> STTBackend:
     """Return best available STT backend.
 
-    Priority: Hailo NPU (HEF file present + HailoRT available) → CPU fallback.
-    On NPU contention or timeout, HailoWhisperBackend auto-escalates to CPU.
+    Priority: Moonshine ONNX → Hailo NPU (HEF present) → faster-whisper CPU.
+    Moonshine is the primary backend; Hailo and faster-whisper are fallbacks.
     """
+    from hub.edge.voice.moonshine_stt import (
+        DEFAULT_MOONSHINE_MODEL,
+        MOONSHINE_AVAILABLE,
+        MoonshineBackend,
+    )
+
+    if MOONSHINE_AVAILABLE:
+        model = moonshine_model or DEFAULT_MOONSHINE_MODEL
+        logger.info("Using Moonshine ONNX backend: %s", model)
+        return MoonshineBackend(model_name=model)
+
     if not force_cpu and HAILO_AVAILABLE and hef_path is not None and hef_path.exists():
         logger.info("Using Hailo Whisper backend: %s", hef_path.name)
         backend = HailoWhisperBackend(hef_path, language=language, npu_timeout_sec=npu_timeout_sec)
         backend.load()
         return backend
+
     if FASTER_WHISPER_AVAILABLE:
         logger.info("Using faster-whisper fallback (large-v3-turbo, CPU)")
         return FasterWhisperBackend(language=language)
-    raise RuntimeError("No STT backend available — install hailo_platform or faster-whisper")
+
+    raise RuntimeError("No STT backend available — install useful-moonshine-onnx or faster-whisper")
 
 
 async def transcribe_file(

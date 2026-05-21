@@ -36,6 +36,7 @@ training = [
     "pycocotools>=2.0.7",
 ]
 voice = [
+    "useful-moonshine-onnx>=20251121",
     "faster-whisper>=1.0.3",
     "openwakeword>=0.6.0",
     "sounddevice>=0.4.6",
@@ -130,6 +131,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["hailo_platform.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["moonshine_onnx.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

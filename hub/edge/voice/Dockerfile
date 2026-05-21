@@ -18,6 +18,7 @@ RUN useradd --create-home --no-log-init -r appuser
 USER appuser
 
 ENV WAKE_WORD_MODEL_PATH="" \
+    MOONSHINE_MODEL="UsefulSensors/moonshine-tiny-uk" \
     FORCE_CPU_STT="false" \
     WHISPER_HEF_PATH="" \
     NPU_STRATEGY="whisper_waits" \

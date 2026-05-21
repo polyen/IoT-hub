@@ -1,10 +1,11 @@
 """Full voice command pipeline.
 
-Chain: SileroVAD -> WakeWordDetector -> collect speech -> Hailo/CPU STT -> MQTT publish.
+Chain: SileroVAD -> WakeWordDetector -> collect speech -> Moonshine/Hailo/CPU STT -> MQTT publish.
 
-NPU scheduling: when WHISPER_HEF_PATH is set, Whisper encoder shares the Hailo NPU
-with the CV cascade.  NPU_STRATEGY controls the contention policy (see scheduler.py).
-Set FORCE_CPU_STT=true to bypass Hailo entirely and always use faster-whisper.
+Primary STT: Moonshine ONNX (UsefulSensors/moonshine-tiny-uk) — set MOONSHINE_MODEL to override.
+NPU scheduling: when WHISPER_HEF_PATH is set and Moonshine is unavailable, Whisper encoder
+shares the Hailo NPU with the CV cascade.  NPU_STRATEGY controls the contention policy.
+Set FORCE_CPU_STT=true to bypass Hailo entirely and fall back to faster-whisper.
 """
 
 from __future__ import annotations
@@ -61,6 +62,7 @@ async def run_pipeline(
     force_cpu: bool = False,
     hef_path: Path | None = None,
     npu_strategy: NPUStrategy = NPUStrategy.WHISPER_WAITS,
+    moonshine_model: str | None = None,
 ) -> None:
     """Main voice pipeline loop. Runs until cancelled."""
     vad = SileroVAD()
@@ -69,7 +71,7 @@ async def run_pipeline(
     wwd = WakeWordDetector(model_path=wake_word_model)
     wwd.load()
 
-    stt = get_backend(hef_path=hef_path, force_cpu=force_cpu)
+    stt = get_backend(hef_path=hef_path, force_cpu=force_cpu, moonshine_model=moonshine_model)
     scheduler = NPUScheduler(strategy=npu_strategy)
 
     logger.info(
@@ -110,5 +112,6 @@ if __name__ == "__main__":
             npu_strategy=_strategy_map.get(
                 os.environ.get("NPU_STRATEGY", "whisper_waits"), NPUStrategy.WHISPER_WAITS
             ),
+            moonshine_model=os.environ.get("MOONSHINE_MODEL") or None,
         )
     )
