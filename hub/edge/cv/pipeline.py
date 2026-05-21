@@ -139,6 +139,7 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
         cap = cv2.VideoCapture(rtsp_url)
         if not cap.isOpened():
             logger.warning("RTSP not available (%s) — retrying in %ds", rtsp_url, _open_retry)
+            cap.release()  # release even when open failed to avoid GStreamer leaks
             await asyncio.sleep(_open_retry)
             _open_retry = min(_open_retry * 2, 60)
             continue
@@ -164,6 +165,10 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
                 await asyncio.sleep(max(0, interval - elapsed))
         finally:
             cap.release()
+
+        # GStreamer pipeline teardown is asynchronous — wait before reopening so
+        # the old elements reach NULL state and don't block the next VideoCapture.
+        await asyncio.sleep(2.0)
 
 
 # How often (seconds) the pipeline re-checks its model symlinks for an
