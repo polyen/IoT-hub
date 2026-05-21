@@ -40,12 +40,14 @@ from hub.edge.cv.fusion import FusionEngine
 from hub.edge.cv.tracker import ObjectTracker, Track
 
 try:
-    from hailo_platform import VDevice as HailoVDevice  # noqa: F401
+    from hailo_platform import HailoSchedulingAlgorithm  # noqa: F401
+    from hailo_platform import VDevice as HailoVDevice
 
     HAILO_AVAILABLE = True
 except ImportError:
     HAILO_AVAILABLE = False
     HailoVDevice = None  # type: ignore[assignment,misc]
+    HailoSchedulingAlgorithm = None  # type: ignore[assignment,misc]
 
 try:
     from hub.edge.cv.face import FaceRecognizer
@@ -280,9 +282,12 @@ class CVPipeline:
             except Exception:
                 logger.warning("Failed to release Hailo VDevice during reload")
             self._hailo_device = None
-        # One shared VDevice for all models — Hailo-8 allows only one per process.
-        if HAILO_AVAILABLE and HailoVDevice is not None:
-            self._hailo_device = HailoVDevice()
+        # One shared VDevice with ROUND_ROBIN scheduler — allows detector, pose,
+        # and face to be activated simultaneously; HailoRT time-slices between them.
+        if HAILO_AVAILABLE and HailoVDevice is not None and HailoSchedulingAlgorithm is not None:
+            params = HailoVDevice.create_params()
+            params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
+            self._hailo_device = HailoVDevice(params)
 
         resolved = self.hef_path.resolve() if self.hef_path.is_symlink() else self.hef_path
         self._detector = HailoDetector(resolved, self.confidence_threshold)
