@@ -608,7 +608,21 @@ async def run_pipeline(
     await pipeline.run()
 
 
+def _suppress_paho_gc_noise(args: sys.UnraisableHookArgs) -> None:
+    # paho-mqtt Client.__del__ fires call_soon_threadsafe after the event loop
+    # is closed — harmless GC artifact, but noisy in journald. Suppress it.
+    if args.exc_type is RuntimeError and "Event loop is closed" in str(args.exc_value):
+        module = getattr(type(args.object), "__module__", "") or ""
+        if "mqtt" in module.lower():
+            return
+    sys.__unraisablehook__(args)
+
+
 if __name__ == "__main__":
+    import sys
+
+    sys.unraisablehook = _suppress_paho_gc_noise
+
     if PROM_AVAILABLE:
         from prometheus_client import start_http_server
 

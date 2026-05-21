@@ -11,9 +11,10 @@ services:
     container_name: mosquitto
     restart: unless-stopped
     ports:
-      # 1883 is intentionally NOT mapped to the host — the iot-internal Docker
-      # network is the security boundary for plain MQTT. Cross-host clients
-      # (ESP32 sensors, VPS bridge) MUST use 8883 with mTLS.
+      # 1883 bound to loopback only — the iot-hub-cv systemd service runs on
+      # the host and needs plain MQTT access without mTLS. Binding to 127.0.0.1
+      # keeps 1883 off the LAN; the Docker-network security boundary is intact.
+      - "127.0.0.1:1883:1883"
       - "8883:8883"   # mTLS (T3.1)
     volumes:
       - mosquitto-data:/mosquitto/data
