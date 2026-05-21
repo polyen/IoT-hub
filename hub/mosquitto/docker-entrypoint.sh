@@ -37,4 +37,7 @@ if [[ ! -f "${CERTS}/broker.crt" ]]; then
     echo "[entrypoint] Self-signed certs ready. Replace with gen-mqtt-certs.sh for production."
 fi
 
-exec "$@"
+# Named volumes are created with root ownership; fix so mosquitto user can write.
+chown -R mosquitto:mosquitto /mosquitto/data /mosquitto/log
+
+exec su-exec mosquitto "$@"
