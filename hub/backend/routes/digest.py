@@ -89,6 +89,41 @@ async def get_digest(
     }
 
 
+@router.get("/summary")
+async def get_digest_summary(session: SessionDep) -> dict[str, Any]:
+    """Compact today-only stats for the Home page InsightsStrip."""
+    start, end = _period_window("today")
+
+    counts_res = await session.execute(
+        select(Event.type, func.count(Event.id).label("n"))
+        .where(Event.timestamp >= start, Event.timestamp < end)
+        .group_by(Event.type)
+    )
+    counts = {row.type: row.n for row in counts_res}
+
+    total = sum(counts.values())
+    alerts = sum(v for k, v in counts.items() if k in ("alert", "fire", "smoke", "fall"))
+    faces = counts.get("camera/identity", 0)
+
+    # Cameras online: distinct rooms that published a camera/event today
+    cameras_res = await session.execute(
+        select(func.count(func.distinct(Event.room))).where(
+            Event.timestamp >= start,
+            Event.timestamp < end,
+            Event.type == "camera/event",
+            Event.room.isnot(None),
+        )
+    )
+    cameras_online: int = cameras_res.scalar_one_or_none() or 0
+
+    return {
+        "total_events": total,
+        "alerts_today": alerts,
+        "faces_today": faces,
+        "cameras_online": cameras_online,
+    }
+
+
 @router.get("/narrative")
 async def get_narrative(
     request: Request,
