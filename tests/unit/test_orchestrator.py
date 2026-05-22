@@ -342,9 +342,10 @@ async def test_confirm_decision_sends_push_and_subscribes_redis() -> None:
     mock_push.assert_called_once()
     push_kwargs = mock_push.call_args[1]
     assert "agent-confirm" in push_kwargs.get("ntfy_url", "")
-    redis.publish.assert_called_once()
-    publish_args = redis.publish.call_args[0]
-    assert publish_args[0] == "confirm:request"
+    assert redis.publish.call_count >= 1
+    # confirm:request must be among the published channels
+    published_channels = [call[0][0] for call in redis.publish.call_args_list]
+    assert "confirm:request" in published_channels
 
 
 @pytest.mark.asyncio

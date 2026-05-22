@@ -110,11 +110,31 @@ class AgentOrchestrator:
         async with self._session_factory() as session:
             yield session
 
+    async def _pub(self, channel: str, payload: dict[str, Any]) -> None:
+        """Publish a progress event to Redis with timestamp; non-fatal on error."""
+        try:
+            payload.setdefault("ts", datetime.now(UTC).isoformat())
+            await self._redis.publish(channel, json.dumps(payload))
+        except Exception:
+            pass
+
     async def handle_command(self, text: str, identity: str = "default") -> None:
         """Process one voice/text command end-to-end."""
         t0 = time.monotonic()
         intent = self._router.classify_intent(text)
         logger.info("Intent: %s (score=%.2f) — %r", intent.class_, intent.score, text)
+
+        routing = intent.class_.value if hasattr(intent.class_, "value") else str(intent.class_)
+        await self._pub(
+            "agent:turn",
+            {
+                "type": "intent",
+                "text": text,
+                "class_": routing,
+                "score": round(float(intent.score), 3) if intent.score is not None else None,
+                "prototype": intent.prototype,
+            },
+        )
 
         try:
             if intent.class_ == IntentClass.DETERMINISTIC:
@@ -127,6 +147,10 @@ class AgentOrchestrator:
                 await self._handle_unknown(text, identity)
         except Exception:
             logger.exception("Orchestrator error handling command: %r", text)
+            await self._pub(
+                "agent:result",
+                {"type": "result", "action_class": "ERROR", "text": f"Помилка обробки: {text!r}"},
+            )
         finally:
             latency_ms = int((time.monotonic() - t0) * 1000)
             logger.info("Command handled in %dms", latency_ms)
@@ -224,11 +248,67 @@ class AgentOrchestrator:
 
         if decision.action_class == ActionClass.DENY:
             logger.warning("DENY: %s — %s", tool_call.tool, decision.reason)
+            await self._pub(
+                "agent:result",
+                {
+                    "type": "result",
+                    "action_class": "DENY",
+                    "tool": tool_call.tool,
+                    "text": decision.reason or "Заблоковано політикою",
+                },
+            )
 
         elif decision.action_class == ActionClass.AUTO:
-            await self._run_tool(tool_call)
+            await self._pub(
+                "agent:tool_call",
+                {
+                    "type": "tool_call",
+                    "action_class": "AUTO",
+                    "tool": tool_call.tool,
+                    "topic": tool_call.topic,
+                    "payload": tool_call.payload,
+                },
+            )
+            try:
+                result = await self._run_tool(tool_call)
+                if isinstance(result, dict | list):
+                    result_text = json.dumps(result, ensure_ascii=False, default=str)
+                elif result is not None:
+                    result_text = str(result)
+                else:
+                    result_text = "OK"
+                await self._pub(
+                    "agent:result",
+                    {
+                        "type": "result",
+                        "action_class": "AUTO",
+                        "tool": tool_call.tool,
+                        "text": result_text[:300],
+                    },
+                )
+            except Exception as exc:
+                await self._pub(
+                    "agent:result",
+                    {
+                        "type": "result",
+                        "action_class": "ERROR",
+                        "tool": tool_call.tool,
+                        "text": str(exc),
+                    },
+                )
+                raise
 
         elif decision.action_class == ActionClass.CONFIRM:
+            await self._pub(
+                "agent:tool_call",
+                {
+                    "type": "tool_call",
+                    "action_class": "CONFIRM",
+                    "tool": tool_call.tool,
+                    "text": decision.confirm_message or f"Потрібне підтвердження: {tool_call.tool}",
+                    "payload": tool_call.payload,
+                },
+            )
             await self._handle_confirm(decision, tool_call, intent_text, identity)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -318,9 +398,44 @@ class AgentOrchestrator:
 
         if approved:
             logger.info("CONFIRM approved for %s — executing tool", confirm_id)
-            await self._run_tool(tool_call)
+            try:
+                result = await self._run_tool(tool_call)
+                if isinstance(result, dict | list):
+                    result_text = json.dumps(result, ensure_ascii=False, default=str)
+                elif result is not None:
+                    result_text = str(result)
+                else:
+                    result_text = "OK"
+                await self._pub(
+                    "agent:result",
+                    {
+                        "type": "result",
+                        "action_class": "CONFIRM",
+                        "tool": tool_call.tool,
+                        "text": result_text[:300],
+                    },
+                )
+            except Exception as exc:
+                await self._pub(
+                    "agent:result",
+                    {
+                        "type": "result",
+                        "action_class": "ERROR",
+                        "tool": tool_call.tool,
+                        "text": str(exc),
+                    },
+                )
         else:
             logger.info("CONFIRM timed-out or rejected for %s — not executing", confirm_id)
+            await self._pub(
+                "agent:result",
+                {
+                    "type": "result",
+                    "action_class": "DENY",
+                    "tool": tool_call.tool,
+                    "text": "Підтвердження відхилено або вичерпано час",
+                },
+            )
 
         # Update DB record state to reflect outcome
         async with self._get_session() as session:

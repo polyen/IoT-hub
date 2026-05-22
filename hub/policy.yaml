@@ -114,21 +114,34 @@ mqtt_topics:
         value: { type: integer, minimum: 0, maximum: 100 }
       required: [action]
 
-  # Generic relay для побутових пристроїв (вентилятор, лампа, чайник)
-  - pattern: "home/+/cmd"
-    class: AUTO
-    rate_limit: 20/minute
+  # ── CONFIRM ─────────────────────────────────────────────────────────────
+  # IMPORTANT: More-specific patterns must come BEFORE broader ones.
+  # home/security/# must precede home/+/cmd — both match home/security/cmd.
+
+  # Безпека / сигналізація — CONFIRM з ідентифікацією
+  - pattern: "home/security/#"
+    class: CONFIRM
+    confirm_message: "Змінити стан безпеки: {payload.action}?"
+    confirm_timeout_sec: 30
+    require_identity: [vlad]    # тільки автентифікований known
     schema:
       type: object
       additionalProperties: false
       properties:
-        cmd: { type: string, enum: [relay_on, relay_off, relay_toggle] }
-      required: [cmd]
+        action: { type: string, enum: [arm_home, arm_away, disarm] }
+      required: [action]
 
-  - pattern: "agent/notify"
-    class: AUTO
-
-  # ── CONFIRM ─────────────────────────────────────────────────────────────
+  # Замки — завжди CONFIRM, коротший таймаут
+  - pattern: "home/+/lock/cmd"
+    class: CONFIRM
+    confirm_message: "{action} замок у {room}?"
+    confirm_timeout_sec: 30
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        action: { type: string, enum: [lock, unlock] }
+      required: [action]
 
   # Клімат — CONFIRM бо може заморозити квартиру або перегріти
   - pattern: "home/+/climate/cmd"
@@ -146,30 +159,22 @@ mqtt_topics:
             - { type: string, enum: [heat, cool, auto, off] }
       required: [action, value]
 
-  # Замки — завжди CONFIRM, коротший таймаут
-  - pattern: "home/+/lock/cmd"
-    class: CONFIRM
-    confirm_message: "{action} замок у {room}?"
-    confirm_timeout_sec: 30
-    schema:
-      type: object
-      additionalProperties: false
-      properties:
-        action: { type: string, enum: [lock, unlock] }
-      required: [action]
+  # ── AUTO (relay) — must come AFTER all specific CONFIRM patterns ─────────
 
-  # Безпека / сигналізація — CONFIRM з ідентифікацією
-  - pattern: "home/security/#"
-    class: CONFIRM
-    confirm_message: "Змінити стан безпеки: {payload.action}?"
-    confirm_timeout_sec: 30
-    require_identity: [vlad]    # тільки автентифікований known
+  # Generic relay для побутових пристроїв (вентилятор, лампа, чайник)
+  # Comes after home/security/# and home/+/lock/cmd so those stay CONFIRM.
+  - pattern: "home/+/cmd"
+    class: AUTO
+    rate_limit: 20/minute
     schema:
       type: object
       additionalProperties: false
       properties:
-        action: { type: string, enum: [arm_home, arm_away, disarm] }
-      required: [action]
+        cmd: { type: string, enum: [relay_on, relay_off, relay_toggle] }
+      required: [cmd]
+
+  - pattern: "agent/notify"
+    class: AUTO
 
   # ── DENY ─────────────────────────────────────────────────────────────────
 

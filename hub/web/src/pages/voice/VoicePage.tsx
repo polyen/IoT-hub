@@ -171,6 +171,7 @@ interface TryResult {
   action_class: string;
   reason: string;
   latency_ms: number;
+  inferred_tool?: string | null;
 }
 
 function TryTab() {
@@ -232,6 +233,11 @@ function TryTab() {
               {result.action_class}
             </span>
             <span className="text-slate-400">{result.latency_ms} мс</span>
+            {result.inferred_tool && (
+              <span className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                ↳ <span className="font-mono">{result.inferred_tool}</span> (інференс)
+              </span>
+            )}
           </div>
           <p className="text-slate-300"><span className="text-slate-500">Правило: </span>{result.matched_rule}</p>
           <p className="text-slate-400 text-xs">{result.reason}</p>
@@ -325,8 +331,91 @@ interface AgentTurnEvent {
   type: "intent" | "tool_call" | "result" | "ping";
   text?: string;
   tool?: string;
+  topic?: string;
   payload?: unknown;
+  action_class?: "AUTO" | "CONFIRM" | "DENY" | "ERROR";
+  class_?: string;      // routing class for intent events
+  score?: number;
+  prototype?: string;
   ts?: string;
+}
+
+const CLASS_BADGE: Record<string, string> = {
+  AUTO: "bg-green-900/70 text-green-300",
+  CONFIRM: "bg-amber-900/70 text-amber-300",
+  DENY: "bg-red-900/70 text-red-300",
+  ERROR: "bg-red-900/70 text-red-400",
+  DETERMINISTIC: "bg-blue-900/70 text-blue-300",
+  STRUCTURED: "bg-purple-900/70 text-purple-300",
+  CREATIVE: "bg-pink-900/70 text-pink-300",
+  UNKNOWN: "bg-slate-800 text-slate-400",
+};
+
+const TYPE_CONFIG: Record<string, { icon: string; border: string; bg: string; label: string }> = {
+  intent:    { icon: "💬", border: "border-blue-800/60",   bg: "bg-blue-950/30",   label: "Намір" },
+  tool_call: { icon: "⚙️",  border: "border-amber-800/60", bg: "bg-amber-950/30",  label: "Виклик" },
+  result:    { icon: "✓",  border: "border-green-800/60", bg: "bg-green-950/30",  label: "Результат" },
+};
+
+function EventCard({ ev }: { ev: AgentTurnEvent }) {
+  const [expanded, setExpanded] = useState(false);
+  const cfg = TYPE_CONFIG[ev.type] ?? { icon: "•", border: "border-slate-700", bg: "bg-slate-800/60", label: ev.type };
+  const badge = ev.action_class ?? ev.class_;
+  const hasPayload = ev.payload != null && typeof ev.payload === "object" && Object.keys(ev.payload as object).length > 0;
+
+  return (
+    <div className={`rounded-lg border ${cfg.border} ${cfg.bg} px-3 py-2 text-xs`}>
+      <div className="flex items-start gap-2">
+        <span className="text-base leading-none mt-0.5 select-none">{cfg.icon}</span>
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-semibold text-white/80">{cfg.label}</span>
+            {badge && (
+              <span className={`rounded px-1.5 py-px text-[10px] font-bold ${CLASS_BADGE[badge] ?? "bg-slate-700 text-slate-300"}`}>
+                {badge}
+              </span>
+            )}
+            {ev.prototype && (
+              <span className="text-slate-500 font-mono">{ev.prototype}</span>
+            )}
+            {ev.score != null && (
+              <span className="text-slate-600">{(ev.score * 100).toFixed(0)}%</span>
+            )}
+          </div>
+
+          {ev.text && (
+            <p className="text-white/70 leading-snug"
+               style={{ display: "-webkit-box", WebkitLineClamp: expanded ? undefined : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+              {ev.text}
+            </p>
+          )}
+          {ev.tool && (
+            <p className="font-mono text-amber-300/80">{ev.tool}{ev.topic ? ` → ${ev.topic}` : ""}</p>
+          )}
+
+          {hasPayload && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="text-slate-500 hover:text-slate-300 mt-0.5"
+            >
+              {expanded ? "▲ скрити" : "▼ payload"}
+            </button>
+          )}
+          {expanded && hasPayload && (
+            <pre className="mt-1 rounded bg-black/30 p-2 text-[10px] text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
+              {JSON.stringify(ev.payload, null, 2)}
+            </pre>
+          )}
+        </div>
+
+        {ev.ts && (
+          <span className="shrink-0 text-slate-600 font-mono tabular-nums">
+            {new Date(ev.ts).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function StackTab() {
@@ -334,6 +423,7 @@ function StackTab() {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -347,10 +437,12 @@ function StackTab() {
         try {
           const ev: AgentTurnEvent = JSON.parse(e.data as string);
           if (ev.type === "ping") return;
-          setEvents((prev) => [...prev.slice(-99), ev]);
-          requestAnimationFrame(() => {
-            listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-          });
+          setEvents((prev) => [...prev.slice(-199), ev]);
+          if (autoScrollRef.current) {
+            requestAnimationFrame(() => {
+              listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+            });
+          }
         } catch { /* ignore */ }
       };
     }
@@ -358,30 +450,15 @@ function StackTab() {
     return () => wsRef.current?.close();
   }, []);
 
-  const TYPE_STYLE: Record<string, string> = {
-    intent: "border-blue-700 bg-blue-900/20 text-blue-200",
-    tool_call: "border-amber-700 bg-amber-900/20 text-amber-200",
-    result: "border-green-700 bg-green-900/20 text-green-200",
-  };
-
-  const TYPE_ICON: Record<string, string> = {
-    intent: "💬",
-    tool_call: "🔧",
-    result: "✅",
-  };
-
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
-          <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500" : "bg-slate-500"}`} />
+          <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-slate-500"}`} />
           <span className="text-slate-400">{connected ? "Агент підключений" : "Очікування агента…"}</span>
         </div>
         {events.length > 0 && (
-          <button
-            onClick={() => setEvents([])}
-            className="text-xs text-slate-500 hover:text-slate-300"
-          >
+          <button onClick={() => setEvents([])} className="text-xs text-slate-500 hover:text-slate-300">
             Очистити
           </button>
         )}
@@ -389,35 +466,22 @@ function StackTab() {
 
       <div
         ref={listRef}
-        className="space-y-2 max-h-[60vh] overflow-y-auto pr-1"
+        className="space-y-1.5 max-h-[65vh] overflow-y-auto pr-1"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          autoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+        }}
       >
         {events.length === 0 ? (
-          <div className="py-12 text-center text-slate-500">
-            <p className="text-3xl mb-2">🤖</p>
-            <p className="text-sm">Агент не активний</p>
-            <p className="text-xs mt-1 text-slate-600">Тут з'являться кроки обробки у реальному часі</p>
+          <div className="py-14 text-center text-slate-500">
+            <p className="text-3xl mb-3">🤖</p>
+            <p className="text-sm">Агент очікує команди</p>
+            <p className="text-xs mt-1 text-slate-600">
+              Скажи команду або відправ через «Сценарії» — тут з'явиться хід обробки
+            </p>
           </div>
         ) : (
-          events.map((ev, i) => (
-            <div
-              key={i}
-              className={`rounded-lg border px-3 py-2 text-xs ${TYPE_STYLE[ev.type] ?? "border-slate-700 bg-slate-800 text-slate-300"}`}
-            >
-              <div className="flex items-start gap-2">
-                <span>{TYPE_ICON[ev.type] ?? "•"}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium capitalize">{ev.type.replace("_", " ")}</p>
-                  {ev.text && <p className="mt-0.5 opacity-80 truncate">{ev.text}</p>}
-                  {ev.tool && <p className="mt-0.5 font-mono opacity-70">{ev.tool}</p>}
-                </div>
-                {ev.ts && (
-                  <span className="shrink-0 opacity-50 font-mono">
-                    {new Date(ev.ts).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                  </span>
-                )}
-              </div>
-            </div>
-          ))
+          events.map((ev, i) => <EventCard key={i} ev={ev} />)
         )}
       </div>
     </div>

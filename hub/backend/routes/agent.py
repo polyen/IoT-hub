@@ -7,6 +7,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
+from uuid import UUID
 
 from fastapi import (
     APIRouter,
@@ -30,8 +31,8 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 class AuditOut(BaseModel):
-    id: str
-    timestamp: str
+    id: UUID
+    timestamp: datetime
     intent_text: str
     tool: str | None
     action_class: str
@@ -54,6 +55,7 @@ class TryResult(BaseModel):
     action_class: str
     reason: str
     latency_ms: int
+    inferred_tool: str | None = None
 
 
 @router.get("/audit", response_model=list[AuditOut])
@@ -90,6 +92,7 @@ async def try_command(body: TryBody, session: SessionDep) -> TryResult:
         action_class=result["class"],
         reason=result["reason"],
         latency_ms=latency_ms,
+        inferred_tool=result.get("inferred_tool"),
     )
 
 
@@ -144,8 +147,10 @@ async def agent_ws(websocket: WebSocket) -> None:
 async def run_intent(body: TryBody, request: Request, session: SessionDep) -> dict[str, str]:
     """Queue an intent text for the edge orchestrator via MQTT voice/command."""
 
+    import json as _json  # noqa: PLC0415
+
     redis = request.app.state.redis
-    await redis.publish("mqtt:publish:voice/command", body.intent_text)
+    await redis.publish("mqtt:publish:voice/command", _json.dumps({"text": body.intent_text}))
 
     entry = AgentAudit(
         timestamp=datetime.now(UTC),
