@@ -69,9 +69,9 @@ async def test_callback_query_handler_tp() -> None:
         },
     )
     query.answer.assert_awaited_once()
-    # Confirm ✓ appears in the answer
+    # Confirm acknowledgment appears in the answer
     answer_text: str = query.answer.call_args[0][0]
-    assert "✓" in answer_text or "Recorded" in answer_text
+    assert "Зафіксовано" in answer_text or "TP" in answer_text
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,7 @@ async def test_handle_alert_sends_message() -> None:
     await bot.handle_alert(
         alert_id=alert_id,
         room="kitchen",
-        type="fire",
+        alert_type="fire",
         confidence=0.92,
         model_version="yolov8n-v3",
     )
@@ -226,7 +226,7 @@ async def test_handle_alert_no_chat_ids() -> None:
     await bot.handle_alert(
         alert_id=str(uuid.uuid4()),
         room="garage",
-        type="smoke",
+        alert_type="smoke",
         confidence=0.5,
         model_version="yolov8n-v2",
     )

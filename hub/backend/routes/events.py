@@ -8,7 +8,15 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -102,6 +110,7 @@ async def ws_events(websocket: WebSocket, session: SessionDep) -> None:
 
 @router.post("/api/feedback")
 async def submit_feedback(
+    request: Request,
     body: dict[str, Any],
     session: SessionDep,
 ) -> dict[str, str]:
@@ -126,6 +135,24 @@ async def submit_feedback(
     )
     session.add(fb)
     await session.commit()
+
+    # Notify mining stage that new feedback is available — listener can trigger DVC
+    try:
+        redis = request.app.state.redis
+        await redis.publish(
+            "feedback:new",
+            json.dumps(
+                {
+                    "alert_id": str(alert_uuid),
+                    "user_label": str(user_label),
+                    "tag": body.get("tag"),
+                    "ts": datetime.now(UTC).isoformat(),
+                }
+            ),
+        )
+    except Exception:
+        pass  # non-fatal — DB record is the source of truth for mining
+
     return {"status": "ok"}
 
 

@@ -143,9 +143,23 @@ export default function PrivacyPage() {
           <button
             onClick={() => consentMutation.mutate(!cloudConsent)}
             disabled={consentMutation.isPending}
-            className={`relative h-6 w-11 rounded-full transition-colors ${cloudConsent ? "bg-blue-600" : "bg-slate-600"}`}
+            className={`relative h-6 w-11 rounded-full transition-colors ${
+              consentMutation.isPending
+                ? "opacity-50 cursor-not-allowed bg-slate-500"
+                : cloudConsent
+                ? "bg-blue-600"
+                : "bg-slate-600"
+            }`}
           >
-            <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${cloudConsent ? "translate-x-5" : "translate-x-0"}`} />
+            <span
+              className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                consentMutation.isPending
+                  ? "animate-pulse"
+                  : cloudConsent
+                  ? "translate-x-5"
+                  : "translate-x-0"
+              }`}
+            />
           </button>
         </div>
         {cloudConsent && (

@@ -41,7 +41,7 @@ async def test_generate_returns_content_string() -> None:
     assert result == "lights are on"
     mock_client.post.assert_called_once()
     call_args = mock_client.post.call_args
-    assert call_args[0][0].endswith("/completion")
+    assert call_args[0][0].endswith("/v1/completions")
     payload = call_args[1]["json"]
     assert payload["prompt"] == "Turn on the lights"
     assert payload["stream"] is False
@@ -99,7 +99,7 @@ async def test_health_returns_true_on_200() -> None:
 
     assert result is True
     mock_client.get.assert_called_once()
-    assert mock_client.get.call_args[0][0].endswith("/health")
+    assert mock_client.get.call_args[0][0].endswith("/v1/models")
 
 
 # ── 5: health() returns False when server unreachable ─────────────────────────

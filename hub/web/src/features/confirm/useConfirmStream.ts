@@ -24,6 +24,7 @@ export function useConfirmCount(): number {
 export function useConfirmStream(): {
   pending: ConfirmRequest[];
   connected: boolean;
+  removePending: (id: string) => void;
 } {
   const [pending, setPending] = useState<ConfirmRequest[]>([]);
   const [connected, setConnected] = useState(false);
@@ -87,5 +88,13 @@ export function useConfirmStream(): {
     };
   }, []);
 
-  return { pending, connected };
+  function removePending(id: string) {
+    setPending((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      notifyCount(next.length);
+      return next;
+    });
+  }
+
+  return { pending, connected, removePending };
 }

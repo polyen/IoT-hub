@@ -33,6 +33,59 @@ from hub.edge.storage.t0 import cleanup_old_frames
 logger = logging.getLogger(__name__)
 
 
+async def _feedback_mining_loop(
+    redis: aioredis.Redis,
+    debounce_sec: int = 1800,
+) -> None:
+    """Subscribe to feedback:new and batch-trigger dvc repro mine_hard_negatives.
+
+    Collects feedback events for *debounce_sec* after the first arrival, then
+    fires a single DVC run so rapid user-labelling doesn't spawn concurrent jobs.
+    """
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("feedback:new")
+    pending = 0
+    deadline: float | None = None
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            try:
+                msg = await asyncio.wait_for(
+                    pubsub.get_message(ignore_subscribe_messages=True),
+                    timeout=5.0,
+                )
+            except TimeoutError:
+                msg = None
+            if msg and msg["type"] == "message":
+                pending += 1
+                if deadline is None:
+                    deadline = loop.time() + debounce_sec
+            if deadline is not None and loop.time() >= deadline:
+                logger.info("Triggering DVC mining stage (%d pending feedback events)", pending)
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "dvc",
+                        "repro",
+                        "mine_hard_negatives",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    _, stderr = await proc.communicate()
+                    if proc.returncode != 0:
+                        logger.warning(
+                            "DVC mining failed (rc=%d): %s", proc.returncode, stderr.decode()
+                        )
+                    else:
+                        logger.info("DVC mining completed")
+                except Exception:
+                    logger.exception("Failed to spawn DVC mining")
+                pending = 0
+                deadline = None
+    finally:
+        await pubsub.unsubscribe("feedback:new")
+        await pubsub.aclose()
+
+
 async def _t0_cleanup_loop(interval_s: int = 86_400) -> None:
     """Daily T0 frame cleanup. Tolerant of missing mount in dev mode."""
     while True:
@@ -71,6 +124,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     if os.environ.get("ENABLE_T0_CLEANUP", "true").lower() == "true":
         tasks.append(asyncio.create_task(_t0_cleanup_loop(), name="t0-cleanup"))
+    if os.environ.get("ENABLE_FEEDBACK_MINING", "true").lower() == "true":
+        tasks.append(
+            asyncio.create_task(
+                _feedback_mining_loop(
+                    app.state.redis,
+                    debounce_sec=int(os.environ.get("FEEDBACK_MINING_DEBOUNCE_SEC", "1800")),
+                ),
+                name="feedback-mining",
+            )
+        )
 
     try:
         yield

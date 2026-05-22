@@ -11,6 +11,13 @@ import pytest
 
 from hub.edge.mlops.deploy import ChecksumMismatchError, ModelStore
 
+
+@pytest.fixture(autouse=True)
+def _skip_holdout_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip smoke-test validation in unit tests — real HEF files aren't available."""
+    monkeypatch.setattr(ModelStore, "validate_on_holdout", lambda *a, **kw: True)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

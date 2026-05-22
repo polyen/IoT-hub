@@ -6,8 +6,29 @@ These tests cover the pure-Python / cv2 utilities that run on any machine.
 
 from __future__ import annotations
 
+import sys
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
+
+# cv2 is not installed in CI/dev — provide a minimal stub so lazy `import cv2`
+# inside face.py function bodies finds the mock via sys.modules.
+if "cv2" not in sys.modules:
+
+    def _np_resize(img: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+        """Nearest-neighbour resize using numpy — mirrors cv2.resize(img, (w, h))."""
+        out_w, out_h = size
+        in_h, in_w = img.shape[:2]
+        ys = np.round(np.linspace(0, in_h - 1, out_h)).astype(int)
+        xs = np.round(np.linspace(0, in_w - 1, out_w)).astype(int)
+        return img[ys[:, None], xs[None, :]]
+
+    _cv2_mock = MagicMock()
+    _cv2_mock.resize.side_effect = _np_resize
+    _cv2_mock.cvtColor.side_effect = lambda img, code: img
+    _cv2_mock.COLOR_BGR2RGB = 4
+    sys.modules["cv2"] = _cv2_mock
 
 from hub.edge.cv.face import (
     INPUT_H,

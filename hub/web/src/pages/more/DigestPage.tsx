@@ -144,27 +144,43 @@ export default function DigestPage() {
           <section className="space-y-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Активність по годинах</h2>
             <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-4">
-              <p className="text-xs text-slate-500 text-center">
-                {data.peak_hour != null
-                  ? `Найактивніша година: ${data.peak_hour}:00–${data.peak_hour + 1}:00`
-                  : "Немає даних для побудови графіку"}
-              </p>
-              <div className="mt-3 flex items-end gap-px h-10">
-                {HOURS.map((h) => {
-                  const isActive = h === data.peak_hour;
+              {data.peak_hour != null && (
+                <p className="text-xs text-slate-500 text-center mb-3">
+                  Найактивніша година: {data.peak_hour}:00–{data.peak_hour + 1}:00
+                </p>
+              )}
+              {(() => {
+                const hourly = data.hourly_counts ?? {};
+                const maxH = Math.max(1, ...Object.values(hourly));
+                const hasData = Object.keys(hourly).length > 0;
+                if (!hasData) {
                   return (
-                    <div
-                      key={h}
-                      title={`${h}:00`}
-                      className={`flex-1 rounded-sm ${isActive ? "bg-blue-500" : "bg-slate-700"}`}
-                      style={{ height: isActive ? "100%" : "30%" }}
-                    />
+                    <p className="text-xs text-slate-500 text-center py-4">Немає даних для побудови графіку</p>
                   );
-                })}
-              </div>
-              <div className="flex justify-between mt-1 text-xs text-slate-600">
-                <span>00:00</span><span>12:00</span><span>23:00</span>
-              </div>
+                }
+                return (
+                  <>
+                    <div className="flex items-end gap-px h-12">
+                      {HOURS.map((h) => {
+                        const count = hourly[h] ?? 0;
+                        const heightPct = count > 0 ? Math.max(8, (count / maxH) * 100) : 4;
+                        const isPeak = h === data.peak_hour;
+                        return (
+                          <div
+                            key={h}
+                            title={`${h}:00 — ${count} подій`}
+                            className={`flex-1 rounded-sm transition-all ${isPeak ? "bg-blue-500" : count > 0 ? "bg-slate-500" : "bg-slate-700/50"}`}
+                            style={{ height: `${heightPct}%` }}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between mt-1 text-xs text-slate-600">
+                      <span>00:00</span><span>12:00</span><span>23:00</span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </section>
         </>

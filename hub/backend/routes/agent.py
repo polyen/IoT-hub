@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -141,13 +142,23 @@ async def agent_ws(websocket: WebSocket) -> None:
 
 @router.post("/voice/audio")
 async def submit_voice_audio(websocket_request: Request) -> dict[str, Any]:
-    """Receive audio blob from PTT and publish to voice pipeline via Redis."""
+    """Receive audio blob from PTT, store in Redis, notify voice pipeline."""
     from hub.backend.main import app  # noqa: PLC0415
 
     body = await websocket_request.body()
     if not body:
         raise HTTPException(status_code=422, detail="Empty audio body")
     redis = app.state.redis
-    # Store in Redis stream for voice pipeline to consume
-    await redis.xadd("voice:audio_stream", {"blob_size": len(body), "source": "ptt"}, maxlen=100)
-    return {"status": "queued", "bytes": len(body)}
+
+    # Store blob under a unique key (TTL 5 min — voice pipeline must consume before expiry)
+    blob_id = str(uuid.uuid4())
+    blob_key = f"voice:audio_blob:{blob_id}"
+    await redis.set(blob_key, body, ex=300)
+
+    # Notify voice pipeline via stream (consumer reads blob_key, processes, deletes)
+    await redis.xadd(
+        "voice:audio_stream",
+        {"blob_key": blob_key, "blob_size": len(body), "source": "ptt"},
+        maxlen=100,
+    )
+    return {"status": "queued", "blob_id": blob_id, "bytes": len(body)}

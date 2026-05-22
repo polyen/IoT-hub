@@ -160,6 +160,7 @@ export interface DigestData {
   total_events: number;
   counts: Record<string, number>;
   peak_hour: number | null;
+  hourly_counts?: Record<number, number>;
   narrative: string | null;
 }
 

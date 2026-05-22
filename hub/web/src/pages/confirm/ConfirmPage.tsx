@@ -6,7 +6,7 @@ import { EmptyState } from "../../components/EmptyState";
 
 export default function ConfirmPage() {
   const { t } = useTranslation("common");
-  const { pending, connected } = useConfirmStream();
+  const { pending, connected, removePending } = useConfirmStream();
 
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {
@@ -32,7 +32,7 @@ export default function ConfirmPage() {
       ) : (
         <div className="space-y-3">
           {pending.map((req) => (
-            <ConfirmCard key={req.id} request={req} onDone={() => {}} />
+            <ConfirmCard key={req.id} request={req} onDone={() => removePending(req.id)} />
           ))}
         </div>
       )}

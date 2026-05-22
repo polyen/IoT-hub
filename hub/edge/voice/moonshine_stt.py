@@ -15,15 +15,16 @@ import logging
 from typing import Any
 
 import numpy as np
-import soundfile
 
 logger = logging.getLogger(__name__)
 
 try:
+    import soundfile
     from moonshine_onnx import MoonshineOnnxModel
 
     MOONSHINE_AVAILABLE = True
 except ImportError:
+    soundfile = None  # type: ignore[assignment]
     MOONSHINE_AVAILABLE = False
 
 DEFAULT_MOONSHINE_MODEL = "UsefulSensors/moonshine-tiny-uk"

@@ -34,13 +34,21 @@ function GaugeBar({ value, max, warn, danger }: { value: number; max: number; wa
 function LogModal({ service, onClose }: { service: string; onClose: () => void }) {
   const [lines, setLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const autoScrollRef = useRef(true);
 
   async function fetchLogs() {
     try {
       const data = await api.get<string[]>(`/api/system/logs/${service}?tail=200`);
       setLines(data);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      setError(null);
+      if (autoScrollRef.current) {
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не вдалося отримати логи");
     } finally {
       setLoading(false);
     }
@@ -53,27 +61,65 @@ function LogModal({ service, onClose }: { service: string; onClose: () => void }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service]);
 
+  const filtered = filter
+    ? lines.filter((l) => l.toLowerCase().includes(filter.toLowerCase()))
+    : lines;
+
+  function lineClass(line: string) {
+    if (line.includes("ERROR") || line.includes("CRITICAL")) return "text-red-400";
+    if (line.includes("WARN") || line.includes("WARNING")) return "text-amber-400";
+    if (line.includes("INFO")) return "text-slate-300";
+    return "text-slate-500";
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-4">
       <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 shadow-2xl flex flex-col max-h-[80vh]">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
-          <span className="font-semibold text-sm">Логи: {service}</span>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-lg leading-none">×</button>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 gap-3">
+          <span className="font-semibold text-sm shrink-0">Логи: {service}</span>
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Фільтр…"
+            className="flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-lg leading-none shrink-0">×</button>
         </div>
         {loading ? (
           <div className="flex justify-center py-8"><Spinner className="h-6 w-6" /></div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-3 text-center px-4">
+            <p className="text-red-400 text-sm">{error}</p>
+            <button
+              onClick={() => { setLoading(true); fetchLogs(); }}
+              className="text-xs text-slate-400 hover:text-white underline"
+            >
+              Спробувати знову
+            </button>
+          </div>
         ) : (
-          <div className="overflow-auto flex-1 p-4 font-mono text-xs text-slate-300 space-y-0.5 leading-5">
-            {lines.map((line, i) => (
-              <div key={i} className={line.includes("ERROR") || line.includes("CRITICAL") ? "text-red-400" : line.includes("WARN") ? "text-amber-400" : ""}>
-                {line}
-              </div>
-            ))}
+          <div
+            className="overflow-auto flex-1 p-4 font-mono text-xs space-y-0.5 leading-5"
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              autoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            }}
+          >
+            {filtered.length === 0 ? (
+              <p className="text-slate-600 text-center py-4">
+                {filter ? "Нічого не знайдено" : "Логів немає"}
+              </p>
+            ) : (
+              filtered.map((line, i) => (
+                <div key={i} className={lineClass(line)}>{line}</div>
+              ))
+            )}
             <div ref={bottomRef} />
           </div>
         )}
-        <div className="px-4 py-2 border-t border-slate-700 text-xs text-slate-500">
-          Оновлення кожні 2 с
+        <div className="px-4 py-2 border-t border-slate-700 text-xs text-slate-500 flex items-center justify-between">
+          <span>Оновлення кожні 2 с</span>
+          {filter && <span className="text-slate-600">{filtered.length} / {lines.length} рядків</span>}
         </div>
       </div>
     </div>

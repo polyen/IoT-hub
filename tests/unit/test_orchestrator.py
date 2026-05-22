@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from hub.edge.agent.llm_local import LocalLLMClient
-from hub.edge.agent.orchestrator import AgentOrchestrator
+from hub.edge.agent.orchestrator import DETERMINISTIC_MAP, AgentOrchestrator
 from hub.edge.agent.policy import ActionClass, Decision, PolicyEngine, ToolCall
 from hub.edge.agent.router import Intent, IntentClass, IntentRouter
 
@@ -15,6 +16,7 @@ def make_orchestrator(
     action_class: ActionClass = ActionClass.AUTO,
     prototype: str | None = None,
     llm_result: dict | None = None,
+    llm_generate_result: str | None = None,
 ) -> tuple[AgentOrchestrator, MagicMock, AsyncMock, AsyncMock]:
     router = MagicMock(spec=IntentRouter)
     router.classify_intent.return_value = Intent(
@@ -32,6 +34,12 @@ def make_orchestrator(
             "tool": "ask_user",
             "question": "unclear",
         }
+    if llm_generate_result is not None:
+        llm.generate.return_value = llm_generate_result
+    else:
+        llm.generate.return_value = json.dumps(
+            {"tool": "summarize_period", "payload": {"period": "today"}}
+        )
 
     redis_client = AsyncMock()
     mqtt_client = AsyncMock()
@@ -170,3 +178,228 @@ async def test_orchestrator_handles_tool_exception_gracefully() -> None:
     ):
         # Must not raise — exceptions are caught and logged
         await orch.handle_command("some unknown command")
+
+
+# ── 6: CREATIVE intent → llm.generate called, tool dispatched ────────────────
+
+
+@pytest.mark.asyncio
+async def test_creative_intent_calls_generate() -> None:
+    llm_response = json.dumps({"tool": "summarize_period", "payload": {"period": "today"}})
+    orch, policy, llm, _ = make_orchestrator(
+        intent_class=IntentClass.CREATIVE,
+        action_class=ActionClass.AUTO,
+        llm_generate_result=llm_response,
+    )
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.summarize_period", new_callable=AsyncMock
+        ) as mock_summarize,
+    ):
+        mock_summarize.return_value = {"summary": "quiet day"}
+        # summarize_period needs a DB session — supply session_factory returning None
+        orch._session_factory = None
+        await orch.handle_command("що цікавого сталось вчора?")
+
+    llm.generate.assert_called_once()
+    call_kwargs = llm.generate.call_args
+    # Prompt must reference tool schemas and the command text
+    prompt = call_kwargs[0][0] if call_kwargs[0] else call_kwargs[1].get("prompt", "")
+    assert "tool" in prompt.lower() or "summarize" in prompt.lower()
+
+
+@pytest.mark.asyncio
+async def test_creative_intent_unknown_tool_falls_back_to_ask_user() -> None:
+    """If LLM returns a tool name not in TOOL_SCHEMAS, fall back to ask_user."""
+    llm_response = json.dumps({"tool": "nonexistent_tool_xyz", "payload": {}})
+    orch, policy, llm, _ = make_orchestrator(
+        intent_class=IntentClass.CREATIVE,
+        action_class=ActionClass.AUTO,
+        llm_generate_result=llm_response,
+    )
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.ask_user", new_callable=AsyncMock
+        ) as mock_ask,
+    ):
+        mock_ask.return_value = {"status": "sent"}
+        await orch.handle_command("do something weird")
+
+    policy.evaluate.assert_called_once()
+    tool_call: ToolCall = policy.evaluate.call_args[0][0]
+    assert tool_call.tool == "ask_user"
+
+
+@pytest.mark.asyncio
+async def test_creative_intent_invalid_json_falls_back_to_summarize() -> None:
+    """If LLM returns garbage, CREATIVE falls back to summarize_period."""
+    orch, policy, llm, _ = make_orchestrator(
+        intent_class=IntentClass.CREATIVE,
+        action_class=ActionClass.AUTO,
+        llm_generate_result="this is not json at all",
+    )
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.summarize_period", new_callable=AsyncMock
+        ) as mock_summarize,
+    ):
+        mock_summarize.return_value = {}
+        orch._session_factory = None
+        await orch.handle_command("розкажи що було")
+
+    policy.evaluate.assert_called_once()
+    tool_call = policy.evaluate.call_args[0][0]
+    assert tool_call.tool == "summarize_period"
+
+
+# ── 7: DETERMINISTIC intent → DETERMINISTIC_MAP lookup, no LLM ───────────────
+
+
+@pytest.mark.asyncio
+async def test_deterministic_with_known_prototype_uses_map() -> None:
+    orch, policy, llm, _ = make_orchestrator(
+        intent_class=IntentClass.DETERMINISTIC,
+        action_class=ActionClass.AUTO,
+        prototype="light_on",
+    )
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.mqtt_publish", new_callable=AsyncMock
+        ) as mock_pub,
+    ):
+        mock_pub.return_value = None
+        # mqtt_publish needs a topic — policy returns AUTO but tool_call.topic is None
+        # so _run_tool will skip it. We just verify LLM was NOT called.
+        await orch.handle_command("увімкни світло у вітальні")
+
+    llm.generate.assert_not_called()
+    llm.generate_constrained.assert_not_called()
+    policy.evaluate.assert_called_once()
+    tool_call = policy.evaluate.call_args[0][0]
+    assert tool_call.tool == DETERMINISTIC_MAP["light_on"]
+
+
+@pytest.mark.asyncio
+async def test_deterministic_unknown_prototype_falls_back_to_ask_user() -> None:
+    orch, policy, llm, _ = make_orchestrator(
+        intent_class=IntentClass.DETERMINISTIC,
+        action_class=ActionClass.AUTO,
+        prototype=None,  # prototype not in DETERMINISTIC_MAP
+    )
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.ask_user", new_callable=AsyncMock
+        ) as mock_ask,
+    ):
+        mock_ask.return_value = {"status": "sent"}
+        await orch.handle_command("перемкни")
+
+    tool_call = policy.evaluate.call_args[0][0]
+    assert tool_call.tool == "ask_user"
+
+
+# ── 8: CONFIRM decision → ntfy push sent, redis pubsub used ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_confirm_decision_sends_push_and_subscribes_redis() -> None:
+    """CONFIRM path must publish to Redis and call send_push."""
+    orch, policy, _, redis = make_orchestrator(
+        intent_class=IntentClass.UNKNOWN,
+        action_class=ActionClass.CONFIRM,
+    )
+    policy.evaluate.return_value = Decision(
+        action_class=ActionClass.CONFIRM,
+        reason="test_confirm",
+        confirm_message="Вимкнути охорону?",
+        confirm_timeout_sec=5,
+    )
+
+    # Simulate Redis pubsub returning an empty stream (timeout → no approval)
+    pubsub_mock = AsyncMock()
+    pubsub_mock.get_message.return_value = None
+    redis.pubsub = MagicMock(return_value=pubsub_mock)
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.send_push", new_callable=AsyncMock
+        ) as mock_push,
+    ):
+        mock_push.return_value = None
+        await orch.handle_command("вимкни охорону")
+
+    mock_push.assert_called_once()
+    push_kwargs = mock_push.call_args[1]
+    assert "agent-confirm" in push_kwargs.get("ntfy_url", "")
+    redis.publish.assert_called_once()
+    publish_args = redis.publish.call_args[0]
+    assert publish_args[0] == "confirm:request"
+
+
+@pytest.mark.asyncio
+async def test_confirm_approved_executes_tool() -> None:
+    """If confirm:result returns approved, the tool is executed."""
+    orch, policy, _, redis = make_orchestrator(
+        intent_class=IntentClass.UNKNOWN,
+        action_class=ActionClass.CONFIRM,
+    )
+    import uuid as _uuid
+
+    policy.evaluate.return_value = Decision(
+        action_class=ActionClass.CONFIRM,
+        reason="test_confirm",
+        confirm_message="Confirm?",
+        confirm_timeout_sec=5,
+    )
+
+    # We capture the confirm_id from the redis.publish call and inject it back
+    published_id: list[str] = []
+
+    async def fake_publish(channel: str, data: str) -> None:
+        if channel == "confirm:request":
+            msg = json.loads(data)
+            published_id.append(msg["id"])
+
+    redis.publish.side_effect = fake_publish
+
+    call_count = 0
+
+    async def fake_get_message(ignore_subscribe_messages: bool = True) -> dict | None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First call: return the approval message using captured id
+            cid = published_id[0] if published_id else str(_uuid.uuid4())
+            return {
+                "type": "message",
+                "data": json.dumps({"id": cid, "state": "approved"}),
+            }
+        return None
+
+    pubsub_mock = AsyncMock()
+    pubsub_mock.get_message.side_effect = fake_get_message
+    redis.pubsub = MagicMock(return_value=pubsub_mock)
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch("hub.edge.agent.orchestrator.agent_tools.send_push", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.ask_user", new_callable=AsyncMock
+        ) as mock_ask,
+    ):
+        mock_ask.return_value = {"status": "sent"}
+        await orch.handle_command("вимкни охорону")
+
+    # Tool was executed after approval
+    mock_ask.assert_called_once()

@@ -59,19 +59,19 @@ async def get_digest(
 
     total = sum(counts.values())
 
-    # Peak hour (0-23) with most events
-    peak_res = await session.execute(
+    # Per-hour counts (0-23) and peak hour
+    hourly_res = await session.execute(
         select(
             func.extract("hour", Event.timestamp).label("hour"),
             func.count(Event.id).label("n"),
         )
         .where(Event.timestamp >= start, Event.timestamp < end)
         .group_by(func.extract("hour", Event.timestamp))
-        .order_by(func.count(Event.id).desc())
-        .limit(1)
     )
-    peak_row = peak_res.first()
-    peak_hour: int | None = int(peak_row.hour) if peak_row else None
+    hourly_counts: dict[int, int] = {int(row.hour): row.n for row in hourly_res}
+    peak_hour: int | None = (
+        max(hourly_counts, key=lambda h: hourly_counts[h]) if hourly_counts else None
+    )
 
     # Narrative: try Redis cache first (edge agent writes digest:narrative:{period})
     redis = request.app.state.redis
@@ -84,6 +84,7 @@ async def get_digest(
         "total_events": total,
         "counts": counts,
         "peak_hour": peak_hour,
+        "hourly_counts": hourly_counts,
         "narrative": narrative,
     }
 

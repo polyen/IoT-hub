@@ -40,7 +40,7 @@ function SnapshotDialog({ camera, onClose }: SnapshotDialogProps) {
   const feedbackMutation = useMutation({
     mutationFn: () =>
       api.post("/api/feedback", {
-        alert_id: "00000000-0000-0000-0000-000000000000",
+        alert_id: snapshotQuery.data?.camera_id ?? camera.id,
         user_label: label,
         tag: comment || undefined,
       }),

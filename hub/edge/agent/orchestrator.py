@@ -18,8 +18,10 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import aiomqtt
@@ -39,6 +41,9 @@ from hub.edge.agent.policy import (
     write_audit,
 )
 from hub.edge.agent.router import IntentClass, IntentRouter
+
+# How long to wait for user confirmation before auto-denying
+_CONFIRM_DEFAULT_TIMEOUT_SEC = 60
 
 logger = logging.getLogger(__name__)
 
@@ -173,11 +178,16 @@ class AgentOrchestrator:
                 temperature=0.1,
                 stop=["\n\n", "User:", "Available"],
             )
-            # Extract the first JSON object from the response
-            match = re.search(r"\{[^{}]*\}", raw, re.DOTALL)
-            if not match:
-                raise ValueError(f"No JSON found in LLM output: {raw!r}")
-            parsed: dict[str, Any] = json.loads(match.group())
+            # Try direct parse first; fall back to extracting the outermost {...}
+            stripped = raw.strip()
+            try:
+                parsed: dict[str, Any] = json.loads(stripped)
+            except json.JSONDecodeError:
+                # Greedy match to capture outermost JSON object (handles nested braces)
+                match = re.search(r"\{.*\}", stripped, re.DOTALL)
+                if not match:
+                    raise ValueError(f"No JSON found in LLM output: {raw!r}") from None
+                parsed = json.loads(match.group())
         except Exception as e:
             logger.warning(
                 "CREATIVE LLM parse failed (%s): %r — defaulting to summarize_period", e, raw
@@ -219,17 +229,111 @@ class AgentOrchestrator:
             await self._run_tool(tool_call)
 
         elif decision.action_class == ActionClass.CONFIRM:
-            msg = decision.confirm_message or f"Confirm: {tool_call.tool}?"
-            await agent_tools.send_push(
-                ntfy_url=f"{settings.ntfy_url}/agent-confirm",
-                title="Підтвердження",
-                message=msg,
-                priority="high",
-            )
-            logger.info("CONFIRM sent, waiting for response (not yet implemented)")
+            await self._handle_confirm(decision, tool_call, intent_text, identity)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
         await write_audit(decision, tool_call, intent_text, identity, latency_ms)
+
+    async def _handle_confirm(
+        self,
+        decision: Decision,
+        tool_call: ToolCall,
+        intent_text: str,
+        identity: str,
+    ) -> None:
+        """Persist ConfirmRequest, push ntfy, wait for Redis confirm:result."""
+        import asyncio
+
+        timeout_sec = decision.confirm_timeout_sec or _CONFIRM_DEFAULT_TIMEOUT_SEC
+        confirm_id = uuid.uuid4()
+        msg = decision.confirm_message or f"Підтвердити: {tool_call.tool}?"
+
+        # Persist ConfirmRequest to DB so the UI can render it
+        async with self._get_session() as session:
+            if session is not None:
+                try:
+                    from hub.backend.models import ConfirmRequest  # noqa: PLC0415
+
+                    req = ConfirmRequest(
+                        id=confirm_id,
+                        expires_at=datetime.now(UTC) + timedelta(seconds=timeout_sec),
+                        tool=tool_call.tool,
+                        payload=tool_call.payload,
+                        intent_text=intent_text,
+                        confirm_message=msg,
+                    )
+                    session.add(req)
+                    await session.commit()
+                except Exception:
+                    logger.exception("Failed to persist ConfirmRequest %s", confirm_id)
+
+        # Notify UI via Redis so ws_confirm WebSocket picks it up
+        try:
+            await self._redis.publish(
+                "confirm:request",
+                json.dumps({"id": str(confirm_id), "tool": tool_call.tool, "message": msg}),
+            )
+        except Exception:
+            logger.warning("Failed to publish confirm:request for %s", confirm_id)
+
+        # Send ntfy push so user gets notified outside the web UI too
+        try:
+            await agent_tools.send_push(
+                ntfy_url=f"{settings.ntfy_url}/agent-confirm",
+                title="Підтвердження дії",
+                message=f"{msg}\n\nID: {confirm_id}",
+                priority="high",
+            )
+        except Exception:
+            logger.warning("Failed to send ntfy confirm push for %s", confirm_id)
+
+        # Subscribe and wait for user decision on confirm:result
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe("confirm:result")
+        approved = False
+        try:
+            deadline = asyncio.get_event_loop().time() + timeout_sec
+            while asyncio.get_event_loop().time() < deadline:
+                remaining = deadline - asyncio.get_event_loop().time()
+                try:
+                    raw = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True),
+                        timeout=min(5.0, remaining),
+                    )
+                except TimeoutError:
+                    continue
+                if raw is None or raw["type"] != "message":
+                    continue
+                try:
+                    data: dict[str, Any] = json.loads(raw["data"])
+                except Exception:
+                    continue
+                if data.get("id") == str(confirm_id):
+                    if data.get("state") == "approved":
+                        approved = True
+                    break
+        finally:
+            await pubsub.unsubscribe("confirm:result")
+            await pubsub.aclose()
+
+        if approved:
+            logger.info("CONFIRM approved for %s — executing tool", confirm_id)
+            await self._run_tool(tool_call)
+        else:
+            logger.info("CONFIRM timed-out or rejected for %s — not executing", confirm_id)
+
+        # Update DB record state to reflect outcome
+        async with self._get_session() as session:
+            if session is not None:
+                try:
+                    from hub.backend.models import ConfirmRequest  # noqa: PLC0415
+
+                    req = await session.get(ConfirmRequest, confirm_id)
+                    if req is not None and req.state == "pending":
+                        req.state = "timeout" if not approved else "executed"
+                        await session.commit()
+                except Exception:
+                    logger.exception("Failed to update ConfirmRequest %s state", confirm_id)
 
     async def _run_tool(self, tool_call: ToolCall) -> Any:
         """Dispatch tool_call to the correct tool function."""
