@@ -7,10 +7,10 @@ import { Spinner } from "../../components/Spinner";
 import type { PrivacyReport } from "../../lib/types";
 
 const TIER_LABELS: Record<string, string> = {
-  "0": "T0 — публічний агрегат",
-  "1": "T1 — несенситивний",
-  "2": "T2 — чутливий",
-  "3": "T3 — приватний",
+  "0": "T0 — сирі кадри / аудіо / вектори (тільки edge)",
+  "1": "T1 — персональні події (виявлення, ідентифікація)",
+  "2": "T2 — агреговані дані (хмара з consent)",
+  "3": "T3 — операційні метрики (публічні)",
 };
 
 const TIER_COLOR: Record<string, string> = {
@@ -137,7 +137,8 @@ export default function PrivacyPage() {
           <div>
             <p className="text-sm font-medium">Хмарний fallback</p>
             <p className="text-xs text-slate-400 mt-0.5">
-              Дозволяє надсилати T0/T1 дані на хмарний LLM при недоступності локальної моделі
+              Дозволяє надсилати T2/T3 агрегати на хмарний LLM при недоступності локальної моделі.
+              T0/T1 дані ніколи не покидають LAN.
             </p>
           </div>
           <button
@@ -164,7 +165,7 @@ export default function PrivacyPage() {
         </div>
         {cloudConsent && (
           <p className="mt-3 text-xs text-amber-400 flex items-center gap-1.5">
-            ⚠️ T0/T1 дані можуть бути відправлені на зовнішній сервер
+            ⚠️ T2/T3 агрегати можуть бути відправлені на зовнішній сервер
           </p>
         )}
       </section>
