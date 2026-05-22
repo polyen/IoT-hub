@@ -26,6 +26,7 @@ from hub.backend.routes.floorplan import router as floorplan_router
 from hub.backend.routes.health import router as health_router
 from hub.backend.routes.policy import router as policy_router
 from hub.backend.routes.privacy import router as privacy_router
+from hub.backend.routes.security import router as security_router
 from hub.backend.routes.system import router as system_router
 from hub.edge.mlops.deploy import ModelStore, monitor_loop
 from hub.edge.storage.t0 import cleanup_old_frames
@@ -104,6 +105,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     tasks: list[asyncio.Task[None]] = [
         asyncio.create_task(mqtt_subscriber.run(app.state.redis), name="mqtt-subscriber"),
+        asyncio.create_task(mqtt_subscriber.run_outbound(app.state.redis), name="mqtt-outbound"),
     ]
     if os.environ.get("ENABLE_DEPLOY_MONITOR", "true").lower() == "true":
         # Watch every kind that has its own rollback trigger (yolo + pose);
@@ -162,4 +164,5 @@ app.include_router(system_router)
 app.include_router(policy_router)
 app.include_router(digest_router)
 app.include_router(privacy_router)
+app.include_router(security_router)
 app.mount("/metrics", make_asgi_app())

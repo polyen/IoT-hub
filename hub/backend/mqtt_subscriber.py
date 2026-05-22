@@ -63,6 +63,40 @@ async def run(redis_client: _RedisClient) -> None:
             await asyncio.sleep(5)
 
 
+_OUTBOUND_PREFIX = "mqtt:publish:"
+_OUTBOUND_PREFIX_LEN = len(_OUTBOUND_PREFIX)
+
+
+async def run_outbound(redis_client: _RedisClient) -> None:
+    """Bridge mqtt:publish:* Redis pub/sub → MQTT broker (backend-originated commands)."""
+    while True:
+        try:
+            async with aiomqtt.Client(settings.mqtt_host, settings.mqtt_port) as mqtt:
+                pubsub = redis_client.pubsub()
+                await pubsub.psubscribe(_OUTBOUND_PREFIX + "*")
+                try:
+                    async for msg in pubsub.listen():
+                        if msg["type"] != "pmessage":
+                            continue
+                        channel: str = msg["channel"]
+                        topic = channel[_OUTBOUND_PREFIX_LEN:]
+                        if not topic:
+                            continue
+                        data = msg["data"]
+                        payload = data if isinstance(data, bytes | bytearray) else data.encode()
+                        await mqtt.publish(topic, payload)
+                        logger.debug("MQTT outbound: %s", topic)
+                finally:
+                    await pubsub.punsubscribe(_OUTBOUND_PREFIX + "*")
+                    await pubsub.aclose()
+        except aiomqtt.MqttError as exc:
+            logger.warning("MQTT outbound lost: %s — reconnecting in 5s", exc)
+            await asyncio.sleep(5)
+        except Exception as exc:
+            logger.error("MQTT outbound crashed: %s — restarting in 5s", exc, exc_info=True)
+            await asyncio.sleep(5)
+
+
 async def _handle(
     message: aiomqtt.Message,
     redis_client: _RedisClient,

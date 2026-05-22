@@ -164,6 +164,21 @@ export interface DigestData {
   narrative: string | null;
 }
 
+export type SecurityMode = "disarmed" | "armed_home" | "armed_away";
+
+export interface SecurityState {
+  mode: SecurityMode;
+  since: string | null;
+}
+
+export interface SecurityEvent {
+  id: string;
+  timestamp: string;
+  type: string;
+  room: string | null;
+  payload: Record<string, unknown> | null;
+}
+
 export interface PrivacyReport {
   sent_to_cloud_bytes_7d: number;
   by_tier: Record<string, number>;

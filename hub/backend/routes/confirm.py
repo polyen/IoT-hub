@@ -60,20 +60,33 @@ async def decide(confirm_id: str, body: DecideBody, session: SessionDep) -> Conf
     req.decided_by = "user"
     await session.commit()
 
-    # Publish result to Redis so orchestrator can react
     try:
-        redis = session.get_bind().sync_engine.pool  # type: ignore[attr-defined]
+        from hub.backend.main import app  # noqa: PLC0415
+
+        r = app.state.redis
+        # Notify orchestrator (handles its own CONFIRM-class confirms)
+        await r.publish("confirm:result", json.dumps({"id": confirm_id, "state": req.state}))
+
+        # For backend-originated mqtt_publish confirms: execute directly via outbound bridge
+        if body.decision == "approve" and req.tool == "mqtt_publish":
+            payload_data: dict[str, object] = req.payload or {}
+            topic = str(payload_data.get("topic", ""))
+            cmd = payload_data.get("payload", {})
+            if topic:
+                await r.publish(f"mqtt:publish:{topic}", json.dumps(cmd))
+                # Keep security mode in sync
+                if topic == "home/security/cmd" and isinstance(cmd, dict):
+                    action = cmd.get("action", "")
+                    mode_map = {
+                        "arm_home": "armed_home",
+                        "arm_away": "armed_away",
+                        "disarm": "disarmed",
+                    }
+                    if action in mode_map:
+                        await r.set("home:security:mode", mode_map[action])
+                        await r.set("home:security:since", datetime.now(UTC).isoformat())
     except Exception:
-        redis = None
-
-    if redis is not None:
-        try:
-            from hub.backend.main import app  # type: ignore[import]
-
-            r = app.state.redis
-            await r.publish("confirm:result", json.dumps({"id": confirm_id, "state": req.state}))
-        except Exception:
-            pass
+        pass
 
     return ConfirmRequestOut.model_validate(req)
 

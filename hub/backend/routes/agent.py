@@ -140,6 +140,26 @@ async def agent_ws(websocket: WebSocket) -> None:
         await pubsub.aclose()
 
 
+@router.post("/run")
+async def run_intent(body: TryBody, request: Request, session: SessionDep) -> dict[str, str]:
+    """Queue an intent text for the edge orchestrator via MQTT voice/command."""
+
+    redis = request.app.state.redis
+    await redis.publish("mqtt:publish:voice/command", body.intent_text)
+
+    entry = AgentAudit(
+        timestamp=datetime.now(UTC),
+        intent_text=body.intent_text,
+        tool=body.tool,
+        action_class="AUTO",
+        executed=True,
+        latency_ms=None,
+    )
+    session.add(entry)
+    await session.commit()
+    return {"result": "queued", "id": str(entry.id)}
+
+
 @router.post("/voice/audio")
 async def submit_voice_audio(websocket_request: Request) -> dict[str, Any]:
     """Receive audio blob from PTT, store in Redis, notify voice pipeline."""
