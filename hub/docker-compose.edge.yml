@@ -240,7 +240,9 @@ services:
     container_name: mediamtx
     restart: unless-stopped
     environment:
-      CAMERA_RTSP_URL: ${CAMERA_RTSP_URL:-}
+      # MTX_ prefix overrides config keys: MTX_PATHS_CAMERA_SOURCE sets paths.camera.source.
+      # This avoids YAML variable substitution issues with ${VAR} in mediamtx.yml.
+      MTX_PATHS_CAMERA_SOURCE: ${CAMERA_RTSP_URL:-}
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     ports:

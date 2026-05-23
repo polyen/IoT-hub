@@ -40,9 +40,8 @@ authInternalUsers:
 
 paths:
   camera:
-    # Pull from Reolink E1 Pro substream via TCP (more reliable over WiFi).
-    # CV pipeline reads re-published stream from rtsp://mediamtx:8554/camera.
-    # Browser gets HLS at /hls/camera/index.m3u8 via nginx proxy.
-    source: ${CAMERA_RTSP_URL}
+    # Source is configured via MTX_PATHS_CAMERA_SOURCE env var in docker-compose
+    # so it can be set from .env without YAML variable substitution issues.
+    # When CAMERA_RTSP_URL is unset, path is passive (accepts push from sender).
     sourceProtocol: tcp
     sourceOnDemand: false
