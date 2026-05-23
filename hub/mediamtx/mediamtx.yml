@@ -43,6 +43,6 @@ paths:
     # Pull from Reolink E1 Pro substream via TCP (more reliable over WiFi).
     # CV pipeline reads re-published stream from rtsp://mediamtx:8554/camera.
     # Browser gets HLS at /hls/camera/index.m3u8 via nginx proxy.
-    source: ${CAMERA_RTSP_URL:-}
+    source: ${CAMERA_RTSP_URL}
     sourceProtocol: tcp
     sourceOnDemand: false

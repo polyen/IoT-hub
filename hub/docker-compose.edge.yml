@@ -239,6 +239,8 @@ services:
     image: bluenviron/mediamtx:1.11.3
     container_name: mediamtx
     restart: unless-stopped
+    environment:
+      CAMERA_RTSP_URL: ${CAMERA_RTSP_URL:-}
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     ports:
