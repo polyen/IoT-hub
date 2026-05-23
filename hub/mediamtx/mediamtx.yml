@@ -59,5 +59,8 @@ paths:
     # Source is configured via MTX_PATHS_CAMERA_SOURCE env var in docker-compose
     # so it can be set from .env without YAML variable substitution issues.
     # When CAMERA_RTSP_URL is unset, path is passive (accepts push from sender).
-    sourceProtocol: tcp
+    #
+    # automatic: tries UDP first (lower overhead, tolerates WiFi packet loss),
+    # falls back to TCP. Pure TCP causes spurious timeouts on home WiFi cameras.
+    sourceProtocol: automatic
     sourceOnDemand: false
