@@ -34,10 +34,25 @@ services:
   # ---------------------------------------------------------------------------
   # PostgreSQL (+ TimescaleDB + pgvector via T0.5)
   # ---------------------------------------------------------------------------
+  # timescaledb-ha runs as postgres (uid 1000) and expects the data directory
+  # to be owned by 1000:1000. Docker named volumes are created root:root, so
+  # after every reboot the ownership is wrong. This init container fixes it
+  # once before postgres starts.
+  postgres-init:
+    image: busybox
+    user: root
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    command: ["chown", "-R", "1000:1000", "/home/postgres/pgdata/data"]
+    restart: "no"
+
   postgres:
     image: timescale/timescaledb-ha:pg17
     container_name: postgres
     restart: unless-stopped
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-iothub}
       POSTGRES_USER: ${POSTGRES_USER:-iothub}
