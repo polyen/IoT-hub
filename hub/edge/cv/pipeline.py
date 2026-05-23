@@ -272,6 +272,7 @@ class CVPipeline:
         # Fire/smoke tracks are saved once on first appearance; no re-saves for
         # the same continuous track (avoids T0 flooding on long-running detections).
         self._t0_saved_tracks: set[int] = set()
+        self._redis: Any = None  # set in run() if redis package available
 
     def _load_models(self) -> None:
         """Load (or reload) detector + pose models from their HEF paths.
@@ -529,11 +530,12 @@ class CVPipeline:
         self._load_models()
         await self._refresh_room()  # adopt the backend's room before publishing
 
-        import redis.asyncio as aioredis  # noqa: PLC0415
-
-        self._redis: aioredis.Redis | None = None
         try:
+            import redis.asyncio as aioredis  # noqa: PLC0415
+
             self._redis = await aioredis.from_url(self.redis_url, decode_responses=False)
+        except ModuleNotFoundError:
+            logger.warning("redis package not installed — face enrollment caching disabled")
         except Exception as exc:
             logger.warning("Redis unavailable — face enrollment caching disabled: %s", exc)
 
