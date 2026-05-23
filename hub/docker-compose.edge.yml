@@ -243,10 +243,14 @@ services:
       # MTX_ prefix overrides config keys: MTX_PATHS_CAMERA_SOURCE sets paths.camera.source.
       # This avoids YAML variable substitution issues with ${VAR} in mediamtx.yml.
       MTX_PATHS_CAMERA_SOURCE: ${CAMERA_RTSP_URL:-}
+      # RPI_IP is injected into mediamtx.yml for webrtcAdditionalHosts so the browser
+      # can reach the container over WebRTC (Docker internal IP is not reachable).
+      RPI_IP: ${RPI_IP:?RPI_IP must be set in .env (e.g. RPI_IP=192.168.1.100)}
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     ports:
       - "8554:8554"   # RTSP — exposed to LAN so sender device can reach it
+      - "8889:8889/udp"  # WebRTC ICE media (muxed on single port for Docker)
     networks:
       - iot-internal
     healthcheck:

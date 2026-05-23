@@ -9,6 +9,43 @@ interface Props {
   blurred?: boolean;
 }
 
+// Derive WHEP URL from HLS URL: /hls/camera/index.m3u8 → /whep/camera/whep
+function whepUrl(hlsUrl: string | null | undefined): string | null {
+  if (!hlsUrl) return null;
+  const m = hlsUrl.match(/^\/hls\/(.+)\/index\.m3u8$/);
+  return m ? `/whep/${m[1]}/whep` : null;
+}
+
+async function connectWhep(url: string, video: HTMLVideoElement): Promise<RTCPeerConnection> {
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  const stream = new MediaStream();
+  video.srcObject = stream;
+  pc.ontrack = (e) => stream.addTrack(e.track);
+  pc.addTransceiver("video", { direction: "recvonly" });
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  // Wait for ICE gathering (max 3s then proceed with partial candidates)
+  await new Promise<void>((resolve) => {
+    if (pc.iceGatheringState === "complete") { resolve(); return; }
+    const timer = setTimeout(resolve, 3000);
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") { clearTimeout(timer); resolve(); }
+    });
+  });
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/sdp" },
+    body: pc.localDescription!.sdp,
+  });
+  if (!resp.ok) throw new Error(`WHEP ${resp.status}`);
+  const sdp = await resp.text();
+  await pc.setRemoteDescription({ type: "answer", sdp });
+  return pc;
+}
+
 export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoDims, setVideoDims] = useState({ w: 640, h: 360 });
@@ -16,30 +53,59 @@ export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !camera.stream_hls) return;
+    if (!video) return;
 
+    let pc: RTCPeerConnection | null = null;
     let hls: import("hls.js").default | null = null;
+    let cancelled = false;
 
-    import("hls.js").then(({ default: Hls }) => {
-      if (!videoRef.current) return;
-      if (Hls.isSupported()) {
-        hls = new Hls({
-          lowLatencyMode: true,
-          // Stay close to the live edge: 1 sync duration, max 2s behind.
-          liveSyncDurationCount: 1,
-          liveMaxLatencyDurationCount: 2,
-          // Small buffer to minimise latency vs. rebuffering trade-off.
-          maxBufferLength: 2,
-          maxMaxBufferLength: 4,
+    const whep = whepUrl(camera.stream_hls);
+
+    if (whep) {
+      connectWhep(whep, video)
+        .then((conn) => { if (!cancelled) pc = conn; })
+        .catch(() => {
+          // WebRTC failed — fall back to HLS
+          if (cancelled || !camera.stream_hls) return;
+          import("hls.js").then(({ default: Hls }) => {
+            if (cancelled || !videoRef.current) return;
+            if (Hls.isSupported()) {
+              hls = new Hls({
+                lowLatencyMode: true,
+                liveSyncDurationCount: 1,
+                liveMaxLatencyDurationCount: 2,
+                maxBufferLength: 2,
+                maxMaxBufferLength: 4,
+              });
+              hls.loadSource(camera.stream_hls!);
+              hls.attachMedia(videoRef.current);
+            } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
+              videoRef.current.src = camera.stream_hls!;
+            }
+          });
         });
-        hls.loadSource(camera.stream_hls!);
-        hls.attachMedia(videoRef.current);
-      } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
-        videoRef.current.src = camera.stream_hls!;
-      }
-    });
+    } else if (camera.stream_hls) {
+      import("hls.js").then(({ default: Hls }) => {
+        if (cancelled || !videoRef.current) return;
+        if (Hls.isSupported()) {
+          hls = new Hls({ lowLatencyMode: true });
+          hls.loadSource(camera.stream_hls!);
+          hls.attachMedia(videoRef.current);
+        } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
+          videoRef.current.src = camera.stream_hls!;
+        }
+      });
+    }
 
-    return () => { hls?.destroy(); };
+    return () => {
+      cancelled = true;
+      pc?.close();
+      hls?.destroy();
+      if (video.srcObject instanceof MediaStream) {
+        (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+        video.srcObject = null;
+      }
+    };
   }, [camera.stream_hls]);
 
   const handleLoadedMetadata = () => {

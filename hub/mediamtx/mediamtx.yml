@@ -9,10 +9,19 @@
 logLevel: info
 logDestinations: [stdout]
 
-# Disable unused transports; HLS enabled for browser playback via nginx proxy
+# Disable unused transports; HLS kept as fallback, WebRTC is primary for low latency
 rtmp: false
-webrtc: false
+webrtc: true
 srt: false
+
+# WebRTC WHEP endpoint for browser playback (~200ms latency vs ~5s for HLS).
+# webrtcICEUDPMuxAddress fixes all media on one UDP port so Docker port-mapping works.
+# webrtcAdditionalHosts tells MediaMTX to advertise the RPi's LAN IP in ICE candidates
+# (Docker container IP is unreachable from browser — host IP is needed).
+webrtcAddress: :8889
+webrtcICEUDPMuxAddress: :8889
+webrtcAdditionalHosts:
+  - ${RPI_IP}
 
 readTimeout: 30s
 writeTimeout: 30s
