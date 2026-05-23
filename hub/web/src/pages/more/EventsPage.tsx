@@ -35,51 +35,61 @@ interface EventMeta {
 }
 
 function getEventMeta(type: string, payload: Record<string, unknown> | null): EventMeta {
-  // Normalize type to handle slashes and case
   const t = type.toLowerCase();
+  // camera/event stores the detection class in payload.label (not payload.class)
+  const label = String(payload?.label ?? "").toLowerCase();
+  // event/fused stores the fused event type in payload.event_type
+  const eventType = String(payload?.event_type ?? "").toLowerCase();
 
-  if (t === "fire" || (t.includes("camera") && String(payload?.class) === "fire")) {
-    return { label: "Вогонь", Icon: Flame, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
-  }
-  if (t === "smoke" || (t.includes("camera") && String(payload?.class) === "smoke")) {
-    return { label: "Дим", Icon: Wind, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
-  }
-  if (t === "fall" || t === "fall_detected") {
-    return { label: "Падіння", Icon: PersonStanding, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
-  }
-  if (t === "stranger") {
-    return { label: "Незнайомець", Icon: UserX, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
-  }
-  if (t === "alert") {
-    return { label: "Тривога", Icon: Bell, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
-  }
-  if (t.includes("identity") || t === "face_recognized") {
-    return { label: "Обличчя розпізнано", Icon: User, iconBg: "bg-green-500/20", iconColor: "text-green-400" };
-  }
-  if (t === "gas" || t.includes("mq2")) {
-    return { label: "Газ / CO", Icon: Gauge, iconBg: "bg-yellow-500/20", iconColor: "text-yellow-400", significant: true };
-  }
-  if (t.includes("person") || (t.includes("camera") && String(payload?.class) === "person")) {
-    return { label: "Людина", Icon: User, iconBg: "bg-primary-500/20", iconColor: "text-primary-400" };
-  }
-  if (t.includes("camera") || t === "camera/event") {
+  // ── camera/event ────────────────────────────────────────────────────────────
+  if (t === "camera/event") {
+    if (label === "fire")
+      return { label: "Вогонь", Icon: Flame, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
+    if (label === "smoke")
+      return { label: "Дим", Icon: Wind, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
+    if (label === "person") {
+      const faceId = payload?.face_id as string | undefined;
+      if (faceId && faceId !== "unknown")
+        return { label: faceId, Icon: User, iconBg: "bg-green-500/20", iconColor: "text-green-400" };
+      return { label: "Людина", Icon: User, iconBg: "bg-primary-500/20", iconColor: "text-primary-400" };
+    }
     return { label: "Камера", Icon: Camera, iconBg: "bg-primary-500/20", iconColor: "text-primary-400" };
   }
-  if (t.includes("dht") || t.includes("temperature") || t.includes("sensor/climate")) {
+
+  // ── event/fused ─────────────────────────────────────────────────────────────
+  if (t === "event/fused") {
+    if (eventType === "fire")
+      return { label: "Вогонь", Icon: Flame, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
+    if (eventType === "smoke")
+      return { label: "Дим", Icon: Wind, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
+    if (eventType === "fall" || eventType === "fall_detected")
+      return { label: "Падіння", Icon: PersonStanding, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
+    if (eventType === "motion")
+      return { label: "Рух", Icon: Activity, iconBg: "bg-violet-500/20", iconColor: "text-violet-400" };
+    return { label: "Сигнал", Icon: Zap, iconBg: "bg-warm-500/20", iconColor: "text-warm-400" };
+  }
+
+  // ── camera/identity ─────────────────────────────────────────────────────────
+  if (t === "camera/identity") {
+    const identity = (payload?.name ?? payload?.face_id) as string | undefined;
+    if (identity && identity !== "unknown")
+      return { label: identity, Icon: User, iconBg: "bg-green-500/20", iconColor: "text-green-400" };
+    return { label: "Незнайомець", Icon: UserX, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
+  }
+
+  // ── sensors & alerts ────────────────────────────────────────────────────────
+  if (t === "alert")
+    return { label: "Тривога", Icon: Bell, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
+  if (t === "gas" || t.includes("mq2"))
+    return { label: "Газ / CO", Icon: Gauge, iconBg: "bg-yellow-500/20", iconColor: "text-yellow-400", significant: true };
+  if (t.includes("dht") || t.includes("temperature") || t.includes("climate"))
     return { label: "Клімат", Icon: Thermometer, iconBg: "bg-blue-500/20", iconColor: "text-blue-400" };
-  }
-  if (t.includes("door") || t.includes("sensor/door")) {
+  if (t.includes("door"))
     return { label: "Двері", Icon: DoorOpen, iconBg: "bg-cyan-500/20", iconColor: "text-cyan-400" };
-  }
-  if (t.includes("motion") || t.includes("pir")) {
+  if (t.includes("motion") || t.includes("pir"))
     return { label: "Рух", Icon: Activity, iconBg: "bg-violet-500/20", iconColor: "text-violet-400" };
-  }
-  if (t.includes("fused") || t.includes("fusion")) {
-    return { label: "Злитий сигнал", Icon: Zap, iconBg: "bg-warm-500/20", iconColor: "text-warm-400" };
-  }
-  if (t.includes("security") || t.includes("auth")) {
+  if (t.includes("security") || t.includes("auth"))
     return { label: "Безпека", Icon: Shield, iconBg: "bg-indigo-500/20", iconColor: "text-indigo-400" };
-  }
 
   return { label: type, Icon: Activity, iconBg: "bg-[color:var(--raised)]", iconColor: "text-[color:var(--text-muted)]" };
 }
@@ -92,63 +102,56 @@ function formatPayloadSummary(type: string, payload: Record<string, unknown> | n
   const t = type.toLowerCase();
   const parts: string[] = [];
 
-  // Confidence / probability
+  // Confidence
   const conf = payload.confidence ?? payload.conf ?? payload.score;
-  if (typeof conf === "number") {
-    parts.push(`впевненість ${Math.round(conf * 100)}%`);
+  if (typeof conf === "number") parts.push(`впевненість ${Math.round(conf * 100)}%`);
+
+  // camera/event: label is the detection class (fire/smoke/person)
+  if (t === "camera/event") {
+    const faceId = payload.face_id as string | undefined;
+    if (faceId && faceId !== "unknown") parts.push(`👤 ${faceId}`);
+    const trackId = payload.track_id;
+    if (typeof trackId === "number") parts.push(`трек #${trackId}`);
+    return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  // Identity / name
-  const name = payload.name ?? payload.face_id ?? payload.identity;
-  if (name && typeof name === "string") {
-    parts.push(`👤 ${name}`);
+  // event/fused: show contributing sources
+  if (t === "event/fused") {
+    const sources = payload.sources;
+    if (Array.isArray(sources) && sources.length > 0) {
+      const srcLabel: Record<string, string> = { camera: "камера", sensors: "сенсори", audio: "аудіо" };
+      parts.push(sources.map((s: unknown) => srcLabel[String(s)] ?? String(s)).join(", "));
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  // Detection class (person/fire/smoke)
-  const cls = payload.class ?? payload.cls;
-  if (cls && typeof cls === "string" && !t.includes(cls as string)) {
-    const clsLabel: Record<string, string> = { person: "людина", fire: "вогонь", smoke: "дим" };
-    parts.push(clsLabel[cls] ?? cls);
+  // camera/identity: show who was seen
+  if (t === "camera/identity") {
+    const trackId = payload.track_id;
+    if (typeof trackId === "number") parts.push(`трек #${trackId}`);
+    return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  // Temperature / humidity
+  // Sensors
   const temp = payload.temperature ?? payload.temp_c;
   const hum = payload.humidity;
-  if (typeof temp === "number") {
-    parts.push(`${temp.toFixed(1)} °C`);
-  }
-  if (typeof hum === "number") {
-    parts.push(`${hum.toFixed(0)}% RH`);
-  }
+  if (typeof temp === "number") parts.push(`${temp.toFixed(1)} °C`);
+  if (typeof hum === "number") parts.push(`${hum.toFixed(0)}% RH`);
 
-  // Gas PPM
   const ppm = payload.ppm ?? payload.gas_ppm;
-  if (typeof ppm === "number") {
-    parts.push(`${ppm.toFixed(0)} ppm`);
-  }
+  if (typeof ppm === "number") parts.push(`${ppm.toFixed(0)} ppm`);
 
-  // Door state
   const open = payload.open ?? payload.state;
   if (open === true || open === "open") parts.push("відчинено");
   if (open === false || open === "closed") parts.push("зачинено");
 
-  // PIR motion
   if (payload.pir === true) parts.push("виявлено рух");
 
-  // Track ID
-  const trackId = payload.track_id;
-  if (typeof trackId === "number") {
-    parts.push(`трек #${trackId}`);
-  }
-
-  // Fallback: key→value for small payloads without specific handling
   if (parts.length === 0) {
     const entries = Object.entries(payload)
       .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
       .slice(0, 3);
-    for (const [k, v] of entries) {
-      parts.push(`${k}: ${v}`);
-    }
+    for (const [k, v] of entries) parts.push(`${k}: ${v}`);
   }
 
   return parts.length > 0 ? parts.join(" · ") : null;

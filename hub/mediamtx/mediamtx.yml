@@ -21,6 +21,13 @@ writeQueueSize: 1024
 rtspAddress: :8554
 hlsAddress: :8888
 
+# Low-Latency HLS: 3 segments × 500ms + 200ms parts → ~1s live latency.
+# Without these settings MediaMTX defaults to 7 × 1s segments (~7s delay).
+# hlsPartDuration enables LL-HLS EXT-X-PART tags that hls.js lowLatencyMode needs.
+hlsSegmentCount: 3
+hlsSegmentDuration: 500ms
+hlsPartDuration: 200ms
+
 # REST API — used by healthcheck; bound to container-local only
 api: true
 apiAddress: :9997

@@ -23,7 +23,15 @@ export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
     import("hls.js").then(({ default: Hls }) => {
       if (!videoRef.current) return;
       if (Hls.isSupported()) {
-        hls = new Hls({ lowLatencyMode: true });
+        hls = new Hls({
+          lowLatencyMode: true,
+          // Stay close to the live edge: 1 sync duration, max 2s behind.
+          liveSyncDurationCount: 1,
+          liveMaxLatencyDurationCount: 2,
+          // Small buffer to minimise latency vs. rebuffering trade-off.
+          maxBufferLength: 2,
+          maxMaxBufferLength: 4,
+        });
         hls.loadSource(camera.stream_hls!);
         hls.attachMedia(videoRef.current);
       } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
