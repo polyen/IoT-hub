@@ -28,6 +28,7 @@ MQTT_MSGS = Counter(
 SUBSCRIPTIONS = [
     "home/+/sensors",
     "home/+/alert",
+    "home/+/event/fused",
     "home/+/camera/event",
     "home/+/camera/identity",
 ]

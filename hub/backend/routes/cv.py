@@ -6,16 +6,31 @@ import asyncio
 import uuid
 from typing import Annotated, Any
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from hub.backend.config import settings
 from hub.backend.db import AsyncSessionLocal, get_session
 from hub.backend.models import DevicePlacement
 from hub.backend.schemas.cv import CameraOut
 
 router = APIRouter(tags=["cv"])
+
+
+async def _mediamtx_path_ready(path_name: str) -> bool:
+    """Return True if the MediaMTX path has an active source (ready=true)."""
+    url = f"{settings.mediamtx_api}/v3/paths/get/{path_name}"
+    try:
+        async with httpx.AsyncClient(timeout=1.5) as client:
+            r = await client.get(url)
+            return bool(r.status_code == 200 and r.json().get("ready", False))
+    except Exception:
+        return False
+
+
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
@@ -23,20 +38,25 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 async def list_cameras(session: SessionDep) -> list[CameraOut]:
     """Return cameras derived from DevicePlacement records where kind='camera'."""
     res = await session.execute(select(DevicePlacement).where(DevicePlacement.kind == "camera"))
-    cameras: list[CameraOut] = []
-    for p in res.scalars():
+    placements = list(res.scalars())
+
+    # Check MediaMTX readiness for all cameras concurrently.
+    # Path name defaults to device_id (matches the /hls/{device_id}/... URL).
+    async def _camera_out(p: DevicePlacement) -> CameraOut:
         cfg: dict[str, Any] = p.config or {}
-        stream_hls = cfg.get("stream_hls") or f"/hls/{p.device_id}/index.m3u8"
-        cameras.append(
-            CameraOut(
-                id=str(p.id),
-                name=p.label or p.device_id,
-                stream_hls=stream_hls,
-                stream_webrtc=cfg.get("stream_webrtc"),
-                online=cfg.get("online", False),
-            )
+        mediamtx_path = cfg.get("mediamtx_path") or p.device_id
+        stream_hls = cfg.get("stream_hls") or f"/hls/{mediamtx_path}/index.m3u8"
+        online = await _mediamtx_path_ready(mediamtx_path)
+        return CameraOut(
+            id=str(p.id),
+            name=p.label or p.device_id,
+            stream_hls=stream_hls,
+            stream_webrtc=cfg.get("stream_webrtc"),
+            online=online,
         )
-    return cameras
+
+    cameras = await asyncio.gather(*(_camera_out(p) for p in placements))
+    return list(cameras)
 
 
 @router.post("/api/cv/cameras/{camera_id}/snapshot")

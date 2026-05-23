@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_url: str = "http://llm:8001"
     ntfy_url: str = "http://ntfy"
     deploy_token: str = ""
+    mediamtx_api: str = "http://mediamtx:9997"
 
 
 settings = Settings()

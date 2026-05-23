@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Event } from "../types";
+import { api } from "../lib/api";
 
 const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/events`;
 
@@ -78,8 +79,18 @@ export function useWebSocket(): {
       };
     }
 
-    loadFromIDB().then((cached) => {
-      if (cached.length) setEvents(cached);
+    // Load seed data: merge IDB cache + REST API (REST wins on id collisions).
+    Promise.all([
+      loadFromIDB(),
+      api.get<Event[]>("/api/events?limit=100", true).catch(() => [] as Event[]),
+    ]).then(([cached, fetched]) => {
+      const byId = new Map<string, Event>();
+      for (const e of cached) byId.set(e.id, e);
+      for (const e of fetched) byId.set(e.id, e);
+      const merged = [...byId.values()].sort((a, b) =>
+        b.timestamp.localeCompare(a.timestamp),
+      );
+      if (merged.length) setEvents(merged);
     });
     connect();
 
