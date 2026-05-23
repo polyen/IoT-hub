@@ -23,13 +23,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock README.md ./
-# UV_TORCH_BACKEND=cpu routes torch to the CPU-only PyTorch wheel index so
-# that CUDA/NVIDIA packages (nvidia-nccl-cu13 etc.) are never downloaded.
-# The voice container runs on RPi5 (no GPU) and has no use for CUDA.
-RUN UV_TORCH_BACKEND=cpu uv sync --no-dev --extra voice --no-install-project
+RUN uv sync --frozen --no-dev --extra voice --no-install-project
 
 COPY hub/ hub/
-RUN UV_TORCH_BACKEND=cpu uv sync --no-dev --extra voice
+RUN uv sync --frozen --no-dev --extra voice
 
 ENV PATH="/app/.venv/bin:$PATH"
 
