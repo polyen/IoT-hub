@@ -43,6 +43,7 @@ voice = [
     "soundfile>=0.12.1",
     "torch>=2.0.0",
     "numpy>=1.26.0",
+    "silero-vad>=5.1.0",
 ]
 dev = [
     "ruff>=0.4.0",

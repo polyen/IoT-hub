@@ -31,16 +31,10 @@ class SileroVAD:
 
     def load(self) -> None:
         """Download and cache silero-VAD model (first run only)."""
-        import torch
+        # Use the silero-vad pip package (onnx=True avoids torchaudio dependency)
+        from silero_vad import load_silero_vad  # type: ignore[import]
 
-        model, _ = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            force_reload=False,
-            onnx=False,
-            trust_repo=True,
-        )
-        self._model = model
+        self._model = load_silero_vad(onnx=True)
 
     def is_speech(self, audio_chunk: bytes) -> bool:
         """Returns True if chunk likely contains speech."""
