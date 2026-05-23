@@ -94,6 +94,7 @@ export interface Detection {
 
 export interface CvFrame {
   ts: string;
+  room: string;
   dets: Detection[];
 }
 

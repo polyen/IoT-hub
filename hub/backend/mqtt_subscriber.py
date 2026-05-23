@@ -279,7 +279,7 @@ async def _handle_camera_event(
         enriched.append(det)
 
     # 2. Live overlay — forward the whole frame every time.
-    cv_frame = json.dumps({"ts": datetime.now(UTC).isoformat(), "dets": enriched})
+    cv_frame = json.dumps({"ts": datetime.now(UTC).isoformat(), "room": room, "dets": enriched})
     await redis_client.publish(f"cv:detections:{room}", cv_frame)
 
     # 2. Persist one DB event per newly-appeared track.

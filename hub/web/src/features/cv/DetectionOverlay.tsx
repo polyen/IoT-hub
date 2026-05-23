@@ -79,7 +79,7 @@ export function DetectionOverlay({
       if (det.track_id == null) continue;
       const [x1, y1, x2, y2] = det.bbox;
       if (nx >= x1 && nx <= x2 && ny >= y1 && ny <= y2) {
-        onEnrollRequest(det.track_id, (frame as { room?: string }).room ?? "");
+        onEnrollRequest(det.track_id, frame.room);
         return;
       }
     }
