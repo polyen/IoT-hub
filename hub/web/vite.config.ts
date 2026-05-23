@@ -24,14 +24,9 @@ export default defineConfig({
         navigateFallback: "index.html",
         runtimeCaching: [
           {
-            // API responses: network-first, fallback to cache
-            urlPattern: /\/api\/.*/,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "api-cache",
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 100, maxAgeSeconds: 86400 },
-            },
+            // API and media: bypass SW entirely — real-time data must not be cached
+            urlPattern: /^\/(api|hls|whep|ws)\/.*/,
+            handler: "NetworkOnly",
           },
           {
             // Static assets: cache-first
