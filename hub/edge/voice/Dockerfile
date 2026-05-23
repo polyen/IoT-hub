@@ -28,6 +28,8 @@ RUN uv sync --no-dev --frozen --no-install-project
 COPY hub/ hub/
 RUN uv sync --no-dev --frozen
 
+ENV PATH="/app/.venv/bin:$PATH"
+
 RUN useradd --create-home --no-log-init -r appuser
 USER appuser
 
