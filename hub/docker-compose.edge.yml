@@ -276,6 +276,8 @@ services:
       # Resolved at runtime via the symlinks ModelStore manages.
       HEF_PATH: /app/models/current_yolo.hef
       POSE_HEF_PATH: /app/models/current_pose.hef
+      FACE_HEF_PATH: /app/models/current_face.hef
+      FACE_EMBEDDINGS_PATH: /app/models/embeddings.pkl
     volumes:
       # Read-only — only the backend's ModelStore writes here. cv just opens
       # the symlinks for inference and reacts to SIGHUP to reload.

@@ -16,6 +16,8 @@ WorkingDirectory=/mnt/ssd/iot-hub/repo
 Environment=RTSP_URL=rtsp://localhost:8554/camera
 Environment=HEF_PATH=/opt/iot-hub/models/current_yolo.hef
 Environment=POSE_HEF_PATH=/opt/iot-hub/models/current_pose.hef
+Environment=FACE_HEF_PATH=/opt/iot-hub/models/current_face.hef
+Environment=FACE_EMBEDDINGS_PATH=/opt/iot-hub/models/embeddings.pkl
 Environment=MQTT_HOST=127.0.0.1
 Environment=MQTT_PORT=1883
 # ROOM is only the startup fallback — the pipeline polls BACKEND_URL
