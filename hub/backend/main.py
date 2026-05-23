@@ -16,6 +16,7 @@ from hub.backend import mqtt_subscriber
 from hub.backend.config import settings
 from hub.backend.db import engine
 from hub.backend.routes.agent import router as agent_router
+from hub.backend.routes.audio import router as audio_router
 from hub.backend.routes.confirm import router as confirm_router
 from hub.backend.routes.cv import router as cv_router
 from hub.backend.routes.deploy import router as deploy_router
@@ -165,4 +166,5 @@ app.include_router(policy_router)
 app.include_router(digest_router)
 app.include_router(privacy_router)
 app.include_router(security_router)
+app.include_router(audio_router)
 app.mount("/metrics", make_asgi_app())

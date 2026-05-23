@@ -292,6 +292,46 @@ services:
       - iot-internal
 
   # ---------------------------------------------------------------------------
+  # Voice pipeline (VAD → wake-word → Moonshine STT → MQTT + TTS responder)
+  # ---------------------------------------------------------------------------
+  voice:
+    build:
+      context: ..
+      dockerfile: hub/edge/voice/Dockerfile
+    container_name: voice
+    restart: unless-stopped
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-iothub}?ssl=disable
+      MOONSHINE_MODEL: ${MOONSHINE_MODEL:-UsefulSensors/moonshine-tiny-uk}
+      WAKE_WORD_MODEL_PATH: ${WAKE_WORD_MODEL_PATH:-}
+      FORCE_CPU_STT: ${FORCE_CPU_STT:-false}
+      NPU_STRATEGY: ${NPU_STRATEGY:-whisper_waits}
+      PIPER_MODEL: ${PIPER_MODEL:-uk_UA-lada-x_low}
+      PIPER_MODEL_DIR: /app/piper-models
+    volumes:
+      # Wake-word and STT models — read-only, written by ModelStore.
+      - ${MODELS_HOST_DIR:-/opt/iot-hub/models}:/app/models:ro
+      # Piper TTS voice models — persisted across rebuilds.
+      - piper-models:/app/piper-models
+    # sounddevice needs access to the host ALSA/sound subsystem.
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - iot-internal
+
+  # ---------------------------------------------------------------------------
   # Local LLM (Qwen 3.5 4B Instruct Q4_K_M via llama-cpp-python)
   # ---------------------------------------------------------------------------
   llm:
@@ -381,6 +421,7 @@ volumes:
   ntfy-etc:
   # llm-models removed: LLM weights now live in the same host-mounted models
   # tree (${MODELS_HOST_DIR}/llm) as HEFs for uniform backup/sync.
+  piper-models:
 
 # -----------------------------------------------------------------------------
 # Networks

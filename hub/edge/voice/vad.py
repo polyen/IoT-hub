@@ -51,6 +51,14 @@ class SileroVAD:
         prob: float = self._model(audio, SAMPLE_RATE).item()
         return prob > SPEECH_THRESHOLD
 
+    async def filter_stream(
+        self, source: AsyncGenerator[bytes, None]
+    ) -> AsyncGenerator[bytes, None]:
+        """Filter an external audio generator, yielding only speech chunks."""
+        async for chunk in source:
+            if self.is_speech(chunk):
+                yield chunk
+
     async def stream(self, device_index: int | None = None) -> AsyncGenerator[bytes, None]:
         """Yield speech chunks from microphone. Requires sounddevice."""
         try:
