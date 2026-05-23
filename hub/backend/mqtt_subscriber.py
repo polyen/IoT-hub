@@ -284,7 +284,7 @@ async def _handle_camera_event(
 
     # 2. Persist one DB event per newly-appeared track.
     for det in _new_tracks(room, dets):
-        det_payload = {
+        det_payload: dict[str, Any] = {
             "room": room,
             "event_type": "detection",
             "label": det.get("label", "unknown"),
@@ -293,6 +293,9 @@ async def _handle_camera_event(
             "track_id": det.get("track_id"),
             "tier": tier,
         }
+        # Carry frame_blob_ref through to the DB row so mining can locate the T0 frame.
+        if det.get("frame_blob_ref"):
+            det_payload["frame_blob_ref"] = det["frame_blob_ref"]
         await _persist_event(redis_client, room, "camera/event", tier, det_payload)
 
 

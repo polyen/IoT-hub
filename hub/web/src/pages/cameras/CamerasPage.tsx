@@ -11,10 +11,10 @@ import { Dialog } from "../../components/Dialog";
 import type { Camera as CameraType } from "../../lib/types";
 
 const FEEDBACK_LABELS = [
-  { value: "stranger", label: "Незнайомець" },
-  { value: "known", label: "Знайома людина" },
-  { value: "false_positive", label: "Хибна тривога" },
-  { value: "comment", label: "Коментар" },
+  { value: "fp", label: "✗ Хибна тривога" },
+  { value: "tp", label: "✓ Реальна загроза" },
+  { value: "not_sure", label: "? Не впевнений" },
+  { value: "comment", label: "💬 Коментар" },
 ] as const;
 
 type FeedbackLabel = (typeof FEEDBACK_LABELS)[number]["value"];
@@ -25,13 +25,13 @@ interface SnapshotDialogProps {
 }
 
 function SnapshotDialog({ camera, onClose }: SnapshotDialogProps) {
-  const [label, setLabel] = useState<FeedbackLabel>("false_positive");
+  const [label, setLabel] = useState<FeedbackLabel>("fp");
   const [comment, setComment] = useState("");
 
   const snapshotQuery = useQuery({
     queryKey: ["snapshot", camera.id],
     queryFn: () =>
-      api.post<{ frame_url: string | null; camera_id: string }>(
+      api.post<{ frame_url: string | null; camera_id: string; event_id: string | null }>(
         `/api/cv/cameras/${camera.id}/snapshot`,
       ),
     retry: false,
@@ -40,7 +40,9 @@ function SnapshotDialog({ camera, onClose }: SnapshotDialogProps) {
   const feedbackMutation = useMutation({
     mutationFn: () =>
       api.post("/api/feedback", {
-        alert_id: snapshotQuery.data?.camera_id ?? camera.id,
+        // Use latest event_id so the mining JOIN resolves; fall back to camera.id
+        // (mining will skip it, but the label is still stored for audit).
+        alert_id: snapshotQuery.data?.event_id ?? camera.id,
         user_label: label,
         tag: comment || undefined,
       }),

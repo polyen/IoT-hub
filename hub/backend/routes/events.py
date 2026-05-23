@@ -124,14 +124,26 @@ async def submit_feedback(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="alert_id must be a valid UUID") from exc
 
-    frame_blob_ref = body.get("frame_blob_ref")
+    # Prefer frame_blob_ref explicitly supplied by client; otherwise look it up
+    # from the linked Event payload (CV pipeline stores it there since T4.x).
+    frame_blob_ref: str | None = body.get("frame_blob_ref")
+    if frame_blob_ref is None:
+        try:
+            ev_res = await session.execute(select(Event).where(Event.id == alert_uuid).limit(1))
+            linked_event = ev_res.scalar_one_or_none()
+            if linked_event and isinstance(linked_event.payload, dict):
+                ref = linked_event.payload.get("frame_blob_ref")
+                if ref:
+                    frame_blob_ref = str(ref)
+        except Exception:
+            pass
 
     fb = FeedbackEvent(
         alert_id=alert_uuid,
-        user_label=str(user_label),
+        user_label=str(user_label).lower(),
         tag=body.get("tag"),
         ts=datetime.now(UTC),
-        frame_blob_ref=str(frame_blob_ref) if frame_blob_ref is not None else None,
+        frame_blob_ref=frame_blob_ref,
     )
     session.add(fb)
     await session.commit()

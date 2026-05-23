@@ -232,6 +232,7 @@ class CVPipeline:
         face_hef_path: Path | None = None,
         face_embeddings_path: Path | None = None,
         backend_url: str = "http://localhost:8000",
+        redis_url: str = "redis://redis:6379",
     ) -> None:
         self.rtsp_url = rtsp_url
         self.hef_path = hef_path
@@ -246,6 +247,7 @@ class CVPipeline:
         # re-targets publishing with no env change or restart.
         self.room = room
         self.backend_url = backend_url
+        self.redis_url = redis_url
         self.target_fps = target_fps
         self.confidence_threshold = confidence_threshold
 
@@ -266,6 +268,10 @@ class CVPipeline:
         # _load_models() and polled in run() to self-trigger reloads.
         self._model_sig: tuple[Any, ...] = ()
         self._last_model_check = 0.0
+        # Track IDs for which a T0 frame has already been saved this session.
+        # Fire/smoke tracks are saved once on first appearance; no re-saves for
+        # the same continuous track (avoids T0 flooding on long-running detections).
+        self._t0_saved_tracks: set[int] = set()
 
     def _load_models(self) -> None:
         """Load (or reload) detector + pose models from their HEF paths.
@@ -394,15 +400,46 @@ class CVPipeline:
             logger.info("Room reassigned by backend: %s -> %s", self.room, room)
             self.room = str(room)
 
-    def _detection_dict(self, track: Track) -> dict[str, Any]:
+    def _detection_dict(self, track: Track, frame_blob_ref: str | None = None) -> dict[str, Any]:
         """One detection entry inside the per-frame camera/event payload."""
         det = track.detection
-        return {
+        d: dict[str, Any] = {
             "label": det.label,
             "confidence": det.confidence,
             "bbox": list(det.bbox),
             "track_id": track.track_id,
         }
+        if frame_blob_ref is not None:
+            d["frame_blob_ref"] = frame_blob_ref
+        return d
+
+    def _maybe_save_frame(self, frame: Any, track: Track) -> str | None:
+        """Save a JPEG to T0 storage for a significant (fire/smoke) track.
+
+        Only saves once per track_id — repeated calls for the same ongoing
+        detection are a no-op to avoid flooding the T0 ring buffer.
+        Returns the str path on success, None if T0 is unavailable or label
+        is not significant.
+        """
+        if track.detection.label not in ("fire", "smoke"):
+            return None
+        if track.track_id in self._t0_saved_tracks:
+            return None
+        try:
+            import cv2  # type: ignore[import]
+
+            from hub.edge.storage.t0 import write_frame
+
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not ok:
+                return None
+            path = write_frame(bytes(buf), track.track_id)
+            self._t0_saved_tracks.add(track.track_id)
+            logger.debug("T0 frame saved: %s (track=%d)", path, track.track_id)
+            return str(path)
+        except Exception as exc:
+            logger.debug("T0 frame save skipped: %s", exc)
+            return None
 
     async def _maybe_run_face(
         self, frame: Any, track: Track, mqtt: Any, keypoints: Any | None = None
@@ -430,6 +467,17 @@ class CVPipeline:
             return
         if IDENTITY_COUNTER is not None:
             IDENTITY_COUNTER.labels(identity_class=result.identity).inc()
+        # Cache embedding for live enrollment — TTL 90s covers the typical
+        # time between spotting a face and the user naming it in the UI.
+        if self._redis is not None:
+            try:
+                await self._redis.setex(
+                    f"cv:face_emb:{self.room}:{result.track_id}",
+                    90,
+                    json.dumps(result.embedding),
+                )
+            except Exception as exc:
+                logger.debug("Redis face_emb cache write failed: %s", exc)
         payload = {
             "room": self.room,
             "event_type": "identity",
@@ -480,6 +528,14 @@ class CVPipeline:
         """Main pipeline loop. Runs until cancelled."""
         self._load_models()
         await self._refresh_room()  # adopt the backend's room before publishing
+
+        import redis.asyncio as aioredis  # noqa: PLC0415
+
+        self._redis: aioredis.Redis | None = None
+        try:
+            self._redis = await aioredis.from_url(self.redis_url, decode_responses=False)
+        except Exception as exc:
+            logger.warning("Redis unavailable — face enrollment caching disabled: %s", exc)
 
         frame_count = 0
         fps_window_start = time.monotonic()
@@ -540,7 +596,8 @@ class CVPipeline:
                             for track in tracks:
                                 if DETECTIONS_COUNTER is not None:
                                     DETECTIONS_COUNTER.labels(label=track.detection.label).inc()
-                                det_dicts.append(self._detection_dict(track))
+                                blob_ref = self._maybe_save_frame(frame, track)
+                                det_dicts.append(self._detection_dict(track, blob_ref))
                                 current_ids.add(track.track_id)
                                 kps = await self._maybe_run_fall(frame, track, mqtt)
                                 await self._maybe_run_face(frame, track, mqtt, kps)
@@ -579,6 +636,8 @@ class CVPipeline:
                 self._pose.close()
             if self._face is not None:
                 self._face.close()
+            if self._redis is not None:
+                await self._redis.aclose()
 
 
 async def run_pipeline_with_fusion(
@@ -594,6 +653,7 @@ async def run_pipeline_with_fusion(
     face_hef_path: Path | None = None,
     face_embeddings_path: Path | None = None,
     backend_url: str = "http://localhost:8000",
+    redis_url: str = "redis://redis:6379",
 ) -> None:
     """Top-level entry: run the cascade + FusionEngine concurrently.
 
@@ -612,6 +672,7 @@ async def run_pipeline_with_fusion(
         face_hef_path=face_hef_path,
         face_embeddings_path=face_embeddings_path,
         backend_url=backend_url,
+        redis_url=redis_url,
     )
 
     loop = asyncio.get_running_loop()
@@ -694,6 +755,7 @@ if __name__ == "__main__":
             # floor-plan placement) is the source of truth, see _refresh_room.
             room=os.environ.get("ROOM", "living_room"),
             backend_url=os.environ.get("BACKEND_URL", "http://localhost:8000"),
+            redis_url=os.environ.get("REDIS_URL", "redis://redis:6379"),
             target_fps=int(os.environ.get("TARGET_FPS", "15")),
             enable_fusion=os.environ.get("ENABLE_FUSION", "true").lower() == "true",
         )

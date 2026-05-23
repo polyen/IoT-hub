@@ -272,6 +272,7 @@ services:
       # When RTSP_URL is not set, default to the mediamtx stream pushed by the
       # WiFi camera sender (scripts/wifi_stream_sender.sh).
       RTSP_URL: ${RTSP_URL:-rtsp://mediamtx:8554/camera}
+      REDIS_URL: redis://redis:6379/0
       # Resolved at runtime via the symlinks ModelStore manages.
       HEF_PATH: /app/models/current_yolo.hef
       POSE_HEF_PATH: /app/models/current_pose.hef

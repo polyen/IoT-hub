@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from hub.backend.models import Event, FeedbackEvent
@@ -42,7 +42,7 @@ async def fetch_fp_feedback(
     result = await session.execute(
         select(FeedbackEvent)
         .join(Event, Event.id == FeedbackEvent.alert_id)
-        .where(FeedbackEvent.user_label == "fp")
+        .where(func.lower(FeedbackEvent.user_label) == "fp")
         .where(FeedbackEvent.ts >= since)
         .where(Event.tier <= max_tier)
         .order_by(FeedbackEvent.tag)

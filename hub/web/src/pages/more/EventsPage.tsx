@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useWebSocket } from "../../hooks/useWebSocket";
 import { useTranslation } from "react-i18next";
 import {
@@ -157,12 +157,85 @@ function formatPayloadSummary(type: string, payload: Record<string, unknown> | n
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+// ── Inline feedback ─────────────────────────────────────────────────────────
+
+const PRESET_TAGS = ["свічка", "пара", "сонце", "відбиття", "інше"];
+
+function FeedbackRow({ eventId }: { eventId: string }) {
+  const [choice, setChoice] = useState<"tp" | "fp" | "not_sure" | null>(null);
+  const [tag, setTag] = useState("");
+  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const submit = useCallback(
+    async (label: "tp" | "fp" | "not_sure") => {
+      if (sent || sending) return;
+      setChoice(label);
+      setSending(true);
+      try {
+        await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ alert_id: eventId, user_label: label, tag: tag || undefined }),
+        });
+        setSent(true);
+      } catch {
+        setSent(true); // optimistic
+      } finally {
+        setSending(false);
+      }
+    },
+    [eventId, tag, sent, sending],
+  );
+
+  if (sent) return <p className="text-[11px] text-green-400 mt-2">Дякуємо!</p>;
+
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-[color:var(--border)]">
+      <div className="flex flex-wrap gap-1.5">
+        {(["tp", "fp", "not_sure"] as const).map((l) => (
+          <button
+            key={l}
+            onClick={() => submit(l)}
+            disabled={sending}
+            className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+              choice === l
+                ? "border-blue-500 bg-blue-900/60 text-blue-200"
+                : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:border-slate-400"
+            }`}
+          >
+            {l === "tp" ? "✓ Реальна" : l === "fp" ? "✗ Хибна" : "? Не впевнений"}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        {PRESET_TAGS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTag((prev) => (prev === t ? "" : t))}
+            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+              tag === t
+                ? "border-blue-500 bg-blue-900/40 text-blue-300"
+                : "border-[color:var(--border)] text-[color:var(--text-faint)] hover:border-slate-500"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Event card ──────────────────────────────────────────────────────────────
 
 function EventCard({ event }: { event: HubEvent }) {
   const meta = getEventMeta(event.type, event.payload);
   const summary = formatPayloadSummary(event.type, event.payload);
   const Icon = meta.Icon;
+  const showFeedback =
+    meta.significant &&
+    (event.type === "camera/event" || event.type === "event/fused" || event.type === "alert");
 
   return (
     <div
@@ -217,6 +290,8 @@ function EventCard({ event }: { event: HubEvent }) {
               </span>
             )}
           </div>
+
+          {showFeedback && <FeedbackRow eventId={event.id} />}
         </div>
       </div>
     </div>

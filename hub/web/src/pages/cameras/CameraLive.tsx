@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { DetectionOverlay } from "../../features/cv/DetectionOverlay";
 import { useCameraStream } from "../../features/cv/useCameraStream";
+import { api } from "../../lib/api";
 import type { Camera } from "../../lib/types";
 
 interface Props {
@@ -46,10 +49,33 @@ async function connectWhep(url: string, video: HTMLVideoElement): Promise<RTCPee
   return pc;
 }
 
+interface EnrollState {
+  trackId: number;
+  room: string;
+  name: string;
+}
+
 export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoDims, setVideoDims] = useState({ w: 640, h: 360 });
+  const [enrollState, setEnrollState] = useState<EnrollState | null>(null);
   const frame = useCameraStream(camera.id);
+
+  const enrollMutation = useMutation({
+    mutationFn: (s: EnrollState) =>
+      api.post("/api/cv/enroll", { room: s.room, track_id: s.trackId, name: s.name }),
+    onSuccess: (_data, s) => {
+      toast.success(`"${s.name}" додано до знайомих`);
+      setEnrollState(null);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message.includes("404") ? "Обличчя зникло з кадру — спробуйте ще раз" : "Помилка збереження");
+    },
+  });
+
+  const handleEnrollRequest = useCallback((trackId: number, room: string) => {
+    setEnrollState({ trackId, room, name: "" });
+  }, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -135,6 +161,7 @@ export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
             videoWidth={videoDims.w}
             videoHeight={videoDims.h}
             visible={overlayEnabled && !blurred}
+            onEnrollRequest={overlayEnabled && !blurred ? handleEnrollRequest : undefined}
           />
         </>
       ) : (
@@ -148,6 +175,42 @@ export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
         {camera.name}
         {!camera.online && <span className="ml-1 text-red-400">● offline</span>}
       </div>
+
+      {/* Face enrollment dialog */}
+      {enrollState && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
+          <div className="bg-slate-800 border border-slate-600 rounded-2xl p-5 w-72 shadow-xl">
+            <p className="text-sm font-semibold text-white mb-3">Як звати цю людину?</p>
+            <input
+              autoFocus
+              type="text"
+              value={enrollState.name}
+              onChange={(e) => setEnrollState((s) => s && { ...s, name: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && enrollState.name.trim()) enrollMutation.mutate(enrollState);
+                if (e.key === "Escape") setEnrollState(null);
+              }}
+              placeholder="Ім'я…"
+              className="w-full rounded-xl bg-slate-700 border border-slate-600 px-3 py-2 text-sm text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 mb-3"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setEnrollState(null)}
+                className="text-xs px-3 py-1.5 rounded-lg text-slate-400 hover:text-white transition-colors"
+              >
+                Скасувати
+              </button>
+              <button
+                onClick={() => enrollState.name.trim() && enrollMutation.mutate(enrollState)}
+                disabled={!enrollState.name.trim() || enrollMutation.isPending}
+                className="text-xs px-4 py-1.5 rounded-lg bg-primary-600 hover:bg-primary-500 text-white disabled:opacity-40 transition-colors"
+              >
+                {enrollMutation.isPending ? "Зберігаємо…" : "Зберегти"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from hub.backend.config import settings
 from hub.backend.db import AsyncSessionLocal, get_session
-from hub.backend.models import DevicePlacement
+from hub.backend.models import DevicePlacement, Event
 from hub.backend.schemas.cv import CameraOut
 
 router = APIRouter(tags=["cv"])
@@ -61,7 +61,7 @@ async def list_cameras(session: SessionDep) -> list[CameraOut]:
 
 @router.post("/api/cv/cameras/{camera_id}/snapshot")
 async def snapshot(camera_id: str, session: SessionDep) -> dict[str, Any]:
-    """Return current frame URL for a camera (from config or MediaMTX)."""
+    """Return snapshot info for a camera: thumbnail URL + latest event ID for feedback."""
     try:
         uid = uuid.UUID(camera_id)
     except ValueError as exc:
@@ -74,8 +74,43 @@ async def snapshot(camera_id: str, session: SessionDep) -> dict[str, Any]:
     placement = res.scalar_one_or_none()
     if not placement:
         raise HTTPException(status_code=404, detail="Camera not found")
+
     cfg: dict[str, Any] = placement.config or {}
-    return {"camera_id": camera_id, "frame_url": cfg.get("snapshot_url")}
+    mediamtx_path = cfg.get("mediamtx_path") or placement.device_id
+
+    # Thumbnail: MediaMTX ≥1.9 serves JPEG snapshots at /hls/{path}/thumb.jpg
+    # via the web server (port 8888 in default config, proxied here via /hls/).
+    thumbnail_url: str | None = f"/hls/{mediamtx_path}/thumb.jpg"
+
+    # Latest camera/event for this camera's room — used as alert_id in feedback
+    # so mining JOIN resolves correctly.
+    latest_event_id: str | None = None
+    room_slug: str | None = None
+    try:
+        from hub.backend.models import Room  # noqa: PLC0415
+
+        # Resolve room slug from placement
+        room_res = await session.execute(select(Room).where(Room.id == placement.room_id).limit(1))
+        room_obj = room_res.scalar_one_or_none()
+        if room_obj:
+            room_slug = room_obj.slug
+            ev_res = await session.execute(
+                select(Event)
+                .where(Event.room == room_slug, Event.type == "camera/event")
+                .order_by(Event.timestamp.desc())
+                .limit(1)
+            )
+            ev = ev_res.scalar_one_or_none()
+            if ev:
+                latest_event_id = str(ev.id)
+    except Exception:
+        pass
+
+    return {
+        "camera_id": camera_id,
+        "frame_url": thumbnail_url,
+        "event_id": latest_event_id,
+    }
 
 
 @router.get("/api/cv/pipeline-config")
