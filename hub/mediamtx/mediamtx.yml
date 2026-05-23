@@ -45,3 +45,5 @@ paths:
     # When CAMERA_RTSP_URL is unset, path is passive (accepts push from sender).
     sourceProtocol: tcp
     sourceOnDemand: false
+    # Reconnect aggressively when weak-WiFi camera drops the connection.
+    sourceReconnectPeriod: 2s

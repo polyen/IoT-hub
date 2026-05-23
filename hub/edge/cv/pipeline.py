@@ -136,7 +136,18 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
     _open_retry = 5
 
     while True:
-        cap = cv2.VideoCapture(rtsp_url)
+        # CAP_PROP_READ_TIMEOUT_MSEC prevents cap.read() from blocking
+        # indefinitely when a weak-WiFi camera drops mid-stream.
+        cap = cv2.VideoCapture(
+            rtsp_url,
+            cv2.CAP_FFMPEG,
+            [
+                cv2.CAP_PROP_OPEN_TIMEOUT_MSEC,
+                8_000,
+                cv2.CAP_PROP_READ_TIMEOUT_MSEC,
+                4_000,
+            ],
+        )
         if not cap.isOpened():
             logger.warning("RTSP not available (%s) — retrying in %ds", rtsp_url, _open_retry)
             cap.release()  # release even when open failed to avoid GStreamer leaks
@@ -154,7 +165,7 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
                 ok, frame = await asyncio.get_event_loop().run_in_executor(None, cap.read)
                 if not ok:
                     consecutive_failures += 1
-                    if consecutive_failures >= 10:
+                    if consecutive_failures >= 3:
                         logger.warning("RTSP stream lost — reopening")
                         break  # reopen outer loop
                     await asyncio.sleep(1)
