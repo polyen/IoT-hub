@@ -23,10 +23,10 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --no-dev --frozen --no-install-project
+RUN uv sync --no-dev --frozen --extra voice --no-install-project
 
 COPY hub/ hub/
-RUN uv sync --no-dev --frozen
+RUN uv sync --no-dev --frozen --extra voice
 
 ENV PATH="/app/.venv/bin:$PATH"
 
