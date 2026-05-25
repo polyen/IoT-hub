@@ -13,7 +13,6 @@ Package: pip install useful-moonshine-onnx
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 from typing import Any
 
@@ -49,11 +48,41 @@ class MoonshineBackend:
         )
 
     def _transcribe_sync(self, audio_bytes: bytes) -> str:
-        audio_f32, sr = soundfile.read(io.BytesIO(audio_bytes), dtype="float32")
+        import os
+        import subprocess
+        import tempfile
+
+        # Decode any container (WebM, OGG, WAV) to 16 kHz mono PCM via ffmpeg,
+        # then read as float32 numpy array for Moonshine.
+        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as src:
+            src.write(audio_bytes)
+            src_path = src.name
+        wav_path = src_path + ".wav"
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    src_path,
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    "-f",
+                    "wav",
+                    wav_path,
+                ],
+                check=True,
+            )
+            audio_f32, sr = soundfile.read(wav_path, dtype="float32")
+        finally:
+            os.unlink(src_path)
+            if os.path.exists(wav_path):
+                os.unlink(wav_path)
+
         if audio_f32.ndim > 1:
             audio_f32 = audio_f32.mean(axis=1)
-        if sr != 16000:
-            raise RuntimeError(f"Expected 16 kHz audio, got {sr} Hz")
-
         tokens = self._model.generate(audio_f32[np.newaxis, :])
         return self._model.tokenizer.decode_batch(tokens)[0].strip()

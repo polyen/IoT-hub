@@ -44,9 +44,11 @@ function PushToTalk() {
         const blob = new Blob(chunks.current, { type: mimeType });
         setUploading(true);
         try {
-          const fd = new FormData();
-          fd.append("audio", blob, "recording.webm");
-          await fetch("/api/agent/voice/audio", { method: "POST", body: fd });
+          await fetch("/api/agent/voice/audio", {
+            method: "POST",
+            body: blob,
+            headers: { "Content-Type": mimeType },
+          });
           toast.success("Аудіо відправлено у пайплайн");
         } catch {
           toast.error("Не вдалося відправити аудіо");

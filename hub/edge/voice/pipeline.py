@@ -341,8 +341,16 @@ async def _run_mic_loop(
                 t.cancel()
 
             if listen_task in done and listen_task.exception():
-                logger.error("Mic loop error: %s — restarting in 3s", listen_task.exception())
-                await asyncio.sleep(3)
+                exc = listen_task.exception()
+                # Device-not-found is a persistent condition; back off longer to
+                # avoid log spam. PTT path is unaffected and continues to work.
+                delay = (
+                    30
+                    if "querying device" in str(exc).lower() or "no device" in str(exc).lower()
+                    else 3
+                )
+                logger.error("Mic loop error: %s — restarting in %ds", exc, delay)
+                await asyncio.sleep(delay)
     finally:
         await redis_client.aclose()
 

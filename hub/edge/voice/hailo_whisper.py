@@ -176,13 +176,19 @@ class FasterWhisperBackend:
         )
 
     def _transcribe_sync(self, audio_bytes: bytes) -> str:
-        import io
+        import os
+        import tempfile
 
-        import soundfile
-
-        audio_array, _sr = soundfile.read(io.BytesIO(audio_bytes))
-        segments, _ = self._model.transcribe(audio_array, language=self._language)
-        return " ".join(seg.text.strip() for seg in segments)
+        # Write to a temp file so faster-whisper can decode any container format
+        # (WebM, OGG, WAV, …) via its internal ffmpeg call.
+        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as f:
+            f.write(audio_bytes)
+            tmp = f.name
+        try:
+            segments, _ = self._model.transcribe(tmp, language=self._language)
+            return " ".join(seg.text.strip() for seg in segments)
+        finally:
+            os.unlink(tmp)
 
 
 def get_backend(
