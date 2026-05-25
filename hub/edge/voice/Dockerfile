@@ -32,6 +32,10 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 RUN useradd --create-home --no-log-init -r appuser
 
+# Create HF cache dir owned by appuser so the named volume inherits correct
+# permissions on first mount (Docker copies image dir perms into a new volume).
+RUN mkdir -p /app/.hf_cache && chown appuser:appuser /app/.hf_cache
+
 # Pre-bake silero-vad ONNX into the image — the model is bundled in the wheel
 # so no network access is needed at container startup and no torch is required.
 RUN pip download --no-deps "silero-vad==6.2.1" -d /tmp/sv-dl && \
