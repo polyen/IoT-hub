@@ -175,16 +175,7 @@ async def submit_voice_audio(websocket_request: Request) -> dict[str, Any]:
     """
     from hub.backend.main import app  # noqa: PLC0415
 
-    ct = websocket_request.headers.get("content-type", "")
-    if "multipart/form-data" in ct:
-        form = await websocket_request.form()
-        audio_field = form.get("audio")
-        if audio_field is None:
-            raise HTTPException(status_code=422, detail="Missing 'audio' field in multipart form")
-        body = await audio_field.read()  # type: ignore[union-attr]
-    else:
-        body = await websocket_request.body()
-
+    body = await websocket_request.body()
     if not body:
         raise HTTPException(status_code=422, detail="Empty audio body")
     redis = app.state.redis
