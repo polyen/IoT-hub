@@ -167,10 +167,24 @@ async def run_intent(body: TryBody, request: Request, session: SessionDep) -> di
 
 @router.post("/voice/audio")
 async def submit_voice_audio(websocket_request: Request) -> dict[str, Any]:
-    """Receive audio blob from PTT, store in Redis, notify voice pipeline."""
+    """Receive audio blob from PTT, store in Redis, notify voice pipeline.
+
+    Accepts either:
+    - raw audio bytes with audio/* Content-Type (new frontend)
+    - multipart/form-data with an 'audio' field (legacy frontend)
+    """
     from hub.backend.main import app  # noqa: PLC0415
 
-    body = await websocket_request.body()
+    ct = websocket_request.headers.get("content-type", "")
+    if "multipart/form-data" in ct:
+        form = await websocket_request.form()
+        audio_field = form.get("audio")
+        if audio_field is None:
+            raise HTTPException(status_code=422, detail="Missing 'audio' field in multipart form")
+        body = await audio_field.read()  # type: ignore[union-attr]
+    else:
+        body = await websocket_request.body()
+
     if not body:
         raise HTTPException(status_code=422, detail="Empty audio body")
     redis = app.state.redis
