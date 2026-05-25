@@ -382,6 +382,14 @@ async def _listen_with_device(
 
 
 if __name__ == "__main__":
+    import logging as _logging
+
+    _logging.basicConfig(
+        level=_logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     _strategy_map = {s.value: s for s in NPUStrategy}
     _hef_env = os.environ.get("WHISPER_HEF_PATH")
 

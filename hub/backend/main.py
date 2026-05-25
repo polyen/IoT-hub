@@ -101,6 +101,37 @@ async def _t0_cleanup_loop(interval_s: int = 86_400) -> None:
         await asyncio.sleep(interval_s)
 
 
+async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
+    """Run agent orchestrator — subscribes to voice/command MQTT and processes intents."""
+    import aiomqtt
+
+    from hub.backend.db import AsyncSessionLocal
+    from hub.edge.agent.llm_local import LocalLLMClient
+    from hub.edge.agent.orchestrator import AgentOrchestrator
+    from hub.edge.agent.policy import PolicyEngine
+    from hub.edge.agent.router import IntentRouter
+
+    while True:
+        try:
+            policy = PolicyEngine()
+            router = IntentRouter()
+            router.load()
+            llm = LocalLLMClient(base_url=settings.llm_url)
+            mqtt_client = aiomqtt.Client(settings.mqtt_host, settings.mqtt_port)
+            orchestrator = AgentOrchestrator(
+                policy=policy,
+                router=router,
+                llm=llm,
+                redis_client=redis_client,
+                mqtt_client=mqtt_client,
+                session_factory=AsyncSessionLocal,
+            )
+            await orchestrator.run()
+        except Exception as exc:
+            logger.error("Orchestrator crashed: %s — restarting in 5s", exc, exc_info=True)
+            await asyncio.sleep(5)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.redis = aioredis.from_url(settings.redis_url, decode_responses=True)
@@ -136,6 +167,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     debounce_sec=int(os.environ.get("FEEDBACK_MINING_DEBOUNCE_SEC", "1800")),
                 ),
                 name="feedback-mining",
+            )
+        )
+    if os.environ.get("ENABLE_ORCHESTRATOR", "true").lower() == "true":
+        tasks.append(
+            asyncio.create_task(
+                _orchestrator_loop(app.state.redis),
+                name="orchestrator",
             )
         )
 
