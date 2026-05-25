@@ -42,7 +42,8 @@ RUN pip download --no-deps "silero-vad==6.2.1" -d /tmp/sv-dl && \
 USER appuser
 
 ENV WAKE_WORD_MODEL_PATH="" \
-    MOONSHINE_MODEL="UsefulSensors/moonshine-tiny-uk" \
+    MOONSHINE_MODEL="" \
+    FASTER_WHISPER_MODEL="small" \
     FORCE_CPU_STT="false" \
     WHISPER_HEF_PATH="" \
     NPU_STRATEGY="whisper_waits" \
@@ -50,6 +51,7 @@ ENV WAKE_WORD_MODEL_PATH="" \
     MQTT_PORT="1883" \
     PIPER_MODEL="uk_UA-lada-x_low" \
     PIPER_MODEL_DIR="/home/appuser/.local/share/piper" \
-    SILERO_VAD_ONNX_PATH="/app/.silero_vad/silero_vad.onnx"
+    SILERO_VAD_ONNX_PATH="/app/.silero_vad/silero_vad.onnx" \
+    HF_HOME="/app/.hf_cache"
 
 CMD ["python", "-m", "hub.edge.voice.pipeline"]

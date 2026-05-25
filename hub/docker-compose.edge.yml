@@ -308,17 +308,24 @@ services:
       MQTT_PORT: "1883"
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-iothub}?ssl=disable
-      MOONSHINE_MODEL: ${MOONSHINE_MODEL:-UsefulSensors/moonshine-tiny-uk}
+      # UsefulSensors/moonshine-tiny-uk has no ONNX export; leave empty to use
+      # faster-whisper with language=uk instead (set to "moonshine/tiny" for English).
+      MOONSHINE_MODEL: ${MOONSHINE_MODEL:-}
+      FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-small}
       WAKE_WORD_MODEL_PATH: ${WAKE_WORD_MODEL_PATH:-}
       FORCE_CPU_STT: ${FORCE_CPU_STT:-false}
       NPU_STRATEGY: ${NPU_STRATEGY:-whisper_waits}
       PIPER_MODEL: ${PIPER_MODEL:-uk_UA-lada-x_low}
       PIPER_MODEL_DIR: /app/piper-models
+      # HF model cache — shared with hf-cache volume so faster-whisper survives rebuilds.
+      HF_HOME: /app/.hf_cache
     volumes:
       # Wake-word and STT models — read-only, written by ModelStore.
       - ${MODELS_HOST_DIR:-/opt/iot-hub/models}:/app/models:ro
       # Piper TTS voice models — persisted across rebuilds.
       - piper-models:/app/piper-models
+      # HuggingFace model cache (faster-whisper downloads here on first start).
+      - hf-cache:/app/.hf_cache
     # sounddevice needs access to the host ALSA/sound subsystem.
     devices:
       - /dev/snd:/dev/snd
@@ -425,6 +432,7 @@ volumes:
   # llm-models removed: LLM weights now live in the same host-mounted models
   # tree (${MODELS_HOST_DIR}/llm) as HEFs for uniform backup/sync.
   piper-models:
+  hf-cache:
 
 # -----------------------------------------------------------------------------
 # Networks

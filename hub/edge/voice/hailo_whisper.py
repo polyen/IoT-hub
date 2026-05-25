@@ -153,21 +153,21 @@ class HailoWhisperBackend:
 
 
 class FasterWhisperBackend:
-    """CPU fallback using faster-whisper large-v3-turbo (int8, 5.4× faster than large-v3).
+    """CPU STT using faster-whisper (int8).
 
-    large-v3-turbo delivers similar accuracy to large-v3 at distil-like speed,
-    making it the preferred CPU fallback over the previous distil-large-v3.
-    Benchmark result on RPi 5: compare via hub.edge.voice.stt --bench.
+    Default model: "small" (~244 MB, ~300 ms on RPi 5 ARM Cortex-A76, WER ~8% uk).
+    Override via FASTER_WHISPER_MODEL env var (e.g. "medium", "large-v3-turbo").
     """
 
     def __init__(
         self,
-        model_size: str = "large-v3-turbo",
+        model_size: str = "small",
         language: str = DEFAULT_LANGUAGE,
     ) -> None:
         if not FASTER_WHISPER_AVAILABLE:
             raise RuntimeError("faster-whisper not installed: pip install faster-whisper")
         self._language = language
+        logger.info("Loading faster-whisper %s (int8) …", model_size)
         self._model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
     async def transcribe(self, audio_bytes: bytes) -> str:
@@ -194,29 +194,33 @@ def get_backend(
 ) -> STTBackend:
     """Return best available STT backend.
 
-    Priority: Moonshine ONNX → Hailo NPU (HEF present) → faster-whisper CPU.
-    Moonshine is the primary backend; Hailo and faster-whisper are fallbacks.
-    """
-    from hub.edge.voice.moonshine_stt import (
-        DEFAULT_MOONSHINE_MODEL,
-        MOONSHINE_AVAILABLE,
-        MoonshineBackend,
-    )
+    Priority: Moonshine ONNX (explicit model only) → Hailo NPU → faster-whisper CPU.
 
-    if MOONSHINE_AVAILABLE:
-        model = moonshine_model or DEFAULT_MOONSHINE_MODEL
-        logger.info("Using Moonshine ONNX backend: %s", model)
-        return MoonshineBackend(model_name=model)
+    Moonshine is only attempted when moonshine_model is explicitly set.
+    Note: UsefulSensors/moonshine-tiny-uk has no ONNX export — use faster-whisper
+    with language="uk" for Ukrainian STT (set MOONSHINE_MODEL="" to skip moonshine).
+    """
+    import os
+
+    from hub.edge.voice.moonshine_stt import MOONSHINE_AVAILABLE, MoonshineBackend
+
+    if MOONSHINE_AVAILABLE and moonshine_model:
+        try:
+            logger.info("Moonshine ONNX backend: %s", moonshine_model)
+            return MoonshineBackend(model_name=moonshine_model)
+        except Exception as exc:
+            logger.warning("Moonshine backend failed (%s) — falling through", exc)
 
     if not force_cpu and HAILO_AVAILABLE and hef_path is not None and hef_path.exists():
-        logger.info("Using Hailo Whisper backend: %s", hef_path.name)
+        logger.info("Hailo Whisper backend: %s", hef_path.name)
         backend = HailoWhisperBackend(hef_path, language=language, npu_timeout_sec=npu_timeout_sec)
         backend.load()
         return backend
 
     if FASTER_WHISPER_AVAILABLE:
-        logger.info("Using faster-whisper fallback (large-v3-turbo, CPU)")
-        return FasterWhisperBackend(language=language)
+        model_size = os.environ.get("FASTER_WHISPER_MODEL", "small")
+        logger.info("faster-whisper %s (int8, language=%s)", model_size, language)
+        return FasterWhisperBackend(model_size=model_size, language=language)
 
     raise RuntimeError("No STT backend available — install useful-moonshine-onnx or faster-whisper")
 

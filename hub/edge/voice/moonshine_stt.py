@@ -1,8 +1,11 @@
-"""Moonshine ONNX STT backend — primary STT, optimised for Ukrainian.
+"""Moonshine ONNX STT backend.
 
-Model: UsefulSensors/moonshine-tiny-uk — 27 M parameters, trained on 19,600 h
-of Ukrainian audio. Achieves 3.2% WER improvement over Whisper Medium on uk.
-Footprint: 26 MB ONNX, runs in ~100–200 ms on RPi 5 (ARM Cortex-A76).
+Supported models (all English):
+  "moonshine/tiny"  — 27 M params, ~26 MB ONNX, ~100–150 ms on RPi 5
+  "moonshine/base"  — 61 M params, ~61 MB ONNX, ~250 ms on RPi 5
+
+Note: UsefulSensors/moonshine-tiny-uk exists only as SafeTensors (no ONNX export).
+For Ukrainian STT use faster-whisper with language="uk" (set MOONSHINE_MODEL="").
 
 Package: pip install useful-moonshine-onnx
 """
@@ -27,7 +30,7 @@ except ImportError:
     soundfile = None  # type: ignore[assignment]
     MOONSHINE_AVAILABLE = False
 
-DEFAULT_MOONSHINE_MODEL = "UsefulSensors/moonshine-tiny-uk"
+DEFAULT_MOONSHINE_MODEL = "moonshine/tiny"
 
 
 class MoonshineBackend:
