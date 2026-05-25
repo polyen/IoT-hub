@@ -31,6 +31,20 @@ RUN uv sync --frozen --no-dev --extra voice
 ENV PATH="/app/.venv/bin:$PATH"
 
 RUN useradd --create-home --no-log-init -r appuser
+
+# Pre-bake silero-vad ONNX into the image — the model is bundled in the wheel
+# so no network access is needed at container startup and no torch is required.
+RUN pip download --no-deps "silero-vad==6.2.1" -d /tmp/sv-dl && \
+    python3 -c "
+import zipfile, pathlib
+whl = next(pathlib.Path('/tmp/sv-dl').glob('*.whl'))
+dest = pathlib.Path('/app/.silero_vad/silero_vad.onnx')
+dest.parent.mkdir(parents=True, exist_ok=True)
+dest.write_bytes(zipfile.ZipFile(whl).read('silero_vad/data/silero_vad.onnx'))
+" && \
+    chown -R appuser:appuser /app/.silero_vad && \
+    rm -rf /tmp/sv-dl
+
 USER appuser
 
 ENV WAKE_WORD_MODEL_PATH="" \
@@ -41,6 +55,7 @@ ENV WAKE_WORD_MODEL_PATH="" \
     MQTT_HOST="mosquitto" \
     MQTT_PORT="1883" \
     PIPER_MODEL="uk_UA-lada-x_low" \
-    PIPER_MODEL_DIR="/home/appuser/.local/share/piper"
+    PIPER_MODEL_DIR="/home/appuser/.local/share/piper" \
+    SILERO_VAD_ONNX_PATH="/app/.silero_vad/silero_vad.onnx"
 
 CMD ["python", "-m", "hub.edge.voice.pipeline"]

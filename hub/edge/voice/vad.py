@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import urllib.request
+import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -23,17 +23,49 @@ CHUNK_MS = 32
 CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_MS // 1000
 SPEECH_THRESHOLD = 0.5
 
-_ONNX_URL = "https://github.com/snakers4/silero-vad/raw/master/files/silero_vad.onnx"
-_CACHE_PATH = Path.home() / ".cache" / "silero_vad" / "silero_vad.onnx"
+# SILERO_VAD_ONNX_PATH is set to the pre-baked path in the Docker image.
+# Falls back to the user cache dir for local dev (extracted from pip wheel on
+# first run — same model format as the Docker image, no network download of the
+# full wheel needed beyond pip's own cache).
+_SILERO_VAD_VERSION = "6.2.1"
+_CACHE_PATH = Path(
+    os.environ.get(
+        "SILERO_VAD_ONNX_PATH",
+        str(Path.home() / ".cache" / "silero_vad" / "silero_vad.onnx"),
+    )
+)
 
 
 def _ensure_model() -> Path:
-    """Download silero_vad.onnx if not already cached."""
-    if not _CACHE_PATH.exists():
-        _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        logger.info("Downloading silero-vad ONNX model …")
-        urllib.request.urlretrieve(_ONNX_URL, _CACHE_PATH)
-        logger.info("Saved to %s", _CACHE_PATH)
+    """Return the silero-vad ONNX path, extracting from the pip wheel if absent."""
+    if _CACHE_PATH.exists():
+        return _CACHE_PATH
+
+    import subprocess
+    import sys
+    import tempfile
+    import zipfile
+
+    _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Fetching silero-vad ONNX from pip wheel (one-time) …")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "--no-deps",
+                f"silero-vad=={_SILERO_VAD_VERSION}",
+                "-d",
+                tmpdir,
+            ],
+            check=True,
+            capture_output=True,
+        )
+        whl = next(Path(tmpdir).glob("*.whl"))
+        _CACHE_PATH.write_bytes(zipfile.ZipFile(whl).read("silero_vad/data/silero_vad.onnx"))
+    logger.info("Saved to %s", _CACHE_PATH)
     return _CACHE_PATH
 
 
