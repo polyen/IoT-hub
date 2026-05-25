@@ -35,13 +35,7 @@ RUN useradd --create-home --no-log-init -r appuser
 # Pre-bake silero-vad ONNX into the image — the model is bundled in the wheel
 # so no network access is needed at container startup and no torch is required.
 RUN pip download --no-deps "silero-vad==6.2.1" -d /tmp/sv-dl && \
-    python3 -c "
-import zipfile, pathlib
-whl = next(pathlib.Path('/tmp/sv-dl').glob('*.whl'))
-dest = pathlib.Path('/app/.silero_vad/silero_vad.onnx')
-dest.parent.mkdir(parents=True, exist_ok=True)
-dest.write_bytes(zipfile.ZipFile(whl).read('silero_vad/data/silero_vad.onnx'))
-" && \
+    python3 -c "import zipfile,pathlib; whl=next(pathlib.Path('/tmp/sv-dl').glob('*.whl')); dest=pathlib.Path('/app/.silero_vad/silero_vad.onnx'); dest.parent.mkdir(parents=True,exist_ok=True); dest.write_bytes(zipfile.ZipFile(whl).read('silero_vad/data/silero_vad.onnx'))" && \
     chown -R appuser:appuser /app/.silero_vad && \
     rm -rf /tmp/sv-dl
 
