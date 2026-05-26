@@ -32,6 +32,10 @@ RESULTS_CMP="materials/evaluation_results/llm_bench_comparison_2026_05.md"
 LLM_URL="${LLM_URL:-http://localhost:8001}"
 BENCH_CV_ACTIVE="${BENCH_CV_ACTIVE:-true}"
 N_RUNS="${N_RUNS:-3}"
+# RPi5 + 4B Q4 ≈ 3 tok/s decode; 128 max_tokens → ≥45 s wall-clock per query.
+# Default 180 s/timeout + 128 max_tokens; override via env if needed.
+BENCH_TIMEOUT_S="${BENCH_TIMEOUT_S:-180}"
+BENCH_MAX_TOKENS="${BENCH_MAX_TOKENS:-128}"
 
 cd "${PROJECT_DIR}"
 mkdir -p "${RESULTS_BASE}" "${RESULTS_CAND}"
@@ -79,6 +83,8 @@ run_bench() {
         --queries "${QUERIES}" \
         --output "${output_dir}" \
         --n-runs "${N_RUNS}" \
+        --timeout-s "${BENCH_TIMEOUT_S}" \
+        --max-tokens "${BENCH_MAX_TOKENS}" \
         --llm-url "${LLM_URL}"
     echo "[BENCH] Done → ${output_dir}/llm_bench_${model_name}.json"
 }

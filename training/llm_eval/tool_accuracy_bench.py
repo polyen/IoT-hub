@@ -37,8 +37,9 @@ class BenchConfig:
     model_name: str
     phase: str = "A"
     n_runs: int = 3
-    timeout_s: int = 30
+    timeout_s: int = 180
     constrained: bool = True
+    max_tokens: int = 128
 
 
 _CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
@@ -77,7 +78,7 @@ class LLMBench:
                 },
                 {"role": "user", "content": prompt},
             ],
-            "max_tokens": 256,
+            "max_tokens": self.config.max_tokens,
             "temperature": 0.0,
         }
 
@@ -398,7 +399,7 @@ class LLMBench:
                             },
                             {"role": "user", "content": text},
                         ],
-                        "max_tokens": 256,
+                        "max_tokens": self.config.max_tokens,
                         "temperature": 0.0,
                     }
                     t0 = time.perf_counter()
@@ -625,6 +626,18 @@ def main() -> None:
     parser.add_argument("--constrained", action="store_true", default=True)
     parser.add_argument("--no-constrained", dest="constrained", action="store_false")
     parser.add_argument("--n-runs", type=int, default=3)
+    parser.add_argument(
+        "--timeout-s",
+        type=int,
+        default=180,
+        help="Per-request HTTP timeout in seconds. RPi5 4B Q4 ≈ 3 tok/s decode → 128 tokens ≈ 45 s; set ≥120 s.",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=128,
+        help="max_tokens in the chat completion request. Tool-call JSON fits in <80 tokens; 128 is a safe cap.",
+    )
     args = parser.parse_args()
 
     if args.mode == "aggregate":
@@ -637,6 +650,8 @@ def main() -> None:
         phase=args.phase,
         n_runs=args.n_runs,
         constrained=args.constrained,
+        timeout_s=args.timeout_s,
+        max_tokens=args.max_tokens,
     )
     bench = LLMBench(config)
 
