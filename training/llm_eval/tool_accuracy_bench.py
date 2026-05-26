@@ -41,21 +41,67 @@ class BenchConfig:
     constrained: bool = True
     max_tokens: int = 192
     no_think: bool = True
+    catalog_text: str = ""
 
 
-_SYSTEM_PROMPT_BASE = (
-    "You are a home IoT assistant. "
-    "Always respond with a single JSON object: "
-    '{"tool": "<tool_name>", "args": {...}}'
+_SYSTEM_PROMPT_HEAD = (
+    "You are a home IoT assistant. Pick exactly one tool from the catalog below "
+    "and respond with a single JSON object of the form "
+    '{"tool":"<name>","args":{...}}. No prose, no markdown, no extra fields.'
 )
 # Qwen3 / Qwen3.5 default to thinking mode and emit a long <think>...</think>
 # block before the answer, blowing past max_tokens before any JSON is produced.
 # /no_think is the documented soft-switch to disable that for tool-call use.
-_NO_THINK_DIRECTIVE = " /no_think"
+_NO_THINK_DIRECTIVE = "\n/no_think"
+
+_DEFAULT_TOOL_CATALOG_PATH = "training/llm_eval/tools.yaml"
 
 
-def _build_system_prompt(no_think: bool) -> str:
-    return _SYSTEM_PROMPT_BASE + (_NO_THINK_DIRECTIVE if no_think else "")
+def _format_tool_catalog(catalog_path: str | Path | None) -> str:
+    """Render tools.yaml as a compact text block for the system prompt.
+
+    Returns "" if catalog_path is None or the file is missing — callers then
+    fall back to the catalog-less prompt for zero-knowledge ablation runs.
+    """
+    if catalog_path is None:
+        return ""
+    p = Path(catalog_path)
+    if not p.exists():
+        logger.warning("Tool catalog not found: %s — skipping injection", p)
+        return ""
+    with open(p) as fh:
+        data = yaml.safe_load(fh) or {}
+    tools = data.get("tools") or []
+    if not tools:
+        return ""
+
+    lines: list[str] = ["", "Tools:"]
+    for t in tools:
+        name = t.get("name", "?")
+        desc = t.get("description", "").rstrip(".")
+        args = t.get("args") or {}
+        if args:
+            arg_sig = ", ".join(args.keys())
+            sig = f"{name}({arg_sig})"
+        else:
+            sig = name
+        lines.append(f"- {sig}: {desc}.")
+        for arg_name, arg_doc in args.items():
+            lines.append(f"    {arg_name}: {arg_doc}")
+        for ex in t.get("examples") or []:
+            lines.append(
+                f"    example: {json.dumps({'tool': name, 'args': ex}, ensure_ascii=False)}"
+            )
+    return "\n".join(lines)
+
+
+def _build_system_prompt(no_think: bool, catalog_text: str = "") -> str:
+    prompt = _SYSTEM_PROMPT_HEAD
+    if catalog_text:
+        prompt += "\n" + catalog_text
+    if no_think:
+        prompt += _NO_THINK_DIRECTIVE
+    return prompt
 
 
 _CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
@@ -84,7 +130,10 @@ class LLMBench:
         payload: dict[str, Any] = {
             "model": self.config.model_name,
             "messages": [
-                {"role": "system", "content": _build_system_prompt(self.config.no_think)},
+                {
+                    "role": "system",
+                    "content": _build_system_prompt(self.config.no_think, self.config.catalog_text),
+                },
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": self.config.max_tokens,
@@ -400,7 +449,9 @@ class LLMBench:
                         "messages": [
                             {
                                 "role": "system",
-                                "content": _build_system_prompt(self.config.no_think),
+                                "content": _build_system_prompt(
+                                    self.config.no_think, self.config.catalog_text
+                                ),
                             },
                             {"role": "user", "content": text},
                         ],
@@ -655,11 +706,22 @@ def main() -> None:
         action="store_false",
         help="Allow the model to emit a <think>...</think> block. Disables the /no_think directive.",
     )
+    parser.add_argument(
+        "--tool-catalog",
+        default=_DEFAULT_TOOL_CATALOG_PATH,
+        help="Path to tools.yaml — injected as a BFCL-style catalog into the system prompt. Use '' to disable for zero-knowledge ablation runs.",
+    )
     args = parser.parse_args()
 
     if args.mode == "aggregate":
         aggregate_results(Path(args.output), Path(args.matrix_out))
         return
+
+    catalog_text = _format_tool_catalog(args.tool_catalog or None)
+    if catalog_text:
+        logger.info("Tool catalog loaded from %s (%d chars)", args.tool_catalog, len(catalog_text))
+    else:
+        logger.info("Running without tool catalog (zero-knowledge ablation)")
 
     config = BenchConfig(
         llm_url=args.llm_url,
@@ -670,6 +732,7 @@ def main() -> None:
         timeout_s=args.timeout_s,
         max_tokens=args.max_tokens,
         no_think=args.no_think,
+        catalog_text=catalog_text,
     )
     bench = LLMBench(config)
 

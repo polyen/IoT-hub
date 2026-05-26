@@ -1,0 +1,54 @@
+# Tool catalog injected into bench system prompts (BFCL-style).
+# Token budget: keep compact — every token here is paid on every query's prefill.
+# Render: training.llm_eval.tool_accuracy_bench._format_tool_catalog()
+
+tools:
+  - name: mqtt_publish
+    description: Publish a JSON payload to an MQTT topic to control a home device.
+    args:
+      topic: "string, format home/{room}/{device}. rooms: living_room, kitchen, bedroom, bathroom, hallway, office, basement, garage, garden, front_door, back_door, alarm, system, all. devices: light, thermostat, lock, blinds, fan, tv, irrigation, relay_1..3, control (alarm), mode (system)"
+      payload: "JSON-as-string. patterns: {\"state\":\"on|off|locked|unlocked|open|armed|disarmed\"}, {\"temperature\":N}, {\"brightness\":N}, {\"color_temp\":\"warm|cool\"}, {\"mode\":\"night|normal\"}"
+    examples:
+      - {topic: "home/kitchen/light", payload: "{\"state\": \"on\"}"}
+      - {topic: "home/bedroom/thermostat", payload: "{\"temperature\": 22}"}
+
+  - name: set_timer
+    description: Start a kitchen-style timer.
+    args:
+      duration_s: "integer, seconds"
+      label: "optional string"
+
+  - name: get_home_state
+    description: Read current value of a home sensor right now.
+    args:
+      location: "string, room name"
+      sensor: "string: temperature, humidity, motion, light, etc."
+
+  - name: query_events_db
+    description: Query the events database for past events.
+    args:
+      event_type: "string: alert, motion, light_change, etc."
+      limit: "optional integer"
+      time_range: "optional string: 1h, 24h, 1w, etc."
+
+  - name: summarize_period
+    description: Summarize home events/metrics over a time period.
+    args:
+      period: "string: 1h, 24h, 1w"
+      location: "optional string"
+      event_type: "optional string"
+      metric: "optional string"
+      source: "optional string"
+
+  - name: send_push
+    description: Send a push notification of a known type.
+    args:
+      message_type: "string: security_summary, daily_digest, etc."
+
+  - name: ask_user
+    description: Ask the user a clarifying question when the request is ambiguous or under-specified.
+    args: {}
+
+  - name: DENY
+    description: Refuse a request that is unsafe, out-of-scope, or violates policy.
+    args: {}
