@@ -51,8 +51,9 @@ _SYSTEM_PROMPT_HEAD = (
 )
 # Qwen3 / Qwen3.5 default to thinking mode and emit a long <think>...</think>
 # block before the answer, blowing past max_tokens before any JSON is produced.
-# /no_think is the documented soft-switch to disable that for tool-call use.
-_NO_THINK_DIRECTIVE = "\n/no_think"
+# /no_think is the documented soft-switch; per Qwen3 docs it must be applied
+# in the LAST message (the user turn), not the system prompt, to take effect.
+_NO_THINK_DIRECTIVE = " /no_think"
 
 _DEFAULT_TOOL_CATALOG_PATH = "training/llm_eval/tools.yaml"
 
@@ -96,12 +97,18 @@ def _format_tool_catalog(catalog_path: str | Path | None) -> str:
 
 
 def _build_system_prompt(no_think: bool, catalog_text: str = "") -> str:
+    # no_think kept in signature for compatibility; the directive is applied to
+    # the user turn (see _build_user_prompt) because Qwen3 only honours it in
+    # the last message.
+    _ = no_think
     prompt = _SYSTEM_PROMPT_HEAD
     if catalog_text:
         prompt += "\n" + catalog_text
-    if no_think:
-        prompt += _NO_THINK_DIRECTIVE
     return prompt
+
+
+def _build_user_prompt(text: str, no_think: bool) -> str:
+    return text + _NO_THINK_DIRECTIVE if no_think else text
 
 
 _CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
@@ -134,7 +141,7 @@ class LLMBench:
                     "role": "system",
                     "content": _build_system_prompt(self.config.no_think, self.config.catalog_text),
                 },
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": _build_user_prompt(prompt, self.config.no_think)},
             ],
             "max_tokens": self.config.max_tokens,
             "temperature": 0.0,
@@ -453,7 +460,10 @@ class LLMBench:
                                     self.config.no_think, self.config.catalog_text
                                 ),
                             },
-                            {"role": "user", "content": text},
+                            {
+                                "role": "user",
+                                "content": _build_user_prompt(text, self.config.no_think),
+                            },
                         ],
                         "max_tokens": self.config.max_tokens,
                         "temperature": 0.0,
