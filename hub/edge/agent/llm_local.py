@@ -80,35 +80,33 @@ class LocalLLMClient:
         user: str,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE,
+        json_mode: bool = False,
     ) -> str:
-        """Generate with Qwen3 thinking disabled via completions-API prefill.
+        """Generate using the chat completions API.
 
-        Uses manually formatted Qwen3 chat template with an empty <think></think>
-        block pre-filled as the start of the assistant turn.  The completions API
-        strips thinking tokens from its output, so the returned text is pure answer.
-        Prefilling '{' forces the model to continue directly with the JSON object.
+        json_mode=True sets response_format=json_object so the model is
+        grammar-constrained to emit valid JSON (requires the prompt to
+        mention JSON explicitly so the model knows what to produce).
         """
-        prompt = (
-            f"<|im_start|>system\n{system}<|im_end|>\n"
-            f"<|im_start|>user\n{user}<|im_end|>\n"
-            f"<|im_start|>assistant\n<think>\n\n</think>\n{{"
-        )
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             payload: dict[str, Any] = {
-                "prompt": prompt,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "stop": ["<|im_end|>", "<|im_start|>"],
                 "stream": False,
             }
-            resp = await client.post(f"{self._base_url}/v1/completions", json=payload)
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
+            resp = await client.post(f"{self._base_url}/v1/chat/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
             choices = data.get("choices", [])
             if not choices:
                 return ""
-            # Prepend the '{' we used as prefill so the caller gets full JSON
-            return "{" + str(choices[0].get("text", ""))
+            return str(choices[0].get("message", {}).get("content", ""))
 
     async def health(self) -> bool:
         """Return True if LLM server is reachable."""

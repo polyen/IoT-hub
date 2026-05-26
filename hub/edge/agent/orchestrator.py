@@ -198,6 +198,7 @@ class AgentOrchestrator:
                 user=text,
                 max_tokens=256,
                 temperature=0.1,
+                json_mode=True,
             )
             # Try direct parse first; fall back to extracting the outermost {...}
             stripped = raw.strip()

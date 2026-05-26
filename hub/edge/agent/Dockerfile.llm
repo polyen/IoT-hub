@@ -1,11 +1,10 @@
-# Qwen 3.5 4B Instruct Q4_K_M (Unsloth GGUF Dynamic 2.0) — llama-cpp-python HTTP server.
+# Qwen 2.5 3B Instruct Q4_K_M — llama-cpp-python HTTP server.
 # Multi-arch: linux/arm64 (RPi5 16 GB with NEON), linux/amd64 (dev/VPS).
 #
-# Promoted from bench candidate (Phase 0) to production primary 2026-05 after
-# benchmark in materials/evaluation_results/qwen3.5 validated tok/s ≥ 2.5 and
-# accuracy gain over Qwen 2.5 3B across all four BFCL-style categories. The
-# previous Qwen 2.5 3B baseline can still be loaded via docker-compose.bench.yml
-# (now inverted to override BACK to qwen2.5-3b for regression re-runs).
+# Qwen2.5-3B-Instruct: ~1.9 GB, ~5 tok/s on RPi5 ARM Cortex-A76.
+# No thinking mode — responds immediately. ChatML format via --chat_format chatml.
+# Reverted from Qwen3.5-4B (2026-05) due to unfixable llama.cpp bug #20182:
+# enable_thinking=false is ignored, causing 60-90s latency on every CREATIVE call.
 #
 # Override MODEL_URL + MODEL_PATH + MODEL_SHA256 from compose to switch versions
 # without rebuilding the image.
@@ -23,8 +22,8 @@ ARG CMAKE_ARGS="-DLLAMA_NATIVE=ON"
 RUN pip install --no-cache-dir "llama-cpp-python[server]>=0.3.0" \
     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 
-ENV MODEL_URL="https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf" \
-    MODEL_PATH="/app/models/qwen3.5-4b-q4_k_m.gguf" \
+ENV MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf" \
+    MODEL_PATH="/app/models/qwen2.5-3b-instruct-q4_k_m.gguf" \
     MODEL_SHA256="" \
     HOST="0.0.0.0" \
     PORT="8001" \
