@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -189,31 +188,15 @@ class AgentOrchestrator:
         await self._execute_decision(decision, tool_call, text, identity)
 
     async def _handle_creative(self, text: str, identity: str) -> None:
-        """Use unconstrained LLM to select and parameterize a tool."""
+        """Use grammar-constrained LLM to select and parameterize a tool."""
         system = _CREATIVE_SYSTEM.format(tool_schemas=_TOOL_SCHEMA_SUMMARY)
-        raw = ""
+        prompt = f"{system}\n\nUser request: {text}\nJSON:"
+        grammar = load_grammar("creative")
+        parsed: dict[str, Any] = {}
         try:
-            raw = await self._llm.generate_chat(
-                system=system,
-                user=text,
-                max_tokens=256,
-                temperature=0.1,
-                json_mode=True,
-            )
-            # Try direct parse first; fall back to extracting the outermost {...}
-            stripped = raw.strip()
-            try:
-                parsed: dict[str, Any] = json.loads(stripped)
-            except json.JSONDecodeError:
-                # Greedy match to capture outermost JSON object (handles nested braces)
-                match = re.search(r"\{.*\}", stripped, re.DOTALL)
-                if not match:
-                    raise ValueError(f"No JSON found in LLM output: {raw!r}") from None
-                parsed = json.loads(match.group())
+            parsed = await self._llm.generate_constrained(prompt, grammar, max_tokens=96)
         except Exception as e:
-            logger.warning(
-                "CREATIVE LLM parse failed (%s): %r — defaulting to summarize_period", e, raw
-            )
+            logger.warning("CREATIVE LLM failed (%s) — defaulting to summarize_period", e)
             parsed = {"tool": "summarize_period", "payload": {"period": "today"}}
 
         tool_name = str(parsed.get("tool", "summarize_period"))
