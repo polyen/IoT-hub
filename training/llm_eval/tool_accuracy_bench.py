@@ -55,6 +55,20 @@ _SYSTEM_PROMPT_HEAD = (
 # in the LAST message (the user turn), not the system prompt, to take effect.
 _NO_THINK_DIRECTIVE = " /no_think"
 
+# Use /v1/completions with a pre-formatted ChatML prompt instead of
+# /v1/chat/completions.  The chat/completions endpoint in llama-cpp-python
+# 0.3.x can return 500 when the GGUF has an embedded Jinja template and
+# --chat_format=chatml is also set on the server — the conflict only
+# surfaces at inference time, not at startup.  /v1/completions takes a raw
+# prompt string and bypasses the whole chat-format layer entirely, which is
+# what llm_local.py already does in production.
+_CHATML_PROMPT = (
+    "<|im_start|>system\n{system}<|im_end|>\n"
+    "<|im_start|>user\n{user}<|im_end|>\n"
+    "<|im_start|>assistant\n"
+)
+_CHATML_STOP = ["<|im_end|>", "<|im_start|>"]
+
 _DEFAULT_TOOL_CATALOG_PATH = "training/llm_eval/tools.yaml"
 
 
@@ -130,21 +144,22 @@ class LLMBench:
         prompt: str,
         grammar: str | None = None,
     ) -> tuple[str, float]:
-        """POST to /v1/chat/completions, return (response_text, latency_s)."""
+        """POST to /v1/completions with a pre-formatted ChatML prompt.
+
+        Returns (response_text, latency_s).
+        """
         if not HTTPX_AVAILABLE:
             raise RuntimeError("httpx not installed — pip install httpx")
 
+        system = _build_system_prompt(self.config.no_think, self.config.catalog_text)
+        user = _build_user_prompt(prompt, self.config.no_think)
+        formatted = _CHATML_PROMPT.format(system=system, user=user)
+
         payload: dict[str, Any] = {
-            "model": self.config.model_name,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": _build_system_prompt(self.config.no_think, self.config.catalog_text),
-                },
-                {"role": "user", "content": _build_user_prompt(prompt, self.config.no_think)},
-            ],
+            "prompt": formatted,
             "max_tokens": self.config.max_tokens,
             "temperature": 0.0,
+            "stop": _CHATML_STOP,
         }
 
         if grammar is not None and self.config.constrained:
@@ -153,7 +168,7 @@ class LLMBench:
         t0 = time.perf_counter()
         with httpx.Client(timeout=float(self.config.timeout_s)) as client:
             resp = client.post(
-                f"{self.config.llm_url.rstrip('/')}/v1/chat/completions",
+                f"{self.config.llm_url.rstrip('/')}/v1/completions",
                 json=payload,
             )
             resp.raise_for_status()
@@ -161,10 +176,7 @@ class LLMBench:
         latency_s = time.perf_counter() - t0
 
         choices = body.get("choices", [])
-        if choices:
-            content = choices[0].get("message", {}).get("content", "")
-        else:
-            content = ""
+        content = choices[0].get("text", "") if choices else ""
 
         return content, latency_s
 
@@ -449,29 +461,22 @@ class LLMBench:
             last_parsed: dict[str, Any] | None = None
             success = False
 
+            _sys = _build_system_prompt(self.config.no_think, self.config.catalog_text)
+            _usr = _build_user_prompt(text, self.config.no_think)
+            _prompt = _CHATML_PROMPT.format(system=_sys, user=_usr)
+
             for run_idx in range(self.config.n_runs):
                 try:
                     payload: dict[str, Any] = {
-                        "model": self.config.model_name,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": _build_system_prompt(
-                                    self.config.no_think, self.config.catalog_text
-                                ),
-                            },
-                            {
-                                "role": "user",
-                                "content": _build_user_prompt(text, self.config.no_think),
-                            },
-                        ],
+                        "prompt": _prompt,
                         "max_tokens": self.config.max_tokens,
                         "temperature": 0.0,
+                        "stop": _CHATML_STOP,
                     }
                     t0 = time.perf_counter()
                     with httpx.Client(timeout=float(self.config.timeout_s)) as client:
                         resp = client.post(
-                            f"{self.config.llm_url.rstrip('/')}/v1/chat/completions",
+                            f"{self.config.llm_url.rstrip('/')}/v1/completions",
                             json=payload,
                         )
                         resp.raise_for_status()
@@ -479,7 +484,7 @@ class LLMBench:
                     lat = time.perf_counter() - t0
 
                     choices = body.get("choices", [])
-                    content = choices[0].get("message", {}).get("content", "") if choices else ""
+                    content = choices[0].get("text", "") if choices else ""
                     run_latencies.append(lat)
                     tok_s = self._compute_tok_s(body, lat)
                     if tok_s > 0:
