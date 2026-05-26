@@ -456,8 +456,7 @@ function StackTab() {
     setEvents((prev) => [...prev.slice(-199), ev]);
   }
 
-  // Hydrate with recent history on mount
-  useEffect(() => {
+  function loadHistory() {
     api.get<AgentTurnEvent[]>("/api/agent/history")
       .then((history) => {
         history.forEach((ev) => {
@@ -470,7 +469,10 @@ function StackTab() {
         });
       })
       .catch(() => {});
-  }, []);
+  }
+
+  // Hydrate with recent history on mount
+  useEffect(() => { loadHistory(); }, []);
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -504,11 +506,16 @@ function StackTab() {
           <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-slate-500"}`} />
           <span className="text-slate-400">{connected ? "Агент підключений" : "Очікування агента…"}</span>
         </div>
-        {events.length > 0 && (
-          <button onClick={() => setEvents([])} className="text-xs text-slate-500 hover:text-slate-300">
-            Очистити
+        <div className="flex items-center gap-3">
+          <button onClick={loadHistory} className="text-xs text-slate-500 hover:text-slate-300">
+            ↺ Оновити
           </button>
-        )}
+          {events.length > 0 && (
+            <button onClick={() => setEvents([])} className="text-xs text-slate-500 hover:text-slate-300">
+              Очистити
+            </button>
+          )}
+        </div>
       </div>
 
       <div

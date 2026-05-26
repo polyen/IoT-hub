@@ -600,6 +600,16 @@ class AgentOrchestrator:
                     data = json.loads(message.payload)
                     text = str(data.get("text", ""))
                     if text:
+                        await self._redis.publish(
+                            "voice:transcript",
+                            json.dumps(
+                                {
+                                    "type": "transcript",
+                                    "text": text,
+                                    "ts": datetime.now(UTC).isoformat(),
+                                }
+                            ),
+                        )
                         await self.handle_command(text)
                 except Exception:
                     logger.exception("Failed to process message: %s", message.payload)
