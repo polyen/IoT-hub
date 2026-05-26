@@ -81,32 +81,34 @@ class LocalLLMClient:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = DEFAULT_TEMPERATURE,
     ) -> str:
-        """Generate via chat/completions API with proper instruct template.
+        """Generate with Qwen3 thinking disabled via completions-API prefill.
 
-        Strips <think>...</think> blocks from Qwen3 output so callers always
-        receive only the final answer, regardless of chain-of-thought length.
+        Uses manually formatted Qwen3 chat template with an empty <think></think>
+        block pre-filled as the start of the assistant turn.  The completions API
+        strips thinking tokens from its output, so the returned text is pure answer.
+        Prefilling '{' forces the model to continue directly with the JSON object.
         """
+        prompt = (
+            f"<|im_start|>system\n{system}<|im_end|>\n"
+            f"<|im_start|>user\n{user}<|im_end|>\n"
+            f"<|im_start|>assistant\n<think>\n\n</think>\n{{"
+        )
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             payload: dict[str, Any] = {
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
+                "prompt": prompt,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
+                "stop": ["<|im_end|>", "<|im_start|>"],
                 "stream": False,
             }
-            resp = await client.post(f"{self._base_url}/v1/chat/completions", json=payload)
+            resp = await client.post(f"{self._base_url}/v1/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
             choices = data.get("choices", [])
             if not choices:
                 return ""
-            content = str(choices[0].get("message", {}).get("content", ""))
-            # Qwen3 thinking mode: strip <think>...</think> block if present
-            if "</think>" in content:
-                content = content.split("</think>", 1)[-1].strip()
-            return content
+            # Prepend the '{' we used as prefill so the caller gets full JSON
+            return "{" + str(choices[0].get("text", ""))
 
     async def health(self) -> bool:
         """Return True if LLM server is reachable."""
