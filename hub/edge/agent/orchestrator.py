@@ -79,6 +79,97 @@ _TOOL_SCHEMA_SUMMARY = "\n".join(
     for name, schema in agent_tools.TOOL_SCHEMAS.items()
 )
 
+_PERIOD_UA = {"today": "сьогодні", "yesterday": "вчора", "week": "цього тижня"}
+_EVENT_UA: dict[str, str] = {
+    "camera/event": "з камер",
+    "event/fused": "сенсорних",
+    "motion": "руху",
+    "fire": "пожежі",
+    "smoke": "диму",
+    "fall": "падінь",
+}
+
+
+def _result_to_speech(tool_call: ToolCall, result: Any) -> str:
+    """Format a tool result as a short spoken Ukrainian phrase for TTS."""
+    tool = tool_call.tool
+
+    if tool == "summarize_period":
+        if not isinstance(result, dict):
+            return "Звіт готовий."
+        period = _PERIOD_UA.get(result.get("period", "today"), result.get("period", ""))
+        counts: dict[str, int] = result.get("event_counts", {})
+        if not counts:
+            return f"За {period} подій не зафіксовано."
+        total = sum(counts.values())
+        top = sorted(counts.items(), key=lambda x: -x[1])[:2]
+        parts = [f"{cnt} {_EVENT_UA.get(t, t.split('/')[-1])}" for t, cnt in top]
+        return f"За {period} {total} подій: {', '.join(parts)}."
+
+    if tool == "query_events_db":
+        if not isinstance(result, list) or not result:
+            return "Подій не знайдено."
+        n = len(result)
+        ev = result[0]
+        room = ev.get("room") or ""
+        etype = _EVENT_UA.get(ev.get("type", ""), ev.get("type", "").split("/")[-1])
+        room_part = f" у {room}" if room else ""
+        return f"Знайдено {n} подій. Остання: {etype}{room_part}."
+
+    if tool == "get_home_state":
+        if not isinstance(result, dict) or not result:
+            return "Дані про стан будинку відсутні."
+        parts = []
+        for room, data in list(result.items())[:2]:
+            if not isinstance(data, dict):
+                continue
+            sensors = []
+            if "temperature" in data:
+                sensors.append(f"{data['temperature']}°")
+            if "humidity" in data:
+                sensors.append(f"вологість {data['humidity']}%")
+            if sensors:
+                parts.append(f"{room}: {', '.join(sensors)}")
+        return ("Стан будинку: " + "; ".join(parts) + ".") if parts else "Дані оновлено."
+
+    if tool == "set_timer":
+        if isinstance(result, dict):
+            sec = int(result.get("duration_sec", 0))
+            label = result.get("label", "")
+            if sec >= 3600:
+                t = f"{sec // 3600} год"
+            elif sec >= 60:
+                t = f"{sec // 60} хв"
+            else:
+                t = f"{sec} с"
+            suffix = f" «{label}»" if label and label != "timer" else ""
+            return f"Таймер{suffix} на {t}."
+        return "Таймер встановлено."
+
+    if tool == "send_push":
+        return "Сповіщення надіслано."
+
+    if tool == "ask_user":
+        if isinstance(result, dict):
+            return str(result.get("question", "Уточніть команду."))
+        return "Уточніть команду."
+
+    if tool == "mqtt_publish":
+        topic = tool_call.topic or ""
+        payload = tool_call.payload or {}
+        state = payload.get("state", "")
+        if "light" in topic:
+            if state == "on":
+                return "Світло увімкнено."
+            if state == "off":
+                return "Світло вимкнено."
+            return "Світло перемкнено."
+        if "relay" in topic or "switch" in topic:
+            return "Пристрій перемкнено."
+        return "Виконано."
+
+    return "Готово."
+
 
 class AgentOrchestrator:
     def __init__(
@@ -108,10 +199,14 @@ class AgentOrchestrator:
             yield session
 
     async def _pub(self, channel: str, payload: dict[str, Any]) -> None:
-        """Publish a progress event to Redis with timestamp; non-fatal on error."""
+        """Publish a progress event to Redis pub/sub; persist turn events to agent:history."""
         try:
             payload.setdefault("ts", datetime.now(UTC).isoformat())
-            await self._redis.publish(channel, json.dumps(payload))
+            serialized = json.dumps(payload)
+            await self._redis.publish(channel, serialized)
+            if channel in ("agent:turn", "agent:tool_call", "agent:result"):
+                await self._redis.lpush("agent:history", serialized)
+                await self._redis.ltrim("agent:history", 0, 99)
         except Exception:
             pass
 
@@ -267,19 +362,19 @@ class AgentOrchestrator:
             )
             try:
                 result = await self._run_tool(tool_call)
-                if isinstance(result, dict | list):
-                    result_text = json.dumps(result, ensure_ascii=False, default=str)
-                elif result is not None:
-                    result_text = str(result)
-                else:
-                    result_text = "OK"
+                raw = (
+                    json.dumps(result, ensure_ascii=False, default=str)
+                    if isinstance(result, dict | list)
+                    else str(result or "OK")
+                )
                 await self._pub(
                     "agent:result",
                     {
                         "type": "result",
                         "action_class": "AUTO",
                         "tool": tool_call.tool,
-                        "text": result_text[:300],
+                        "text": _result_to_speech(tool_call, result),
+                        "data": raw[:500],
                     },
                 )
             except Exception as exc:
@@ -396,19 +491,19 @@ class AgentOrchestrator:
             logger.info("CONFIRM approved for %s — executing tool", confirm_id)
             try:
                 result = await self._run_tool(tool_call)
-                if isinstance(result, dict | list):
-                    result_text = json.dumps(result, ensure_ascii=False, default=str)
-                elif result is not None:
-                    result_text = str(result)
-                else:
-                    result_text = "OK"
+                raw = (
+                    json.dumps(result, ensure_ascii=False, default=str)
+                    if isinstance(result, dict | list)
+                    else str(result or "OK")
+                )
                 await self._pub(
                     "agent:result",
                     {
                         "type": "result",
                         "action_class": "CONFIRM",
                         "tool": tool_call.tool,
-                        "text": result_text[:300],
+                        "text": _result_to_speech(tool_call, result),
+                        "data": raw[:500],
                     },
                 )
             except Exception as exc:

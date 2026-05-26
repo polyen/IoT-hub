@@ -17,10 +17,12 @@ const ACTION_COLORS: Record<string, string> = {
 };
 
 interface VoiceMessage {
-  type: "transcript" | "wakeword";
+  type: "transcript" | "wakeword" | "agent_result";
   text: string;
   ts: string;
   confidence?: number;
+  action_class?: string;
+  tool?: string;
 }
 
 // ── Push-to-Talk ────────────────────────────────────────────────────────────
@@ -108,21 +110,37 @@ function TranscriptsTab() {
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    function connect() {
-      const ws = new WebSocket(`${proto}://${location.host}/api/agent/ws/voice`);
-      wsRef.current = ws;
-      ws.onopen = () => setConnected(true);
-      ws.onclose = () => { setConnected(false); setTimeout(connect, 3000); };
-      ws.onerror = () => ws.close();
-      ws.onmessage = (e) => {
-        try {
-          const msg: VoiceMessage = JSON.parse(e.data as string);
-          setMessages((prev) => [msg, ...prev].slice(0, 100));
-        } catch { /* ignore */ }
-      };
-    }
-    connect();
-    return () => wsRef.current?.close();
+    const voiceWs = new WebSocket(`${proto}://${location.host}/api/agent/ws/voice`);
+    const agentWs = new WebSocket(`${proto}://${location.host}/api/agent/ws/agent`);
+    wsRef.current = voiceWs;
+
+    voiceWs.onopen = () => setConnected(true);
+    voiceWs.onclose = () => setConnected(false);
+    voiceWs.onerror = () => voiceWs.close();
+    voiceWs.onmessage = (e) => {
+      try {
+        const msg: VoiceMessage = JSON.parse(e.data as string);
+        setMessages((prev) => [msg, ...prev].slice(0, 100));
+      } catch { /* ignore */ }
+    };
+
+    agentWs.onerror = () => agentWs.close();
+    agentWs.onmessage = (e) => {
+      try {
+        const ev = JSON.parse(e.data as string);
+        if (ev.type !== "result" || !ev.text || ev.action_class === "DENY" || ev.action_class === "ERROR") return;
+        const msg: VoiceMessage = {
+          type: "agent_result",
+          text: ev.text as string,
+          ts: ev.ts ?? new Date().toISOString(),
+          action_class: ev.action_class as string,
+          tool: ev.tool as string | undefined,
+        };
+        setMessages((prev) => [msg, ...prev].slice(0, 100));
+      } catch { /* ignore */ }
+    };
+
+    return () => { voiceWs.close(); agentWs.close(); };
   }, []);
 
   return (
@@ -147,6 +165,8 @@ function TranscriptsTab() {
               className={`rounded-lg px-4 py-3 text-sm border ${
                 msg.type === "wakeword"
                   ? "border-blue-700 bg-blue-900/30 text-blue-200"
+                  : msg.type === "agent_result"
+                  ? "border-green-700/60 bg-green-950/30 text-green-200"
                   : "border-slate-700 bg-slate-800/60"
               }`}
             >
@@ -154,11 +174,11 @@ function TranscriptsTab() {
                 <p className="flex-1">{msg.text}</p>
                 <span className="shrink-0 text-xs text-slate-500">{relativeTime(msg.ts)}</span>
               </div>
-              {msg.confidence !== undefined && (
-                <p className="mt-1 text-xs text-slate-500">
-                  {msg.type === "wakeword" ? "Ключове слово" : "Транскрипція"} · {Math.round(msg.confidence * 100)}%
-                </p>
-              )}
+              <p className="mt-1 text-xs text-slate-500">
+                {msg.type === "wakeword" && "Ключове слово"}
+                {msg.type === "transcript" && (msg.confidence !== undefined ? `Транскрипція · ${Math.round(msg.confidence * 100)}%` : "Транскрипція")}
+                {msg.type === "agent_result" && `Відповідь${msg.tool ? ` · ${msg.tool}` : ""}`}
+              </p>
             </div>
           ))}
         </div>
@@ -427,6 +447,30 @@ function StackTab() {
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  const seenTs = useRef<Set<string>>(new Set());
+
+  function appendEvent(ev: AgentTurnEvent) {
+    const key = ev.ts ?? "";
+    if (key && seenTs.current.has(key)) return;
+    if (key) seenTs.current.add(key);
+    setEvents((prev) => [...prev.slice(-199), ev]);
+  }
+
+  // Hydrate with recent history on mount
+  useEffect(() => {
+    api.get<AgentTurnEvent[]>("/api/agent/history")
+      .then((history) => {
+        history.forEach((ev) => {
+          const key = ev.ts ?? "";
+          if (key) seenTs.current.add(key);
+        });
+        setEvents(history);
+        requestAnimationFrame(() => {
+          listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+        });
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -440,7 +484,7 @@ function StackTab() {
         try {
           const ev: AgentTurnEvent = JSON.parse(e.data as string);
           if (ev.type === "ping") return;
-          setEvents((prev) => [...prev.slice(-199), ev]);
+          appendEvent(ev);
           if (autoScrollRef.current) {
             requestAnimationFrame(() => {
               listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });

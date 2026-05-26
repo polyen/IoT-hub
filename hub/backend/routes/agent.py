@@ -143,6 +143,16 @@ async def agent_ws(websocket: WebSocket) -> None:
         await pubsub.aclose()
 
 
+@router.get("/history")
+async def get_agent_history(request: Request) -> list[dict[str, Any]]:
+    """Return last 100 agent turn events for Stack tab hydration on page load."""
+    import json as _json  # noqa: PLC0415
+
+    redis = request.app.state.redis
+    items: list[str] = await redis.lrange("agent:history", 0, 99)
+    return [_json.loads(item) for item in reversed(items)]
+
+
 @router.post("/run")
 async def run_intent(body: TryBody, request: Request, session: SessionDep) -> dict[str, str]:
     """Queue an intent text for the edge orchestrator via MQTT voice/command."""
