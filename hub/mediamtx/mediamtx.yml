@@ -15,11 +15,11 @@ webrtc: true
 srt: false
 
 # WebRTC WHEP endpoint for browser playback (~200ms latency vs ~5s for HLS).
-# webrtcICEUDPMuxAddress fixes all media on one UDP port so Docker port-mapping works.
-# webrtcAdditionalHosts tells MediaMTX to advertise the RPi's LAN IP in ICE candidates
-# (Docker container IP is unreachable from browser — host IP is needed).
+# webrtcICEUDPMuxAddress (deprecated alias still accepted) pins all UDP media to one port
+# so Docker port-mapping works. webrtcAdditionalHosts advertises the RPi's LAN IP in ICE
+# candidates (Docker container IP is not reachable from the browser).
 webrtcAddress: :8889
-webrtcLocalUDPAddress: :8889
+webrtcICEUDPMuxAddress: :8889
 webrtcAdditionalHosts:
   - ${RPI_IP}
 

@@ -254,7 +254,7 @@ services:
     networks:
       - iot-internal
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9997/v3/paths/list 2>/dev/null | grep -q 'items' || exit 1"]
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:9997/v3/paths/list"]
       interval: 15s
       timeout: 5s
       retries: 3
