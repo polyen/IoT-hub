@@ -219,7 +219,15 @@ class FasterWhisperBackend:
             os.unlink(src)
 
         pcm = np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
-        segments, _ = self._model.transcribe(pcm, language=self._language)
+        segments, _ = self._model.transcribe(
+            pcm,
+            language=self._language,
+            initial_prompt=(
+                "Розумний дім. Увімкни, вимкни, відкрий, закрий, перемкни. "
+                "Встанови таймер. Збільш, зменш гучність. Що сталось. Звіт."
+            ),
+            condition_on_previous_text=False,
+        )
         return " ".join(seg.text.strip() for seg in segments)
 
 
