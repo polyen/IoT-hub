@@ -39,7 +39,23 @@ class BenchConfig:
     n_runs: int = 3
     timeout_s: int = 180
     constrained: bool = True
-    max_tokens: int = 128
+    max_tokens: int = 192
+    no_think: bool = True
+
+
+_SYSTEM_PROMPT_BASE = (
+    "You are a home IoT assistant. "
+    "Always respond with a single JSON object: "
+    '{"tool": "<tool_name>", "args": {...}}'
+)
+# Qwen3 / Qwen3.5 default to thinking mode and emit a long <think>...</think>
+# block before the answer, blowing past max_tokens before any JSON is produced.
+# /no_think is the documented soft-switch to disable that for tool-call use.
+_NO_THINK_DIRECTIVE = " /no_think"
+
+
+def _build_system_prompt(no_think: bool) -> str:
+    return _SYSTEM_PROMPT_BASE + (_NO_THINK_DIRECTIVE if no_think else "")
 
 
 _CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
@@ -68,14 +84,7 @@ class LLMBench:
         payload: dict[str, Any] = {
             "model": self.config.model_name,
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a home IoT assistant. "
-                        "Always respond with a single JSON object: "
-                        '{"tool": "<tool_name>", "args": {...}}'
-                    ),
-                },
+                {"role": "system", "content": _build_system_prompt(self.config.no_think)},
                 {"role": "user", "content": prompt},
             ],
             "max_tokens": self.config.max_tokens,
@@ -391,11 +400,7 @@ class LLMBench:
                         "messages": [
                             {
                                 "role": "system",
-                                "content": (
-                                    "You are a home IoT assistant. "
-                                    "Always respond with JSON: "
-                                    '{"tool": "<name>", "args": {...}}'
-                                ),
+                                "content": _build_system_prompt(self.config.no_think),
                             },
                             {"role": "user", "content": text},
                         ],
@@ -635,8 +640,20 @@ def main() -> None:
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=128,
-        help="max_tokens in the chat completion request. Tool-call JSON fits in <80 tokens; 128 is a safe cap.",
+        default=192,
+        help="max_tokens in the chat completion request. Tool-call JSON ≤ ~110 tokens; 192 leaves headroom.",
+    )
+    parser.add_argument(
+        "--no-think",
+        action="store_true",
+        default=True,
+        help="Append /no_think to system prompt (Qwen3/3.5 soft-switch). Default on.",
+    )
+    parser.add_argument(
+        "--think",
+        dest="no_think",
+        action="store_false",
+        help="Allow the model to emit a <think>...</think> block. Disables the /no_think directive.",
     )
     args = parser.parse_args()
 
@@ -652,6 +669,7 @@ def main() -> None:
         constrained=args.constrained,
         timeout_s=args.timeout_s,
         max_tokens=args.max_tokens,
+        no_think=args.no_think,
     )
     bench = LLMBench(config)
 
