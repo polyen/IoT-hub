@@ -75,6 +75,9 @@ User command: {text}
 
 Respond ONLY with a JSON object like: {{"tool": "<name>", "payload": {{...}}}}
 Pick the most relevant tool. Use summarize_period for summary/report requests, query_events_db for specific event lookups, get_home_state for current state, send_push for alerts, ask_user if unclear.
+<think>
+
+</think>
 JSON:"""
 
 _TOOL_SCHEMA_SUMMARY = "\n".join(
@@ -198,7 +201,7 @@ class AgentOrchestrator:
         try:
             raw = await self._llm.generate(
                 prompt,
-                max_tokens=128,
+                max_tokens=256,
                 temperature=0.1,
                 stop=["User:", "Available tools:"],
             )
