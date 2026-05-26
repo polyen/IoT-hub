@@ -41,6 +41,14 @@ class BenchConfig:
     constrained: bool = True
 
 
+_CYRILLIC_RE = re.compile(r"[Ѐ-ӿ]")
+
+
+def _detect_lang(text: str) -> str:
+    """Heuristic language tag for per-language metrics. Cyrillic → 'ua', else → 'en'."""
+    return "ua" if _CYRILLIC_RE.search(text) else "en"
+
+
 class LLMBench:
     """Benchmarks LLM tool-calling accuracy, latency, and RAM usage."""
 
@@ -220,6 +228,29 @@ class LLMBench:
             data = yaml.safe_load(f)
         return list(data) if isinstance(data, list) else []
 
+    @staticmethod
+    def _summarize_lang_buckets(
+        buckets: dict[str, dict[str, Any]],
+    ) -> dict[str, dict[str, float | int]]:
+        """Reduce per-language raw buckets to summary dict for output JSON."""
+        out: dict[str, dict[str, float | int]] = {}
+        for lang, b in buckets.items():
+            total = int(b.get("total", 0) or 0)
+            if total == 0:
+                continue
+            correct = int(b.get("correct", 0) or 0)
+            valid = int(b.get("valid_json", 0) or 0)
+            lat_list: list[float] = list(b.get("latencies") or [])
+            tok_list: list[float] = list(b.get("tok_s") or [])
+            out[lang] = {
+                "n": total,
+                "accuracy": round(correct / total, 4),
+                "tool_call_validity": round(valid / total, 4),
+                "latency_mean_s": round(statistics.mean(lat_list), 3) if lat_list else 0.0,
+                "tok_s": round(statistics.mean(tok_list), 2) if tok_list else 0.0,
+            }
+        return out
+
     def run_phase_a(self, queries: list[dict[str, Any]]) -> dict[str, Any]:
         """Phase A: accuracy, tool_call_validity, latency_mean, RAM."""
         if not HTTPX_AVAILABLE:
@@ -230,6 +261,7 @@ class LLMBench:
         valid_json = 0
         latencies: list[float] = []
         by_category: dict[str, dict[str, int]] = {}
+        by_language: dict[str, dict[str, Any]] = {}
         errors: list[dict[str, Any]] = []
         ram_samples: list[float] = []
 
@@ -239,13 +271,21 @@ class LLMBench:
                 by_category[cat] = {"correct": 0, "total": 0}
             by_category[cat]["total"] += 1
 
+            text = str(q.get("text", ""))
+            lang = _detect_lang(text)
+            lang_bucket = by_language.setdefault(
+                lang,
+                {"total": 0, "correct": 0, "valid_json": 0, "latencies": [], "tok_s": []},
+            )
+            lang_bucket["total"] += 1
+
             run_latencies: list[float] = []
             last_parsed: dict[str, Any] | None = None
             success = False
 
             for run_idx in range(self.config.n_runs):
                 try:
-                    content, lat = self.query_model(str(q.get("text", "")))
+                    content, lat = self.query_model(text)
                     run_latencies.append(lat)
                     parsed = self.parse_tool_call(content)
                     if parsed is not None:
@@ -258,11 +298,15 @@ class LLMBench:
 
             if last_parsed is not None:
                 valid_json += 1
+                lang_bucket["valid_json"] += 1
             if success:
                 correct += 1
                 by_category[cat]["correct"] += 1
+                lang_bucket["correct"] += 1
             if run_latencies:
-                latencies.append(statistics.mean(run_latencies))
+                mean_lat = statistics.mean(run_latencies)
+                latencies.append(mean_lat)
+                lang_bucket["latencies"].append(mean_lat)
             ram_samples.append(self.measure_ram())
 
         total = len(queries)
@@ -284,6 +328,7 @@ class LLMBench:
             "latency_mean_s": round(lat_mean, 3),
             "ram_gb": round(ram_gb, 2),
             "by_category": cat_accuracy,
+            "by_language": self._summarize_lang_buckets(by_language),
             "n_queries": total,
             "errors": errors,
         }
@@ -315,6 +360,7 @@ class LLMBench:
         latencies: list[float] = []
         tok_s_list: list[float] = []
         by_category: dict[str, dict[str, int]] = {}
+        by_language: dict[str, dict[str, Any]] = {}
         errors: list[dict[str, Any]] = []
         ram_samples: list[float] = []
 
@@ -324,7 +370,16 @@ class LLMBench:
                 by_category[cat] = {"correct": 0, "total": 0}
             by_category[cat]["total"] += 1
 
+            text = str(q.get("text", ""))
+            lang = _detect_lang(text)
+            lang_bucket = by_language.setdefault(
+                lang,
+                {"total": 0, "correct": 0, "valid_json": 0, "latencies": [], "tok_s": []},
+            )
+            lang_bucket["total"] += 1
+
             run_latencies: list[float] = []
+            run_tok_s: list[float] = []
             last_parsed: dict[str, Any] | None = None
             success = False
 
@@ -341,7 +396,7 @@ class LLMBench:
                                     '{"tool": "<name>", "args": {...}}'
                                 ),
                             },
-                            {"role": "user", "content": str(q.get("text", ""))},
+                            {"role": "user", "content": text},
                         ],
                         "max_tokens": 256,
                         "temperature": 0.0,
@@ -362,6 +417,7 @@ class LLMBench:
                     tok_s = self._compute_tok_s(body, lat)
                     if tok_s > 0:
                         tok_s_list.append(tok_s)
+                        run_tok_s.append(tok_s)
                     parsed = self.parse_tool_call(content)
                     if parsed is not None:
                         last_parsed = parsed
@@ -373,11 +429,17 @@ class LLMBench:
 
             if last_parsed is not None:
                 valid_json += 1
+                lang_bucket["valid_json"] += 1
             if success:
                 correct += 1
                 by_category[cat]["correct"] += 1
+                lang_bucket["correct"] += 1
             if run_latencies:
-                latencies.append(statistics.mean(run_latencies))
+                mean_lat = statistics.mean(run_latencies)
+                latencies.append(mean_lat)
+                lang_bucket["latencies"].append(mean_lat)
+            if run_tok_s:
+                lang_bucket["tok_s"].append(statistics.mean(run_tok_s))
             ram_samples.append(self.measure_ram())
 
         total = len(queries)
@@ -408,6 +470,7 @@ class LLMBench:
             "tok_s": round(tok_s_mean, 2),
             "ram_gb": round(ram_gb, 2),
             "by_category": cat_accuracy,
+            "by_language": self._summarize_lang_buckets(by_language),
             "n_queries": total,
             "errors": errors,
         }
@@ -429,19 +492,144 @@ class LLMBench:
         }
 
 
+def _filter_queries_by_lang(queries: list[dict[str, Any]], lang: str) -> list[dict[str, Any]]:
+    if lang == "all":
+        return queries
+    return [q for q in queries if _detect_lang(str(q.get("text", ""))) == lang]
+
+
+def aggregate_results(results_dir: Path, out_md: Path) -> dict[str, Any]:
+    """Scan a directory for llm_bench_*.json files and produce a side-by-side matrix.
+
+    Output:
+      - {out_md}        — Markdown comparison table for the thesis Results chapter.
+      - {out_md}.json   — Same data as machine-readable JSON (sibling file).
+    """
+    files = sorted(results_dir.rglob("llm_bench_*.json"))
+    # Exclude any pre-existing aggregate matrix to avoid recursive inclusion.
+    files = [f for f in files if not f.name.startswith("llm_bench_matrix")]
+
+    rows: list[dict[str, Any]] = []
+    for f in files:
+        try:
+            with open(f) as fh:
+                data = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Skip %s: %s", f, exc)
+            continue
+        if not isinstance(data, dict) or data.get("accuracy") is None:
+            continue
+        by_lang = data.get("by_language", {}) or {}
+        ua = by_lang.get("ua", {})
+        en = by_lang.get("en", {})
+        rows.append(
+            {
+                "model": data.get("model", f.stem.replace("llm_bench_", "")),
+                "phase": data.get("phase", "?"),
+                "cv_active": data.get("cv_active", False),
+                "accuracy": data.get("accuracy"),
+                "tool_call_validity": data.get("tool_call_validity"),
+                "tok_s": data.get("tok_s"),
+                "latency_mean_s": data.get("latency_mean_s"),
+                "latency_p95_s": data.get("latency_p95_s"),
+                "ram_gb": data.get("ram_gb"),
+                "ua_accuracy": ua.get("accuracy"),
+                "ua_tok_s": ua.get("tok_s"),
+                "en_accuracy": en.get("accuracy"),
+                "en_tok_s": en.get("tok_s"),
+                "n_queries": data.get("n_queries"),
+                "source": (
+                    str(f.relative_to(results_dir)) if f.is_relative_to(results_dir) else str(f)
+                ),
+            }
+        )
+
+    rows.sort(key=lambda r: (-(r.get("accuracy") or 0.0), -(r.get("tok_s") or 0.0)))
+
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+
+    def _fmt(v: Any, suffix: str = "") -> str:
+        if v is None:
+            return "—"
+        if isinstance(v, bool):
+            return "✓" if v else "—"
+        return f"{v}{suffix}"
+
+    header = (
+        "| Model | Phase | CV | Acc | Valid | tok/s | lat mean (s) | lat p95 (s) "
+        "| RAM (GB) | UA acc | UA tok/s | EN acc | EN tok/s | n |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n"
+    )
+    body_lines = []
+    for r in rows:
+        body_lines.append(
+            "| {model} | {phase} | {cv} | {acc} | {valid} | {tok} | {lat} | {p95} "
+            "| {ram} | {ua_acc} | {ua_tok} | {en_acc} | {en_tok} | {n} |".format(
+                model=r["model"],
+                phase=r["phase"],
+                cv=_fmt(r["cv_active"]),
+                acc=_fmt(r["accuracy"]),
+                valid=_fmt(r["tool_call_validity"]),
+                tok=_fmt(r["tok_s"]),
+                lat=_fmt(r["latency_mean_s"]),
+                p95=_fmt(r["latency_p95_s"]),
+                ram=_fmt(r["ram_gb"]),
+                ua_acc=_fmt(r["ua_accuracy"]),
+                ua_tok=_fmt(r["ua_tok_s"]),
+                en_acc=_fmt(r["en_accuracy"]),
+                en_tok=_fmt(r["en_tok_s"]),
+                n=_fmt(r["n_queries"]),
+            )
+        )
+
+    out_md.write_text(
+        "# LLM bench matrix\n\n"
+        f"Aggregated from `{results_dir}` ({len(rows)} model runs).\n\n"
+        "Sorted by accuracy desc, then tok/s desc. `—` = not reported (e.g. Phase A skips tok/s).\n\n"
+        + header
+        + "\n".join(body_lines)
+        + "\n"
+    )
+    out_json = out_md.with_suffix(".json")
+    out_json.write_text(json.dumps({"rows": rows}, indent=2))
+    logger.info("Aggregate written to %s (%d rows) + %s", out_md, len(rows), out_json.name)
+    return {"rows": rows, "n_models": len(rows)}
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="LLM tool accuracy benchmark")
+    parser.add_argument(
+        "--mode",
+        default="bench",
+        choices=["bench", "aggregate"],
+        help="bench: run a single-model benchmark (default). aggregate: scan llm_bench_*.json files and emit a comparison matrix.",
+    )
     parser.add_argument("--llm-url", default="http://localhost:8001")
     parser.add_argument("--model-name", default="qwen3.5-4b-q4")
     parser.add_argument("--phase", default="A", choices=["A", "B"])
     parser.add_argument("--queries", default="training/llm_eval/queries.yaml")
+    parser.add_argument(
+        "--lang",
+        default="all",
+        choices=["all", "ua", "en"],
+        help="Filter queries to a single language before benchmarking (heuristic on Cyrillic).",
+    )
     parser.add_argument("--cv-active", action="store_true", help="Phase B: CV pipeline active")
     parser.add_argument("--output", default="materials/evaluation_results")
+    parser.add_argument(
+        "--matrix-out",
+        default="materials/evaluation_results/llm_bench_matrix.md",
+        help="aggregate mode: path for the comparison Markdown table.",
+    )
     parser.add_argument("--constrained", action="store_true", default=True)
     parser.add_argument("--no-constrained", dest="constrained", action="store_false")
     parser.add_argument("--n-runs", type=int, default=3)
     args = parser.parse_args()
+
+    if args.mode == "aggregate":
+        aggregate_results(Path(args.output), Path(args.matrix_out))
+        return
 
     config = BenchConfig(
         llm_url=args.llm_url,
@@ -460,15 +648,22 @@ def main() -> None:
     with open(queries_path) as f:
         queries: list[dict[str, Any]] = yaml.safe_load(f)
 
+    queries = _filter_queries_by_lang(queries, args.lang)
+    if args.lang != "all":
+        logger.info("Filtered to lang=%s: %d queries", args.lang, len(queries))
+
     if args.phase == "A":
         result = bench.run_phase_a(queries)
     else:
         result = bench.run_phase_b(queries, cv_active=args.cv_active)
 
+    result["lang_filter"] = args.lang
+
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r"[^\w.-]", "_", args.model_name)
-    out_file = out_dir / f"llm_bench_{safe_name}.json"
+    lang_suffix = "" if args.lang == "all" else f"_{args.lang}"
+    out_file = out_dir / f"llm_bench_{safe_name}{lang_suffix}.json"
     with open(out_file, "w") as f:
         json.dump(result, f, indent=2)
 
