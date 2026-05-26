@@ -170,6 +170,9 @@ async def run_tts_responder(
                 data = json.loads(msg["data"])
             except Exception:
                 continue
+            # Skip DENY/ERROR results — these contain internal policy names, not user text
+            if data.get("action_class") in ("DENY", "ERROR"):
+                continue
             text: str = data.get("text", "").strip()
             if not text:
                 continue
@@ -190,8 +193,11 @@ async def run_tts_responder(
                     except ValueError:
                         pass
                 await local_speaker_play(pcm, spk_idx)
-            except Exception:
-                logger.exception("TTS playback failed for: %r", text)
+            except Exception as exc:
+                if "querying device" in str(exc).lower() or "portaudio" in str(exc).lower():
+                    logger.debug("TTS skipped — no audio output device")
+                else:
+                    logger.exception("TTS playback failed for: %r", text)
     finally:
         await pubsub.aclose()
         await redis_client.aclose()
