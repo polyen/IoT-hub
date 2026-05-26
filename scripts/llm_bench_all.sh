@@ -35,6 +35,7 @@ set -euo pipefail
 _find_uv() {
   if command -v uv &>/dev/null; then command -v uv; return; fi
   for candidate in \
+      "/home/vlad/.local/bin/uv" \
       "${HOME}/.local/bin/uv" \
       "/usr/local/bin/uv" \
       "/usr/bin/uv"; do
