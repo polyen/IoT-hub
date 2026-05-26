@@ -104,6 +104,21 @@ async def run_ptt_consumer(
     except Exception:
         pass
 
+    # Reclaim messages stuck in PEL from a previous run that was interrupted
+    # (e.g. task cancellation prevented xack from completing).
+    try:
+        await redis_client.xautoclaim(
+            stream_key,
+            consumer_group,
+            consumer_name,
+            min_idle_time=30_000,
+            start_id="0-0",
+            count=100,
+        )
+        logger.info("PTT xautoclaim: reclaimed stale PEL entries")
+    except Exception:
+        pass  # Redis < 6.2 or empty stream — not fatal
+
     logger.info("PTT consumer started — polling %s", stream_key)
     try:
         while True:
@@ -133,18 +148,27 @@ async def run_ptt_consumer(
                         audio_bytes: bytes | None = await redis_client.get(blob_key)
                         if not audio_bytes:
                             logger.warning("PTT blob expired or missing: %s", blob_key)
-                            continue
-                        async with scheduler.whisper_inference():
-                            text = await stt.transcribe(audio_bytes)
-                        logger.info("PTT transcribed: %s", text)
-                        payload = {"text": text, "tier": 1, "source": "ptt"}
-                        await mqtt.publish(MQTT_TOPIC, json.dumps(payload))
+                            # blob gone — still ack so it doesn't stay in PEL
+                        else:
+                            async with scheduler.whisper_inference():
+                                text = await stt.transcribe(audio_bytes)
+                            logger.info("PTT transcribed: %s", text)
+                            payload = {"text": text, "tier": 1, "source": "ptt"}
+                            await mqtt.publish(MQTT_TOPIC, json.dumps(payload))
                     except Exception:
                         logger.exception("PTT transcription failed for %s", blob_key)
                     finally:
-                        await redis_client.xack(stream_key, consumer_group, msg_id)
+                        try:
+                            await asyncio.shield(
+                                redis_client.xack(stream_key, consumer_group, msg_id)
+                            )
+                        except Exception:
+                            pass
                         if blob_key:
-                            await redis_client.delete(blob_key)
+                            try:
+                                await asyncio.shield(redis_client.delete(blob_key))
+                            except Exception:
+                                pass
     finally:
         await redis_client.aclose()
 
