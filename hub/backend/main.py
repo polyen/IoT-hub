@@ -119,6 +119,7 @@ async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
             from hub.edge.agent.router import IntentRouter
 
             policy = PolicyEngine()
+            policy.load()
             router = IntentRouter()
             router.load()
             llm = LocalLLMClient(base_url=settings.llm_url)

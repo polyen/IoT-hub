@@ -20,7 +20,7 @@ DEFAULT_TEMPERATURE = 0.0  # deterministic for tool calls
 
 
 class LocalLLMClient:
-    def __init__(self, base_url: str = DEFAULT_LLM_URL, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str = DEFAULT_LLM_URL, timeout: float = 90.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
 

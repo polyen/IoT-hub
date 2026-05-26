@@ -200,7 +200,7 @@ class AgentOrchestrator:
                 prompt,
                 max_tokens=128,
                 temperature=0.1,
-                stop=["\n\n", "User:", "Available"],
+                stop=["User:", "Available tools:"],
             )
             # Try direct parse first; fall back to extracting the outermost {...}
             stripped = raw.strip()
