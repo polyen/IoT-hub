@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -188,15 +189,29 @@ class AgentOrchestrator:
         await self._execute_decision(decision, tool_call, text, identity)
 
     async def _handle_creative(self, text: str, identity: str) -> None:
-        """Use grammar-constrained LLM to select and parameterize a tool."""
+        """Use LLM chat to select and parameterize a tool."""
         system = _CREATIVE_SYSTEM.format(tool_schemas=_TOOL_SCHEMA_SUMMARY)
-        prompt = f"{system}\n\nUser request: {text}\nJSON:"
-        grammar = load_grammar("creative")
+        raw = ""
         parsed: dict[str, Any] = {}
         try:
-            parsed = await self._llm.generate_constrained(prompt, grammar, max_tokens=96)
+            raw = await self._llm.generate_chat(
+                system=system,
+                user=text,
+                max_tokens=64,
+                temperature=0.1,
+            )
+            stripped = raw.strip()
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                match = re.search(r"\{.*\}", stripped, re.DOTALL)
+                if not match:
+                    raise ValueError(f"No JSON in LLM output: {raw!r}") from None
+                parsed = json.loads(match.group())
         except Exception as e:
-            logger.warning("CREATIVE LLM failed (%s) — defaulting to summarize_period", e)
+            logger.warning(
+                "CREATIVE LLM parse failed (%s): %r — defaulting to summarize_period", e, raw
+            )
             parsed = {"tool": "summarize_period", "payload": {"period": "today"}}
 
         tool_name = str(parsed.get("tool", "summarize_period"))
