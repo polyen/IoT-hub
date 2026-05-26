@@ -53,6 +53,7 @@ authInternalUsers:
         path: ""
       - action: playback
         path: ""
+      - action: api
 
 paths:
   camera:
