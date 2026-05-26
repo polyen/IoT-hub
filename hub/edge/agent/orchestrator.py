@@ -71,14 +71,8 @@ _CREATIVE_SYSTEM = """You are a smart home assistant. Choose ONE tool and respon
 Available tools:
 {tool_schemas}
 
-User command: {text}
-
 Respond ONLY with a JSON object like: {{"tool": "<name>", "payload": {{...}}}}
-Pick the most relevant tool. Use summarize_period for summary/report requests, query_events_db for specific event lookups, get_home_state for current state, send_push for alerts, ask_user if unclear.
-<think>
-
-</think>
-JSON:"""
+Pick the most relevant tool. Use summarize_period for summary/report requests, query_events_db for specific event lookups, get_home_state for current state, send_push for alerts, ask_user if unclear."""
 
 _TOOL_SCHEMA_SUMMARY = "\n".join(
     f"- {name}: {list(schema.get('properties', {}).keys())}"
@@ -196,14 +190,14 @@ class AgentOrchestrator:
 
     async def _handle_creative(self, text: str, identity: str) -> None:
         """Use unconstrained LLM to select and parameterize a tool."""
-        prompt = _CREATIVE_SYSTEM.format(tool_schemas=_TOOL_SCHEMA_SUMMARY, text=text)
+        system = _CREATIVE_SYSTEM.format(tool_schemas=_TOOL_SCHEMA_SUMMARY)
         raw = ""
         try:
-            raw = await self._llm.generate(
-                prompt,
+            raw = await self._llm.generate_chat(
+                system=system,
+                user=text,
                 max_tokens=256,
                 temperature=0.1,
-                stop=["User:", "Available tools:"],
             )
             # Try direct parse first; fall back to extracting the outermost {...}
             stripped = raw.strip()

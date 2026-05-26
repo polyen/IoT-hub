@@ -74,6 +74,37 @@ class LocalLLMClient:
             )
             return dict(json.loads(content))
 
+    async def generate_chat(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = DEFAULT_TEMPERATURE,
+    ) -> str:
+        """Generate via chat/completions API with proper instruct template.
+
+        Prefixes system prompt with /no_think to disable Qwen3 chain-of-thought,
+        preventing the model from spending all token budget on reasoning.
+        """
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            payload: dict[str, Any] = {
+                "messages": [
+                    {"role": "system", "content": "/no_think\n" + system},
+                    {"role": "user", "content": user},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "stream": False,
+            }
+            resp = await client.post(f"{self._base_url}/v1/chat/completions", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("choices", [])
+            if choices:
+                msg = choices[0].get("message", {})
+                return str(msg.get("content", ""))
+            return ""
+
     async def health(self) -> bool:
         """Return True if LLM server is reachable."""
         try:
