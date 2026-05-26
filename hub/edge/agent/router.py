@@ -105,18 +105,23 @@ class IntentRouter:
     def _keyword_fallback(self, text: str) -> Intent:
         lower = text.lower()
 
+        # Use word stems to match all Ukrainian verb forms
+        # e.g. "увімкн" matches увімкни/увімкне/увімкнути/увімкнеш
         deterministic_kw = [
-            "увімкни",
-            "вимкни",
+            "увімкн",  # увімкни / увімкне / увімкнути
+            "вимкн",  # вимкни / вимкне / вимкнути
             "відкрий",
+            "відкр",
             "закрий",
-            "перемкни",
+            "закр",
+            "перемкн",  # перемкни / перемкне
             "turn on",
             "turn off",
             "open",
             "close",
             "toggle",
             "switch",
+            "світло",  # "світло" alone → likely light command
         ]
         timer_kw = ["таймер", "нагадай", "timer", "remind", "reminder"]
         creative_kw = [
