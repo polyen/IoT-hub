@@ -240,9 +240,9 @@ services:
     container_name: mediamtx
     restart: unless-stopped
     environment:
-      # MTX_ prefix overrides config keys: MTX_PATHS_CAMERA_SOURCE sets paths.camera.source.
-      # This avoids YAML variable substitution issues with ${VAR} in mediamtx.yml.
-      MTX_PATHS_CAMERA_SOURCE: ${CAMERA_RTSP_URL:-}
+      # Camera stream sources are NOT configured here — they live in DevicePlacement.config
+      # (set via the floor-plan editor) and are pushed to mediamtx by the backend on
+      # startup and on every floor-plan save. No CAMERA_RTSP_URL env var needed.
       # RPI_IP is injected into mediamtx.yml for webrtcAdditionalHosts so the browser
       # can reach the container over WebRTC (Docker internal IP is not reachable).
       RPI_IP: ${RPI_IP:?RPI_IP must be set in .env (e.g. RPI_IP=192.168.1.100)}

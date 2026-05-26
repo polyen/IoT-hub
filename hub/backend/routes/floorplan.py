@@ -5,13 +5,15 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hub.backend.db import get_session
 from hub.backend.models import DevicePlacement, FloorPlan, Room
+from hub.backend.routes.cv import sync_camera_paths_to_mediamtx
 from hub.backend.schemas.floorplan import (
+    DevicePlacementIn,
     DevicePlacementOut,
     DiscoveredDevice,
     FloorPlanDataOut,
@@ -92,8 +94,16 @@ async def get_floorplan(session: SessionDep) -> FloorPlanDataOut:
     )
 
 
+async def _sync_cameras_bg(placements: list[DevicePlacementIn]) -> None:
+    cameras = [(pi.device_id, pi.config or {}) for pi in placements if pi.kind == "camera"]
+    if cameras:
+        await sync_camera_paths_to_mediamtx(cameras)
+
+
 @router.put("", response_model=FloorPlanDataOut)
-async def put_floorplan(body: FloorPlanIn, session: SessionDep) -> FloorPlanDataOut:
+async def put_floorplan(
+    body: FloorPlanIn, session: SessionDep, bg: BackgroundTasks
+) -> FloorPlanDataOut:
     """Atomic replace: delete old plan + rooms + placements, insert new."""
     existing = (await session.execute(select(FloorPlan).limit(1))).scalar_one_or_none()
     if existing:
@@ -145,6 +155,7 @@ async def put_floorplan(body: FloorPlanIn, session: SessionDep) -> FloorPlanData
         )
 
     await session.commit()
+    bg.add_task(_sync_cameras_bg, body.placements)
     return await get_floorplan(session)
 
 

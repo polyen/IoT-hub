@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -17,6 +18,7 @@ from hub.backend.db import AsyncSessionLocal, get_session
 from hub.backend.models import DevicePlacement, Event
 from hub.backend.schemas.cv import CameraOut
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["cv"])
 
 
@@ -29,6 +31,44 @@ async def _mediamtx_path_ready(path_name: str) -> bool:
             return bool(r.status_code == 200 and r.json().get("ready", False))
     except Exception:
         return False
+
+
+async def _patch_mediamtx_path(client: httpx.AsyncClient, path: str, source: str) -> None:
+    try:
+        r = await client.patch(
+            f"{settings.mediamtx_api}/v3/config/paths/patch/{path}",
+            json={"source": source},
+        )
+        if r.is_success:
+            logger.info("mediamtx: path %r → %r", path, source)
+        else:
+            logger.warning("mediamtx: PATCH %r returned %d", path, r.status_code)
+    except Exception as exc:
+        logger.warning("mediamtx: sync failed for path %r: %s", path, exc)
+
+
+async def sync_camera_paths_to_mediamtx(cameras: list[tuple[str, dict[str, Any]]]) -> None:
+    """Push camera stream URLs to mediamtx via its config API.
+
+    Configures both the low-res sub-stream path (used by CV pipeline) and the
+    optional HD path (used by frontend HLS/WebRTC player). Called on backend
+    startup and after floor-plan saves — camera URLs are stored in
+    DevicePlacement.config, not in env vars.
+
+    cameras: list of (device_id, config_dict) from DevicePlacement rows.
+    """
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        for device_id, cfg in cameras:
+            mediamtx_path = str(cfg.get("mediamtx_path") or device_id)
+
+            rtsp_url = str(cfg.get("rtsp_url", "")).strip()
+            if rtsp_url:
+                await _patch_mediamtx_path(client, mediamtx_path, rtsp_url)
+
+            rtsp_hd_url = str(cfg.get("rtsp_hd_url", "")).strip()
+            if rtsp_hd_url:
+                hd_path = str(cfg.get("mediamtx_hd_path") or f"{mediamtx_path}_hd")
+                await _patch_mediamtx_path(client, hd_path, rtsp_hd_url)
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -45,7 +85,13 @@ async def list_cameras(session: SessionDep) -> list[CameraOut]:
     async def _camera_out(p: DevicePlacement) -> CameraOut:
         cfg: dict[str, Any] = p.config or {}
         mediamtx_path = cfg.get("mediamtx_path") or p.device_id
-        stream_hls = cfg.get("stream_hls") or f"/hls/{mediamtx_path}/index.m3u8"
+        # If rtsp_hd_url or an explicit mediamtx_hd_path is set, route the frontend
+        # HLS/WebRTC player to the high-res path while CV keeps the low-res one.
+        if cfg.get("rtsp_hd_url") or cfg.get("mediamtx_hd_path"):
+            hd_path = cfg.get("mediamtx_hd_path") or f"{mediamtx_path}_hd"
+            stream_hls = cfg.get("stream_hls") or f"/hls/{hd_path}/index.m3u8"
+        else:
+            stream_hls = cfg.get("stream_hls") or f"/hls/{mediamtx_path}/index.m3u8"
         online = await _mediamtx_path_ready(mediamtx_path)
         return CameraOut(
             id=str(p.id),

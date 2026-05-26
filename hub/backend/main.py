@@ -139,9 +139,37 @@ async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
             await asyncio.sleep(5)
 
 
+async def _init_mediamtx_from_db() -> None:
+    """Configure mediamtx camera paths from DevicePlacement.config on startup.
+
+    Camera stream URLs live in the DB (set via floor-plan editor), not in env vars.
+    This runs once at startup so mediamtx is always in sync with the DB after a
+    container restart — no CAMERA_RTSP_URL / CAMERA_RTSP_HD_URL env vars needed.
+    """
+    from sqlalchemy import select  # noqa: PLC0415
+
+    from hub.backend.db import AsyncSessionLocal  # noqa: PLC0415
+    from hub.backend.models import DevicePlacement  # noqa: PLC0415
+    from hub.backend.routes.cv import sync_camera_paths_to_mediamtx  # noqa: PLC0415
+
+    try:
+        async with AsyncSessionLocal() as session:
+            res = await session.execute(
+                select(DevicePlacement).where(DevicePlacement.kind == "camera")
+            )
+            cameras = [(p.device_id, p.config or {}) for p in res.scalars()]
+        if cameras:
+            await sync_camera_paths_to_mediamtx(cameras)
+            logger.info("mediamtx: initialized %d camera path(s) from DB", len(cameras))
+    except Exception as exc:
+        logger.warning("mediamtx: startup sync skipped (%s)", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.redis = aioredis.from_url(settings.redis_url, decode_responses=True)
+
+    await _init_mediamtx_from_db()
 
     tasks: list[asyncio.Task[None]] = [
         asyncio.create_task(mqtt_subscriber.run(app.state.redis), name="mqtt-subscriber"),

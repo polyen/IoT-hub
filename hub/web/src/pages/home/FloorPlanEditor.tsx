@@ -155,7 +155,7 @@ export function FloorPlanEditor() {
   const [pending, setPending] = useState<PendingPoly | null>(null);
   const [newRoomState, setNewRoomState] = useState<{ polygon: [number, number][]; name: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editPlacement, setEditPlacement] = useState<{ id: string; label: string; device_id: string } | null>(null);
+  const [editPlacement, setEditPlacement] = useState<{ id: string; label: string; device_id: string; rtsp_url: string; rtsp_hd_url: string } | null>(null);
 
   const toNorm = useCallback(
     (kx: number, ky: number): [number, number] => [
@@ -230,11 +230,19 @@ export function FloorPlanEditor() {
   function saveEditPlacement() {
     if (!editPlacement || !draft) return;
     updatePlacements(
-      draft.placements.map((p) =>
-        p.id === editPlacement.id
-          ? { ...p, label: editPlacement.label || null, device_id: editPlacement.device_id.trim() }
-          : p,
-      ),
+      draft.placements.map((p) => {
+        if (p.id !== editPlacement.id) return p;
+        const config = { ...p.config };
+        if (p.kind === "camera") {
+          const url = editPlacement.rtsp_url.trim();
+          if (url) config.rtsp_url = url;
+          else delete config.rtsp_url;
+          const hdUrl = editPlacement.rtsp_hd_url.trim();
+          if (hdUrl) config.rtsp_hd_url = hdUrl;
+          else delete config.rtsp_hd_url;
+        }
+        return { ...p, label: editPlacement.label || null, device_id: editPlacement.device_id.trim(), config };
+      }),
     );
     setEditPlacement(null);
   }
@@ -398,7 +406,7 @@ export function FloorPlanEditor() {
           <button
             onClick={() => {
               const p = draft!.placements.find((pl) => pl.id === selectedId)!;
-              setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id });
+              setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id, rtsp_url: (p.config?.rtsp_url as string) ?? "", rtsp_hd_url: (p.config?.rtsp_hd_url as string) ?? "" });
             }}
             className="rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
             style={{ background: "var(--primary-dim)", color: "var(--primary)", border: "1px solid rgba(201,168,76,0.2)" }}
@@ -643,7 +651,7 @@ export function FloorPlanEditor() {
                   }}
                   onDblClick={(e) => {
                     e.cancelBubble = true;
-                    setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id });
+                    setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id, rtsp_url: (p.config?.rtsp_url as string) ?? "", rtsp_hd_url: (p.config?.rtsp_hd_url as string) ?? "" });
                   }}
                   onDragStart={() => pushHistory()}
                   onDragEnd={(e) => {
@@ -849,6 +857,52 @@ export function FloorPlanEditor() {
                     Має збігатися з MQTT-топіком · <code>mosquitto_sub -t 'home/#' -v</code>
                   </p>
                 </label>
+
+                {p?.kind === "camera" && (
+                  <>
+                    <label className="block space-y-1.5">
+                      <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                        RTSP URL (субпотік — CV + мікрофон)
+                      </span>
+                      <input
+                        className="w-full rounded-xl px-3 py-2 font-mono text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        style={{
+                          background: "var(--raised)",
+                          border: "1px solid var(--border)",
+                          color: "var(--text)",
+                        }}
+                        placeholder="rtsp://admin:pass@192.168.1.x/h264Preview_01_sub"
+                        value={editPlacement.rtsp_url}
+                        onChange={(e) => setEditPlacement({ ...editPlacement, rtsp_url: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
+                      />
+                      <p className="text-[10px] font-mono text-[color:var(--text-faint)]">
+                        Низька роздільна здатність · CV обробка + мікрофон
+                      </p>
+                    </label>
+
+                    <label className="block space-y-1.5">
+                      <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                        RTSP HD URL (основний потік — перегляд)
+                      </span>
+                      <input
+                        className="w-full rounded-xl px-3 py-2 font-mono text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        style={{
+                          background: "var(--raised)",
+                          border: "1px solid var(--border)",
+                          color: "var(--text)",
+                        }}
+                        placeholder="rtsp://admin:pass@192.168.1.x/h264Preview_01_main"
+                        value={editPlacement.rtsp_hd_url}
+                        onChange={(e) => setEditPlacement({ ...editPlacement, rtsp_hd_url: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
+                      />
+                      <p className="text-[10px] font-mono text-[color:var(--text-faint)]">
+                        Висока роздільна здатність · HLS/WebRTC для перегляду у браузері
+                      </p>
+                    </label>
+                  </>
+                )}
               </div>
 
               <div className="flex items-center gap-2 pt-1">

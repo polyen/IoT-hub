@@ -64,3 +64,11 @@ paths:
     # falls back to TCP. Pure TCP causes spurious timeouts on home WiFi cameras.
     sourceProtocol: automatic
     sourceOnDemand: false
+
+  camera_hd:
+    # High-resolution stream for frontend HLS/WebRTC viewing.
+    # Source is configured via MTX_PATHS_CAMERA_HD_SOURCE (CAMERA_RTSP_HD_URL in .env)
+    # or updated live by the backend via the mediamtx REST API when floor-plan config changes.
+    # sourceOnDemand: only pulls from the camera when a viewer is connected — saves bandwidth.
+    sourceProtocol: automatic
+    sourceOnDemand: true
