@@ -55,4 +55,4 @@ exec python -m llama_cpp.server \
     --port "${PORT}" \
     --n_ctx "${N_CTX}" \
     --n_threads "${N_THREADS}" \
-    --chat_format chatml
+    --chat_format jinja

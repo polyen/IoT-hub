@@ -695,8 +695,8 @@ def main() -> None:
     parser.add_argument(
         "--timeout-s",
         type=int,
-        default=180,
-        help="Per-request HTTP timeout in seconds. RPi5 4B Q4 ≈ 3 tok/s decode → 128 tokens ≈ 45 s; set ≥120 s.",
+        default=300,
+        help="Per-request HTTP timeout in seconds. RPi5 4B Q4 ≈ 3 tok/s; under CV load drops to ~1 tok/s → 192 tokens ≈ 192 s. Default 300 s.",
     )
     parser.add_argument(
         "--max-tokens",
