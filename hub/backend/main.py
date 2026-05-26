@@ -103,16 +103,16 @@ async def _t0_cleanup_loop(interval_s: int = 86_400) -> None:
 
 async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
     """Run agent orchestrator — subscribes to voice/command MQTT and processes intents."""
-    import aiomqtt
-
-    from hub.backend.db import AsyncSessionLocal
-    from hub.edge.agent.llm_local import LocalLLMClient
-    from hub.edge.agent.orchestrator import AgentOrchestrator
-    from hub.edge.agent.policy import PolicyEngine
-    from hub.edge.agent.router import IntentRouter
-
     while True:
         try:
+            import aiomqtt
+
+            from hub.backend.db import AsyncSessionLocal
+            from hub.edge.agent.llm_local import LocalLLMClient
+            from hub.edge.agent.orchestrator import AgentOrchestrator
+            from hub.edge.agent.policy import PolicyEngine
+            from hub.edge.agent.router import IntentRouter
+
             policy = PolicyEngine()
             router = IntentRouter()
             router.load()
@@ -126,6 +126,7 @@ async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
                 mqtt_client=mqtt_client,
                 session_factory=AsyncSessionLocal,
             )
+            logger.info("Orchestrator starting")
             await orchestrator.run()
         except Exception as exc:
             logger.error("Orchestrator crashed: %s — restarting in 5s", exc, exc_info=True)
