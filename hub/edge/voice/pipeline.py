@@ -113,7 +113,7 @@ async def run_ptt_consumer(
                     consumer_name,
                     {stream_key: ">"},
                     count=1,
-                    block=5000,
+                    block=500,
                 )
             except Exception:
                 logger.exception("PTT stream read error — retrying")

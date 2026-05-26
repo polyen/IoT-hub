@@ -83,13 +83,13 @@ class LocalLLMClient:
     ) -> str:
         """Generate via chat/completions API with proper instruct template.
 
-        Prefixes system prompt with /no_think to disable Qwen3 chain-of-thought,
-        preventing the model from spending all token budget on reasoning.
+        Strips <think>...</think> blocks from Qwen3 output so callers always
+        receive only the final answer, regardless of chain-of-thought length.
         """
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             payload: dict[str, Any] = {
                 "messages": [
-                    {"role": "system", "content": "/no_think\n" + system},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
                 "max_tokens": max_tokens,
@@ -100,10 +100,13 @@ class LocalLLMClient:
             resp.raise_for_status()
             data = resp.json()
             choices = data.get("choices", [])
-            if choices:
-                msg = choices[0].get("message", {})
-                return str(msg.get("content", ""))
-            return ""
+            if not choices:
+                return ""
+            content = str(choices[0].get("message", {}).get("content", ""))
+            # Qwen3 thinking mode: strip <think>...</think> block if present
+            if "</think>" in content:
+                content = content.split("</think>", 1)[-1].strip()
+            return content
 
     async def health(self) -> bool:
         """Return True if LLM server is reachable."""
