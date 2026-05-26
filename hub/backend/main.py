@@ -33,6 +33,11 @@ from hub.backend.routes.system import router as system_router
 from hub.edge.mlops.deploy import ModelStore, monitor_loop
 from hub.edge.storage.t0 import cleanup_old_frames
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
