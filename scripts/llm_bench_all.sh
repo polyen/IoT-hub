@@ -28,6 +28,25 @@
 
 set -euo pipefail
 
+# ─── Locate uv ────────────────────────────────────────────────────────────────
+# uv is installed to ~/.local/bin by the official installer but that directory
+# is often absent from PATH in non-interactive shells (SSH, cron, sudo -u).
+# Check the standard locations before giving up.
+_find_uv() {
+  if command -v uv &>/dev/null; then command -v uv; return; fi
+  for candidate in \
+      "${HOME}/.local/bin/uv" \
+      "/usr/local/bin/uv" \
+      "/usr/bin/uv"; do
+    [[ -x "${candidate}" ]] && { echo "${candidate}"; return; }
+  done
+  return 1
+}
+UV="$(_find_uv)" || {
+  echo "[ERR] uv not found. Install: curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+  exit 1
+}
+
 # ─── Model registry ───────────────────────────────────────────────────────────
 # Each row: "name | gguf_filename | download_url | n_ctx | n_threads | mem_limit"
 #
@@ -195,7 +214,7 @@ for entry in "${MODELS[@]}"; do
   mkdir -p "${result_dir}"
 
   info "Running Phase B  (n_runs=${N_RUNS}, timeout=${TIMEOUT_S} s, max_tokens=${MAX_TOKENS}) …"
-  uv run python -m training.llm_eval.tool_accuracy_bench \
+  "${UV}" run python -m training.llm_eval.tool_accuracy_bench \
     --phase      B \
     "${cv_flag[@]}" \
     --model-name "${m_name}" \
@@ -224,7 +243,7 @@ printf "\n${BOLD}${GRN}━━━━━━━━━━━━━━━━━━━
 printf "${BOLD}  LLM Benchmark Results${RST}\n"
 printf "${BOLD}${GRN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RST}\n\n"
 
-uv run python3 - "${MATRIX_JSON}" <<'PYEOF'
+"${UV}" run python3 - "${MATRIX_JSON}" <<'PYEOF'
 import json, sys, os
 
 path = sys.argv[1]
