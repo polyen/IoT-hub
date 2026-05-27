@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import aiomqtt
+
+logger = logging.getLogger(__name__)
 
 FUSION_WEIGHTS: dict[str, dict[str, float]] = {
     "fire": {"camera": 0.7, "smoke_sensor": 0.6, "combined_bonus": 0.2},
@@ -196,26 +199,44 @@ class FusionEngine:
         }
 
     async def run(self, mqtt_host: str, mqtt_port: int) -> None:
-        async with aiomqtt.Client(mqtt_host, mqtt_port) as client:
-            await client.subscribe("home/+/camera/event")
-            await client.subscribe("home/+/sensors")
-            async for message in client.messages:
-                topic_str = str(message.topic)
-                parts = topic_str.split("/")
-                if len(parts) < 3:
-                    continue
-                room = parts[1]
-                try:
-                    payload: dict[str, Any] = json.loads(message.payload)
-                except Exception:
-                    continue
-                if topic_str.endswith("/camera/event"):
-                    for fused in self.ingest_detection_frame(room, payload):
-                        await client.publish(f"home/{room}/event/fused", json.dumps(fused))
-                elif topic_str.endswith("/sensors"):
-                    fused = self.ingest_sensor(room, payload)
-                    if fused is not None:
-                        await client.publish(f"home/{room}/event/fused", json.dumps(fused))
+        """Run the fusion engine, retrying MQTT indefinitely on disconnect.
+
+        Never raises MqttError — mirrors the retry pattern in CVPipeline.run()
+        so that asyncio.gather() never cancels the pipeline task due to a
+        transient MQTT blip.
+        """
+        import asyncio  # noqa: PLC0415
+
+        _retry_delay = 5
+        while True:
+            try:
+                async with aiomqtt.Client(mqtt_host, mqtt_port) as client:
+                    await client.subscribe("home/+/camera/event")
+                    await client.subscribe("home/+/sensors")
+                    _retry_delay = 5  # reset on successful connect
+                    async for message in client.messages:
+                        topic_str = str(message.topic)
+                        parts = topic_str.split("/")
+                        if len(parts) < 3:
+                            continue
+                        room = parts[1]
+                        try:
+                            payload: dict[str, Any] = json.loads(message.payload)
+                        except Exception:
+                            continue
+                        if topic_str.endswith("/camera/event"):
+                            for fused in self.ingest_detection_frame(room, payload):
+                                await client.publish(f"home/{room}/event/fused", json.dumps(fused))
+                        elif topic_str.endswith("/sensors"):
+                            fused_sensor = self.ingest_sensor(room, payload)
+                            if fused_sensor is not None:
+                                await client.publish(
+                                    f"home/{room}/event/fused", json.dumps(fused_sensor)
+                                )
+            except aiomqtt.MqttError as exc:
+                logger.warning("Fusion MQTT error (%s) — retrying in %ds", exc, _retry_delay)
+                await asyncio.sleep(_retry_delay)
+                _retry_delay = min(_retry_delay * 2, 60)
 
 
 def _sensor_key_for(event_type: str) -> str | None:
