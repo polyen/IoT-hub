@@ -154,6 +154,29 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (na * nb + 1e-8) if na > 0 and nb > 0 else 0.0
 
 
+def _coerce_to_templates(raw: Any) -> dict[str, list[list[float]]]:
+    """Normalize embeddings.pkl payload to ``{name: list[list[float]]}``.
+
+    Legacy enrollments stored a single mean vector per identity
+    (``{name: list[float]}``). New enrollments store K diverse templates
+    (``{name: list[list[float]]}``). This shim keeps the recognizer agnostic
+    to which writer last touched the file, so an upgrade can happen on the
+    next enroll without a migration step.
+    """
+    out: dict[str, list[list[float]]] = {}
+    if not isinstance(raw, dict):
+        logger.warning("embeddings.pkl has non-dict root (%s) — ignoring", type(raw))
+        return out
+    for name, val in raw.items():
+        if not isinstance(val, list) or not val:
+            continue
+        if isinstance(val[0], int | float):
+            out[name] = [list(val)]
+        else:
+            out[name] = [list(t) for t in val]
+    return out
+
+
 class FaceRecognizer:
     """ArcFace HEF runner with cosine-sim matching against enrolled embeddings.
 
@@ -170,7 +193,12 @@ class FaceRecognizer:
     ) -> None:
         self._hef_path = hef_path
         self._embeddings_path = embeddings_path
-        self._enrolled: dict[str, list[float]] = {}
+        # Each entry holds up to K diverse templates (see
+        # backend/routes/enroll.py:select_diverse_templates). The recognizer
+        # takes the max cosine similarity across an identity's templates,
+        # which handles pose/lighting variation better than matching against
+        # a single mean. Legacy single-vector entries are upgraded on load.
+        self._enrolled: dict[str, list[list[float]]] = {}
         self._last_inference: dict[int, float] = {}
 
         self._device: Any = None
@@ -201,10 +229,13 @@ class FaceRecognizer:
         if self._embeddings_path.exists():
             try:
                 with open(self._embeddings_path, "rb") as f:
-                    self._enrolled = pickle.load(f)  # noqa: S301 — local T0 file
+                    raw = pickle.load(f)  # noqa: S301 — local T0 file
+                self._enrolled = _coerce_to_templates(raw)
+                total_templates = sum(len(v) for v in self._enrolled.values())
                 logger.info(
-                    "Loaded %d enrolled embeddings from %s",
+                    "Loaded %d identities (%d templates total) from %s",
                     len(self._enrolled),
+                    total_templates,
                     self._embeddings_path,
                 )
             except (EOFError, pickle.UnpicklingError):
@@ -267,14 +298,21 @@ class FaceRecognizer:
         return emb.tolist()
 
     def _match(self, embedding: list[float]) -> tuple[str, float]:
-        """Return (identity, similarity). 'unknown' if best sim < threshold."""
+        """Return (identity, similarity). 'unknown' if best sim < threshold.
+
+        Score for each identity is the MAX cosine sim across its templates —
+        not the mean. With K templates spanning pose/lighting, the closest
+        template wins; this beats matching against a single averaged anchor
+        when the query face is off-frontal or under different illumination.
+        """
         best_name = "unknown"
         best_sim = 0.0
-        for name, enrolled_emb in self._enrolled.items():
-            sim = cosine_similarity(embedding, enrolled_emb)
-            if sim > best_sim:
-                best_sim = sim
-                best_name = name
+        for name, templates in self._enrolled.items():
+            for template in templates:
+                sim = cosine_similarity(embedding, template)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_name = name
         if best_sim < COSINE_UNKNOWN_THRESHOLD:
             return "unknown", best_sim
         if best_sim < COSINE_KNOWN_THRESHOLD:

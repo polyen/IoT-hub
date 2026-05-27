@@ -30,9 +30,14 @@ if "cv2" not in sys.modules:
     _cv2_mock.COLOR_BGR2RGB = 4
     sys.modules["cv2"] = _cv2_mock
 
+from pathlib import Path
+
 from hub.edge.cv.face import (
+    COSINE_KNOWN_THRESHOLD,
     INPUT_H,
     INPUT_W,
+    FaceRecognizer,
+    _coerce_to_templates,
     cosine_similarity,
     crop_face_from_bbox,
     crop_face_from_keypoints,
@@ -179,3 +184,124 @@ def test_kps_crop_different_region_than_bbox() -> None:
     assert crop_kps is not None and crop_bbox is not None
     # Keypoint crop should contain some bright pixels; bbox crop (at bottom) should not
     assert float(np.mean(crop_kps > 150)) > float(np.mean(crop_bbox > 150))
+
+
+# --- Embeddings format coercion ---------------------------------------------
+
+
+def test_coerce_legacy_single_vector_to_template_list() -> None:
+    """Old-format {name: list[float]} is read as single-template list[list[float]]."""
+    raw = {"alice": [0.1] * 512}
+    out = _coerce_to_templates(raw)
+    assert "alice" in out
+    assert len(out["alice"]) == 1
+    assert len(out["alice"][0]) == 512
+
+
+def test_coerce_new_format_preserved() -> None:
+    raw = {"bob": [[0.1] * 512, [0.2] * 512]}
+    out = _coerce_to_templates(raw)
+    assert len(out["bob"]) == 2
+
+
+def test_coerce_drops_empty_and_bad_root() -> None:
+    assert _coerce_to_templates({"x": []}) == {}
+    assert _coerce_to_templates("not a dict") == {}  # type: ignore[arg-type]
+
+
+# --- Multi-template matching ------------------------------------------------
+
+
+def _make_recognizer(enrolled: dict[str, list[list[float]]]) -> FaceRecognizer:
+    """Build a FaceRecognizer without loading any HEF."""
+    r = FaceRecognizer(Path("/nonexistent.hef"))
+    r._enrolled = enrolled
+    return r
+
+
+def _unit(*values: float) -> list[float]:
+    """L2-normalize a 512-d vector built from a repeating pattern."""
+    arr = np.array(
+        list(values) * (512 // len(values)) + [0.0] * (512 % len(values)), dtype="float32"
+    )
+    arr /= np.linalg.norm(arr)
+    return arr.tolist()
+
+
+def test_match_picks_best_template_per_identity() -> None:
+    """An identity with multiple templates wins when ANY template is close enough."""
+    near = _unit(1.0, 0.0)
+    far = _unit(0.0, 1.0)
+    query = _unit(1.0, 0.001)  # close to `near`, far from `far`
+
+    # alice has only a bad template; bob has one bad and one matching the query.
+    r = _make_recognizer({"alice": [far], "bob": [far, near]})
+    name, sim = r._match(query)
+    assert name == "bob"
+    assert sim >= COSINE_KNOWN_THRESHOLD
+
+
+def test_match_uses_max_not_mean_across_templates() -> None:
+    """A perfect match on one template beats a mediocre mean across many."""
+    perfect = _unit(1.0, 0.0)
+    distractors = [_unit(0.0, 1.0) for _ in range(4)]  # mean would be far from query
+    query = _unit(1.0, 0.0)
+
+    r = _make_recognizer({"target": [*distractors, perfect]})
+    name, sim = r._match(query)
+    assert name == "target"
+    assert sim > 0.99  # the perfect template should win outright
+
+
+def test_match_unknown_when_no_template_close() -> None:
+    far = _unit(0.0, 1.0)
+    query = _unit(1.0, 0.0)
+    r = _make_recognizer({"alice": [far]})
+    name, _sim = r._match(query)
+    assert name == "unknown"
+
+
+# --- Diverse template selection ---------------------------------------------
+
+
+def test_select_diverse_templates_returns_all_when_n_le_k() -> None:
+    from hub.backend.routes.enroll import select_diverse_templates
+
+    samples = np.random.RandomState(0).randn(3, 512).astype("float32")
+    samples /= np.linalg.norm(samples, axis=1, keepdims=True)
+    out = select_diverse_templates(samples, k=5)
+    assert out.shape == (3, 512)
+
+
+def test_select_diverse_templates_picks_spread() -> None:
+    """Given two clusters and one outlier, picking K=3 should hit all three regions."""
+    from hub.backend.routes.enroll import select_diverse_templates
+
+    rng = np.random.RandomState(1)
+
+    # Three well-separated directions in 512-d
+    def cluster(seed: int) -> np.ndarray:
+        v = rng.randn(512).astype("float32")
+        v /= np.linalg.norm(v)
+        # 5 copies with tiny jitter around v
+        block = np.tile(v, (5, 1)) + 0.01 * rng.randn(5, 512).astype("float32")
+        block /= np.linalg.norm(block, axis=1, keepdims=True)
+        return block
+
+    samples = np.concatenate([cluster(0), cluster(1), cluster(2)], axis=0)
+    templates = select_diverse_templates(samples, k=3)
+    assert templates.shape == (3, 512)
+
+    # The three picked templates should not be near-duplicates: max pairwise
+    # cosine sim should be well below 1 (they came from different clusters).
+    sims = templates @ templates.T
+    np.fill_diagonal(sims, 0.0)
+    assert float(sims.max()) < 0.9
+
+
+def test_select_diverse_templates_handles_empty() -> None:
+    from hub.backend.routes.enroll import select_diverse_templates
+
+    empty = np.zeros((0, 512), dtype="float32")
+    out = select_diverse_templates(empty, k=5)
+    assert out.shape == (0, 512)
