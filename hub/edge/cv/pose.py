@@ -101,6 +101,12 @@ class PoseEstimator:
         # Single-output legacy path
         self._output_buf: Any = None
 
+        # Diagnostic logging — emit raw kpt/conf statistics every N decodes so
+        # the operator can verify the model is actually responding to body
+        # pose rather than feeding noise into a fixed-pattern skeleton.
+        self._diag_count: int = 0
+        self._diag_every: int = 120
+
     def load(self, device: Any = None, scheduled: bool = False) -> None:
         """Open HEF, detect output layout, allocate per-output buffers.
 
@@ -195,13 +201,28 @@ class PoseEstimator:
 
         crop_bgr = frame[py1:py2, px1:px2]
         crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
-        resized = cv2.resize(crop_rgb, (self._input_w, self._input_h))
+
+        # Letterbox to 640×640 — preserve aspect ratio with gray (114) padding.
+        # yolov8s_pose from Hailo Model Zoo is calibrated on letterboxed input;
+        # a plain ``cv2.resize`` to a non-square crop stretches the person and
+        # the model fails to recognise it (confidence collapses to zero, then
+        # the centre-cell fallback returns near-constant noise and the rendered
+        # skeleton stops responding to the actual body pose — only scales with
+        # the bbox).  Padding colour 114 matches the HMZ preprocessing recipe.
+        scale = min(self._input_w / crop_w, self._input_h / crop_h)
+        new_w = max(1, int(round(crop_w * scale)))
+        new_h = max(1, int(round(crop_h * scale)))
+        resized_inner = cv2.resize(crop_rgb, (new_w, new_h))
+        padded = np.full((self._input_h, self._input_w, 3), 114, dtype=np.uint8)
+        pad_left = (self._input_w - new_w) // 2
+        pad_top = (self._input_h - new_h) // 2
+        padded[pad_top : pad_top + new_h, pad_left : pad_left + new_w] = resized_inner
 
         bindings = self._configured.create_bindings()
 
         if self._multi_output:
             # Hailo Model Zoo models: calibrated on [0, 1] input.
-            input_tensor = np.ascontiguousarray(resized.astype(np.float32) / 255.0)
+            input_tensor = np.ascontiguousarray(padded.astype(np.float32) / 255.0)
             bindings.input().set_buffer(input_tensor)
             for name, buf in self._out_bufs.items():
                 bindings.output(name).set_buffer(buf)
@@ -209,7 +230,7 @@ class PoseEstimator:
             kp_pts = self._decode_multi()
         else:
             # Legacy: calibrated on [0, 255].
-            input_tensor = np.ascontiguousarray(resized.astype(np.float32))
+            input_tensor = np.ascontiguousarray(padded.astype(np.float32))
             bindings.input().set_buffer(input_tensor)
             bindings.output().set_buffer(self._output_buf)
             self._configured.run([bindings], timeout=1000)
@@ -218,15 +239,23 @@ class PoseEstimator:
         if kp_pts is None:
             return None
 
-        # Convert crop-relative [0, 1] → frame-normalised [0, 1].
-        points: list[tuple[float, float, float]] = [
-            (
-                (px1 + kp_x * crop_w) / w,
-                (py1 + kp_y * crop_h) / h,
-                vis,
+        # Inverse-letterbox each keypoint, then map back to the full frame.
+        # ``kp_pts`` are in [0, 1] relative to the 640×640 *letterboxed* input;
+        # undo padding/scale to get coords in the original crop, then add the
+        # bbox offset.
+        points: list[tuple[float, float, float]] = []
+        for kp_xn, kp_yn, vis in kp_pts:
+            px_lb = kp_xn * self._input_w
+            py_lb = kp_yn * self._input_h
+            px_in_crop = (px_lb - pad_left) / scale
+            py_in_crop = (py_lb - pad_top) / scale
+            points.append(
+                (
+                    (px1 + px_in_crop) / w,
+                    (py1 + py_in_crop) / h,
+                    vis,
+                )
             )
-            for kp_x, kp_y, vis in kp_pts
-        ]
         return Keypoints(points=points)
 
     def _decode_multi(self) -> list[tuple[float, float, float]] | None:
@@ -239,9 +268,11 @@ class PoseEstimator:
         Channel legend (confirmed by HEF diagnostic):
           [H, W, 64]  DFL bbox — ignored.
           [H, W,  1]  confidence — sigmoid already applied by Hailo.
-                      NOTE: always 0.0 when input is a tight person crop (person
-                      fills the entire 640×640 — no anchor matches).  Fallback:
-                      use mean keypoint visibility as proxy confidence.
+                      With a letterboxed crop (gray-padded so aspect ratio is
+                      preserved) and ~75% padding around the bbox this head
+                      has a real signal and selects the right cell.  Tight or
+                      stretched crops collapse the head to 0 → centre-cell
+                      fallback returns a fixed-pattern skeleton.
           [H, W, 51]  keypoints — Ultralytics YOLOv8-pose convention
                       (``Pose.kpts_decode`` in ultralytics/nn/modules/head.py):
                           kp_x_pixel = (raw_x * 2.0 + (gx - 0.5)) * stride
@@ -326,6 +357,29 @@ class PoseEstimator:
             ny = (float(kp_y_raw) * 2.0 + (best_gy - 0.5)) * stride / self._input_h
             vis = _sigmoid(float(kp_v))
             points.append((nx, ny, vis))
+
+        # Periodic diagnostic: log raw kpt/conf statistics so a stuck pipeline
+        # is visible from the logs (e.g. flat raw range, conf always 0, only
+        # the centre cell ever winning).
+        self._diag_count += 1
+        if self._diag_count == 1 or self._diag_count % self._diag_every == 0:
+            xs = kps[:, 0].astype(np.float64)
+            ys = kps[:, 1].astype(np.float64)
+            logger.info(
+                "Pose decode diag #%d: best_sh=%d gx=%d gy=%d score=%.4f "
+                "raw_kpx=[%.2f,%.2f] raw_kpy=[%.2f,%.2f] actual_max=%.4f",
+                self._diag_count,
+                best_sh,
+                best_gx,
+                best_gy,
+                best_score,
+                float(xs.min()),
+                float(xs.max()),
+                float(ys.min()),
+                float(ys.max()),
+                actual_max,
+            )
+
         return points
 
     def _decode_single(self, raw: Any) -> list[tuple[float, float, float]] | None:
