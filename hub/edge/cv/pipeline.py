@@ -317,6 +317,7 @@ class CVPipeline:
         self._face: FaceRecognizer | None = None
         self._tracker = ObjectTracker()
         self._fall = FallDetector()
+        self._kps_ema: dict[int, list[tuple[float, float, float]]] = {}
         self._reload_requested = False
         # Track IDs seen in the previous frame — used to call FallDetector.clear_track()
         # when a track disappears so its history doesn't accumulate indefinitely.
@@ -570,6 +571,22 @@ class CVPipeline:
                 track.detection.bbox,
             )
             return None
+
+        # EMA smoothing: damps per-frame jitter from cell selection variance.
+        _ema_alpha = 0.35
+        tid = track.track_id
+        if tid in self._kps_ema:
+            prev = self._kps_ema[tid]
+            keypoints.points = [
+                (
+                    _ema_alpha * x + (1.0 - _ema_alpha) * px,
+                    _ema_alpha * y + (1.0 - _ema_alpha) * py,
+                    _ema_alpha * v + (1.0 - _ema_alpha) * pv,
+                )
+                for (x, y, v), (px, py, pv) in zip(keypoints.points, prev, strict=False)
+            ]
+        self._kps_ema[tid] = keypoints.points
+
         fall = self._fall.update(track.track_id, keypoints, track.detection.bbox)
         if fall is not None:
             if FALL_COUNTER is not None:
@@ -676,6 +693,7 @@ class CVPipeline:
 
                             for lost_id in self._active_track_ids - current_ids:
                                 self._fall.clear_track(lost_id)
+                                self._kps_ema.pop(lost_id, None)
                                 # Allow a fresh T0 frame to be saved if this
                                 # track re-enters frame later (new DB Event will
                                 # carry frame_blob_ref, keeping mining viable).

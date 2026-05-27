@@ -260,24 +260,23 @@ class PoseEstimator:
 
             conf_map = tensors.get(1)  # [H, W, 1] — may be all zeros for tight crops
             if conf_map is not None and float(conf_map.max()) > 1e-6:
-                # Normal scene input — use objectness confidence.
+                # Normal scene detection: find cell with highest confidence.
                 conf = conf_map[..., 0]
                 if float(conf.max()) > 1.01:
                     conf = 1.0 / (1.0 + np.exp(-conf.clip(-500, 500)))
-                score_map = conf
+                idx = int(np.argmax(conf))
+                gy, gx = divmod(idx, sw)
+                score = float(conf[gy, gx])
             else:
-                # Tight person crop: confidence is all-zero because no anchor spans
-                # the full image.  Fall back to mean keypoint visibility (logit →
-                # sigmoid), which is non-zero whenever keypoints are predicted.
-                kps_grid = kpts_map.reshape(sh, sw, NUM_KEYPOINTS, 3)
-                vis_logits = kps_grid[..., 2]  # [H, W, 17]
-                score_map = (1.0 / (1.0 + np.exp(-vis_logits.clip(-500, 500)))).mean(axis=-1)
+                # Tight person crop: confidence is all-zero.  Use the centre cell
+                # — the person always fills the crop so their torso is near the
+                # image centre.  This is stable across frames (unlike argmax over
+                # visibility which jumps cell-to-cell each frame).
+                gy, gx = sh // 2, sw // 2
+                vis_logits = kpts_map[gy, gx].reshape(NUM_KEYPOINTS, 3)[:, 2]
+                score = float((1.0 / (1.0 + np.exp(-vis_logits.clip(-500, 500)))).mean())
 
-            idx = int(np.argmax(score_map))
-            gy, gx = divmod(idx, sw)
-            score = float(score_map[gy, gx])
             actual_max = max(actual_max, score)
-
             if score > best_score:
                 best_score = score
                 best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
