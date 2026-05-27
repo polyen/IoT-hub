@@ -74,15 +74,13 @@ def assert_t0_available() -> None:
             f"T0 storage directory {T0_MOUNT} does not exist. "
             f"Create it first: sudo mkdir -p {T0_MOUNT} && sudo chown $USER {T0_MOUNT}"
         )
-    # Accept either an exact mount point (LUKS, Docker volume/bind) or any
-    # subdirectory that sits on a separate block device from root.
     if not T0_MOUNT.is_mount() and not _is_on_external_device(T0_MOUNT):
-        raise T0StorageError(
-            f"{T0_MOUNT} is on the root filesystem. "
-            "T0 frames must be stored on a separate storage device "
-            "(external SSD, NVMe partition, or LUKS volume)."
+        logger.warning(
+            "T0 storage %s is on the root filesystem — "
+            "for production privacy store frames on a separate SSD/NVMe partition.",
+            T0_MOUNT,
         )
-    if not _is_luks_encrypted(T0_MOUNT):
+    elif not _is_luks_encrypted(T0_MOUNT):
         logger.warning(
             "T0 storage %s is not LUKS-encrypted. "
             "For production privacy consider encrypting the partition.",
