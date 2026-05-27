@@ -226,12 +226,15 @@ class PoseEstimator:
         """Decode yolov8s_pose 9-tensor output → 17 crop-relative [0,1] keypoints.
 
         Groups tensors by spatial size.  For each scale picks the grid cell
-        with highest confidence.  The best cell across all three scales provides
+        with highest score.  The best cell across all three scales provides
         the keypoints.
 
         Channel legend (confirmed by HEF diagnostic):
           [H, W, 64]  DFL bbox — ignored.
           [H, W,  1]  confidence — sigmoid already applied by Hailo.
+                      NOTE: always 0.0 when input is a tight person crop (person
+                      fills the entire 640×640 — no anchor matches).  Fallback:
+                      use mean keypoint visibility as proxy confidence.
           [H, W, 51]  keypoints — x,y in input-pixel coords [0, input_w/h],
                       visibility is a raw logit.
         """
@@ -245,31 +248,40 @@ class PoseEstimator:
             bh, bw, bc = buf.shape
             by_scale.setdefault((bh, bw), {})[bc] = buf
 
-        best_conf = self._confidence_threshold
+        best_score = 0.0
         actual_max = 0.0
         best_kpts_raw: Any = None
 
         for (_sh, sw), tensors in by_scale.items():
-            conf_map = tensors.get(1)  # [H, W, 1] — confidence
             kpts_map = tensors.get(51)  # [H, W, 51] — keypoints
-            if conf_map is None or kpts_map is None:
+            if kpts_map is None:
                 continue
 
-            conf = conf_map[..., 0]  # [H, W]
-            # Defensive sigmoid: Hailo applies it, but guard against raw logits.
-            if float(conf.max()) > 1.01:
-                conf = 1.0 / (1.0 + np.exp(-conf.clip(-500, 500)))
+            conf_map = tensors.get(1)  # [H, W, 1] — may be all zeros for tight crops
+            if conf_map is not None and float(conf_map.max()) > 1e-6:
+                # Normal scene input — use objectness confidence.
+                conf = conf_map[..., 0]
+                if float(conf.max()) > 1.01:
+                    conf = 1.0 / (1.0 + np.exp(-conf.clip(-500, 500)))
+                score_map = conf
+            else:
+                # Tight person crop: confidence is all-zero because no anchor spans
+                # the full image.  Fall back to mean keypoint visibility (logit →
+                # sigmoid), which is non-zero whenever keypoints are predicted.
+                kps_grid = kpts_map.reshape(kpts_map.shape[0], kpts_map.shape[1], NUM_KEYPOINTS, 3)
+                vis_logits = kps_grid[..., 2]  # [H, W, 17]
+                score_map = (1.0 / (1.0 + np.exp(-vis_logits.clip(-500, 500)))).mean(axis=-1)
 
-            idx = int(np.argmax(conf))
+            idx = int(np.argmax(score_map))
             gy, gx = divmod(idx, sw)
-            score = float(conf[gy, gx])
+            score = float(score_map[gy, gx])
             actual_max = max(actual_max, score)
 
-            if score > best_conf:
-                best_conf = score
+            if score > best_score:
+                best_score = score
                 best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
 
-        if best_kpts_raw is None:
+        if best_kpts_raw is None or best_score < self._confidence_threshold:
             channels_per_scale = {k: sorted(v.keys()) for k, v in by_scale.items()}
             logger.warning(
                 "Pose _decode_multi: no tensor above threshold=%.3f (actual_max=%.4f), "
