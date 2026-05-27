@@ -293,6 +293,12 @@ class PoseEstimator:
             )
             return None
 
+        # One-shot diagnostic: log raw keypoint values to determine coordinate space.
+        if not getattr(self, "_kpts_logged", False):
+            self._kpts_logged = True
+            raw_kps_debug = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
+            logger.warning("pose kpts_raw first5 (x,y,vis): %s", raw_kps_debug[:5].tolist())
+
         # Decode keypoints: x,y in input-pixel space → normalise to [0,1].
         # Visibility is a raw logit → sigmoid.
         kps = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
