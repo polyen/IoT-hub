@@ -587,7 +587,14 @@ class CVPipeline:
             ]
         self._kps_ema[tid] = keypoints.points
 
-        fall = self._fall.update(track.track_id, keypoints, track.detection.bbox)
+        # frame.shape is (H, W, C); pass W/H so the fall heuristic computes
+        # ratio/angle in pixel-equivalent space — the keypoints/bbox arrive in
+        # frame-normalised [0,1] units and a non-square frame distorts both.
+        fh, fw = frame.shape[:2]
+        frame_aspect = (fw / fh) if fh > 0 else 1.0
+        fall = self._fall.update(
+            track.track_id, keypoints, track.detection.bbox, frame_aspect=frame_aspect
+        )
         if fall is not None:
             if FALL_COUNTER is not None:
                 FALL_COUNTER.labels(
