@@ -86,8 +86,12 @@ function getEventMeta(type: string, payload: Record<string, unknown> | null): Ev
   }
 
   // ── sensors & alerts ────────────────────────────────────────────────────────
-  if (t === "alert")
+  if (t === "alert") {
+    const alertType = payload?.event_type as string | undefined;
+    if (alertType === "fall")
+      return { label: "Падіння!", Icon: PersonStanding, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
     return { label: "Тривога", Icon: Bell, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
+  }
   if (t === "gas" || t.includes("mq2"))
     return { label: "Газ / CO", Icon: Gauge, iconBg: "bg-yellow-500/20", iconColor: "text-yellow-400", significant: true };
   if (t.includes("dht") || t.includes("temperature") || t.includes("climate"))
@@ -163,6 +167,21 @@ function formatPayloadSummary(type: string, payload: Record<string, unknown> | n
     const trackId = payload.track_id;
     if (typeof trackId === "number") parts.push(`трек #${trackId}`);
     return parts.length > 0 ? parts.join(" · ") : null;
+  }
+
+  // ── alert (fall / generic) ───────────────────────────────────────────────────
+  if (t === "alert") {
+    const alertType = payload.event_type as string | undefined;
+    if (alertType === "fall") {
+      const trackId = payload.track_id;
+      const conf = payload.confidence as number | undefined;
+      const angle = payload.spine_angle_deg as number | undefined;
+      if (typeof trackId === "number") parts.push(`трек #${trackId}`);
+      if (typeof conf === "number") parts.push(`впевненість ${Math.round(conf * 100)}%`);
+      if (typeof angle === "number") parts.push(`кут хребта ${angle.toFixed(0)}°`);
+      return parts.length > 0 ? parts.join(" · ") : "Виявлено падіння";
+    }
+    return null;
   }
 
   // ── sensors ───────────────────────────────────────────────────────────────────

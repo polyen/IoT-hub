@@ -91,6 +91,7 @@ export interface Detection {
   conf: number;
   track_id: number | null;
   face_id: string | null;
+  kps?: [number, number][]; // 17 COCO keypoints (x, y) normalized, present when pose ran
 }
 
 export interface CvFrame {

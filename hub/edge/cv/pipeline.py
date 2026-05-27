@@ -659,9 +659,15 @@ class CVPipeline:
                                 if DETECTIONS_COUNTER is not None:
                                     DETECTIONS_COUNTER.labels(label=track.detection.label).inc()
                                 blob_ref = self._maybe_save_frame(frame, track)
-                                det_dicts.append(self._detection_dict(track, blob_ref))
-                                current_ids.add(track.track_id)
+                                det_dict = self._detection_dict(track, blob_ref)
                                 kps = await self._maybe_run_fall(frame, track, mqtt)
+                                if kps is not None:
+                                    # Send (x, y) pairs only — confidence not needed by UI.
+                                    det_dict["kps"] = [
+                                        [round(x, 4), round(y, 4)] for x, y, _ in kps.points
+                                    ]
+                                det_dicts.append(det_dict)
+                                current_ids.add(track.track_id)
                                 await self._maybe_run_face(frame, track, mqtt, kps)
 
                             for lost_id in self._active_track_ids - current_ids:

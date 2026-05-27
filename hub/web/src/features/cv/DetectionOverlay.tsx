@@ -17,6 +17,49 @@ const CLS_COLORS: Record<string, string> = {
   fall: "#f59e0b",
 };
 
+// COCO skeleton edge pairs (keypoint indices).
+// Only the subset useful for visual confirmation of pose output.
+const SKELETON_EDGES: [number, number][] = [
+  [5, 6],   // shoulders
+  [11, 12], // hips
+  [5, 11],  // left side
+  [6, 12],  // right side
+  [5, 7], [7, 9],   // left arm
+  [6, 8], [8, 10],  // right arm
+  [11, 13], [13, 15], // left leg
+  [12, 14], [14, 16], // right leg
+];
+
+function drawSkeleton(
+  ctx: CanvasRenderingContext2D,
+  kps: [number, number][],
+  w: number,
+  h: number,
+  color: string,
+): void {
+  // Edges
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  for (const [a, b] of SKELETON_EDGES) {
+    const pa = kps[a], pb = kps[b];
+    if (!pa || !pb) continue;
+    if (pa[0] === 0 && pa[1] === 0) continue;
+    if (pb[0] === 0 && pb[1] === 0) continue;
+    ctx.beginPath();
+    ctx.moveTo(pa[0] * w, pa[1] * h);
+    ctx.lineTo(pb[0] * w, pb[1] * h);
+    ctx.stroke();
+  }
+  // Dots
+  ctx.fillStyle = color;
+  for (const [kx, ky] of kps) {
+    if (kx === 0 && ky === 0) continue;
+    ctx.beginPath();
+    ctx.arc(kx * w, ky * h, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 export function DetectionOverlay({
   frame,
   videoWidth,
@@ -38,15 +81,17 @@ export function DetectionOverlay({
     canvas.width = videoWidth;
     canvas.height = videoHeight;
 
-    // Show overlay lag: compare frame timestamp to browser clock.
+    // Status bar: overlay lag + pose indicator
     if (frame.ts) {
       const frameAge = (Date.now() - new Date(frame.ts).getTime()) / 1000;
       const lagColor = frameAge > 5 ? "#ef4444" : frameAge > 2 ? "#f59e0b" : "#22c55e";
+      const poseActive = (frame.dets ?? []).some((d) => d.kps && d.kps.length > 0);
+      const statusText = `lag: ${frameAge.toFixed(1)}s  pose: ${poseActive ? "✓" : "–"}`;
       ctx.font = "11px monospace";
       ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.fillRect(4, 4, 132, 18);
+      ctx.fillRect(4, 4, 160, 18);
       ctx.fillStyle = lagColor;
-      ctx.fillText(`overlay lag: ${frameAge.toFixed(1)}s`, 8, 17);
+      ctx.fillText(statusText, 8, 17);
     }
 
     for (const det of frame.dets ?? []) {
@@ -75,6 +120,11 @@ export function DetectionOverlay({
       ctx.fillStyle = color;
       ctx.font = "12px monospace";
       ctx.fillText(label, rx + 4, ry + 14);
+
+      // Pose skeleton (drawn when keypoints available)
+      if (det.kps && det.kps.length >= 13) {
+        drawSkeleton(ctx, det.kps, videoWidth, videoHeight, "rgba(255,255,255,0.45)");
+      }
 
       // Enroll / correct hint for all persons
       if (det.cls === "person" && onEnrollRequest) {
