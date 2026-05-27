@@ -11,9 +11,14 @@ Supported HEF layouts
 Multi-output — ``yolov8s_pose`` / ``yolov8m_pose`` (9 tensors, 3 scales):
     [H, W, 64]  DFL bbox regression — not used; we only need keypoints.
     [H, W,  1]  objectness/confidence — sigmoid already applied by Hailo.
-    [H, W, 51]  17 COCO keypoints × (x, y, visibility).
-                x, y are logit(coord/input_size); sigmoid gives crop-normalised [0,1].
-                visibility is a raw logit; ``_decode_multi`` applies sigmoid.
+    [H, W, 51]  17 COCO keypoints × (x, y, visibility) — Ultralytics
+                YOLOv8-pose export head convention (see ``Pose.kpts_decode``):
+                    kp_x_pixel = (raw_x * 2.0 + (gx - 0.5)) * stride
+                    kp_y_pixel = (raw_y * 2.0 + (gy - 0.5)) * stride
+                    visibility = sigmoid(raw_v)
+                ``raw_x`` / ``raw_y`` are **unbounded floats** (no sigmoid
+                pre-applied), allowing a keypoint to land anywhere in the
+                640×640 input — not just inside the predicting cell.
   Input must be normalised to [0, 1] (Hailo Model Zoo calibration convention).
 
 Single-output (legacy, shape [num_anchors, 56] or [56, num_anchors]):
@@ -237,10 +242,18 @@ class PoseEstimator:
                       NOTE: always 0.0 when input is a tight person crop (person
                       fills the entire 640×640 — no anchor matches).  Fallback:
                       use mean keypoint visibility as proxy confidence.
-          [H, W, 51]  keypoints — standard YOLOv8 grid-relative encoding:
-                      x_norm = (gx + sigmoid(raw_x)) * stride / input_w
-                      y_norm = (gy + sigmoid(raw_y)) * stride / input_h
-                      Visibility is a raw logit → sigmoid.
+          [H, W, 51]  keypoints — Ultralytics YOLOv8-pose convention
+                      (``Pose.kpts_decode`` in ultralytics/nn/modules/head.py):
+                          kp_x_pixel = (raw_x * 2.0 + (gx - 0.5)) * stride
+                          kp_y_pixel = (raw_y * 2.0 + (gy - 0.5)) * stride
+                          visibility = sigmoid(raw_v)
+                      ``raw_x``/``raw_y`` are **unbounded** (no sigmoid
+                      pre-applied), so a keypoint can land anywhere in the
+                      crop — not only inside the predicting cell.  The
+                      previously used ``(gx + sigmoid(raw_x)) * stride``
+                      formula is the *bbox-centre* encoding (bounds the
+                      offset to one cell), which collapsed all 17 keypoints
+                      into the chosen cell ≈ centre of the bbox.
         """
         import numpy as np  # type: ignore[import]
 
@@ -300,19 +313,17 @@ class PoseEstimator:
             )
             return None
 
-        # Decode keypoints using standard YOLOv8 grid-relative formula:
-        #   x_norm = (gx + sigmoid(raw_x)) * stride / input_w
-        # stride = input_h // sh (e.g. 640//40 = 16 for the medium scale).
-        # For a tight crop where the person is centred the naive sigmoid-only
-        # formula also gives ~0.5, but for padded or off-centre crops it
-        # produces a visible horizontal/vertical offset — grid-relative is
-        # always correct.
-        stride = self._input_h // best_sh
+        # Ultralytics YOLOv8-pose decoding (no sigmoid on coords, *2 factor):
+        #   kp_x_pixel = (raw_x * 2.0 + (gx - 0.5)) * stride
+        # stride = input_h // sh (e.g. 640//40 = 16 for the P4 scale).
+        # raw_x/raw_y are unbounded — this is what lets the 17 keypoints
+        # spread across the body instead of clustering inside a single cell.
+        stride = self._input_h / best_sh
         kps = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
         points: list[tuple[float, float, float]] = []
         for kp_x_raw, kp_y_raw, kp_v in kps:
-            nx = (best_gx + _sigmoid(float(kp_x_raw))) * stride / self._input_w
-            ny = (best_gy + _sigmoid(float(kp_y_raw))) * stride / self._input_h
+            nx = (float(kp_x_raw) * 2.0 + (best_gx - 0.5)) * stride / self._input_w
+            ny = (float(kp_y_raw) * 2.0 + (best_gy - 0.5)) * stride / self._input_h
             vis = _sigmoid(float(kp_v))
             points.append((nx, ny, vis))
         return points
