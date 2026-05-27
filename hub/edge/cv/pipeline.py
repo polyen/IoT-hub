@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import signal
+import threading
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -123,8 +124,43 @@ else:
     IDENTITY_COUNTER = None
 
 
+class _LatestFrame:
+    """Thread-safe holder for the most recently decoded RTSP frame.
+
+    The reader thread calls put() in a tight loop, always overwriting the
+    previous frame. The async generator calls get() at target_fps rate —
+    it always receives the freshest frame, so inference backlog accumulated
+    during a slow detect/track cycle does not cause growing latency.
+    """
+
+    __slots__ = ("_lock", "_frame", "_failed")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._frame: Any = None
+        self._failed: bool = False
+
+    def put(self, frame: Any) -> None:
+        with self._lock:
+            self._frame = frame
+
+    def fail(self) -> None:
+        with self._lock:
+            self._failed = True
+
+    def get(self) -> tuple[bool, Any]:
+        """Return (failed, frame). frame is None until the first frame arrives."""
+        with self._lock:
+            return self._failed, self._frame
+
+
 async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator[Any, None]:
     """Async generator that yields frames from RTSP stream at target_fps.
+
+    A dedicated reader thread calls cap.read() continuously, always storing
+    the latest frame in a _LatestFrame holder. The async generator reads from
+    that holder at target_fps rate — stale buffered frames are silently dropped
+    so lag from slow inference never accumulates.
 
     Retries indefinitely on connect failure (stream not yet pushed) and
     reopens on sustained read failures (stream dropped mid-session).
@@ -157,24 +193,48 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
 
         _open_retry = 5
         logger.info("RTSP stream opened: %s", rtsp_url)
-        consecutive_failures = 0
+
+        latest = _LatestFrame()
+        stop_event = threading.Event()
+
+        def _reader(
+            _stop: threading.Event = stop_event,
+            _cap: Any = cap,
+            _latest: _LatestFrame = latest,
+        ) -> None:
+            consecutive_failures = 0
+            while not _stop.is_set():
+                ok, frame = _cap.read()
+                if not ok:
+                    consecutive_failures += 1
+                    if consecutive_failures >= 3:
+                        _latest.fail()
+                        return
+                    time.sleep(0.05)
+                    continue
+                consecutive_failures = 0
+                _latest.put(frame)
+
+        reader = threading.Thread(target=_reader, daemon=True, name="rtsp-reader")
+        reader.start()
 
         try:
             while True:
                 t0 = time.monotonic()
-                ok, frame = await asyncio.get_event_loop().run_in_executor(None, cap.read)
-                if not ok:
-                    consecutive_failures += 1
-                    if consecutive_failures >= 3:
-                        logger.warning("RTSP stream lost — reopening")
-                        break  # reopen outer loop
-                    await asyncio.sleep(1)
+                failed, frame = latest.get()
+                if failed:
+                    logger.warning("RTSP stream lost — reopening")
+                    break
+                if frame is None:
+                    # Waiting for first frame from reader thread
+                    await asyncio.sleep(0.05)
                     continue
-                consecutive_failures = 0
                 yield frame
                 elapsed = time.monotonic() - t0
                 await asyncio.sleep(max(0, interval - elapsed))
         finally:
+            stop_event.set()
+            reader.join(timeout=5.0)
             cap.release()
 
         # GStreamer pipeline teardown is asynchronous — wait before reopening so
