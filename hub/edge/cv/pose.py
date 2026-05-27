@@ -237,9 +237,10 @@ class PoseEstimator:
                       NOTE: always 0.0 when input is a tight person crop (person
                       fills the entire 640×640 — no anchor matches).  Fallback:
                       use mean keypoint visibility as proxy confidence.
-          [H, W, 51]  keypoints — x,y are logit(coord/input_size), i.e.
-                      sigmoid(raw) gives the crop-normalised [0,1] coordinate.
-                      Visibility is a raw logit.
+          [H, W, 51]  keypoints — standard YOLOv8 grid-relative encoding:
+                      x_norm = (gx + sigmoid(raw_x)) * stride / input_w
+                      y_norm = (gy + sigmoid(raw_y)) * stride / input_h
+                      Visibility is a raw logit → sigmoid.
         """
         import numpy as np  # type: ignore[import]
 
@@ -254,6 +255,9 @@ class PoseEstimator:
         best_score = 0.0
         actual_max = 0.0
         best_kpts_raw: Any = None
+        best_gx = 0
+        best_gy = 0
+        best_sh = 80  # scale height used to compute stride
 
         for (sh, sw), tensors in by_scale.items():
             kpts_map = tensors.get(51)  # [H, W, 51] — keypoints
@@ -280,6 +284,9 @@ class PoseEstimator:
             if score > best_score:
                 best_score = score
                 best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
+                best_gx = gx
+                best_gy = gy
+                best_sh = sh
 
         if best_kpts_raw is None or best_score < self._confidence_threshold:
             channels_per_scale = {k: sorted(v.keys()) for k, v in by_scale.items()}
@@ -293,15 +300,19 @@ class PoseEstimator:
             )
             return None
 
-        # Decode keypoints.
-        # The Hailo yolov8s_pose HEF encodes x, y as logit(coord / input_size),
-        # i.e. sigmoid(raw) gives the crop-normalised [0, 1] coordinate directly.
-        # Visibility is also a raw logit → sigmoid.
+        # Decode keypoints using standard YOLOv8 grid-relative formula:
+        #   x_norm = (gx + sigmoid(raw_x)) * stride / input_w
+        # stride = input_h // sh (e.g. 640//40 = 16 for the medium scale).
+        # For a tight crop where the person is centred the naive sigmoid-only
+        # formula also gives ~0.5, but for padded or off-centre crops it
+        # produces a visible horizontal/vertical offset — grid-relative is
+        # always correct.
+        stride = self._input_h // best_sh
         kps = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
         points: list[tuple[float, float, float]] = []
         for kp_x_raw, kp_y_raw, kp_v in kps:
-            nx = _sigmoid(float(kp_x_raw))
-            ny = _sigmoid(float(kp_y_raw))
+            nx = (best_gx + _sigmoid(float(kp_x_raw))) * stride / self._input_w
+            ny = (best_gy + _sigmoid(float(kp_y_raw))) * stride / self._input_h
             vis = _sigmoid(float(kp_v))
             points.append((nx, ny, vis))
         return points
