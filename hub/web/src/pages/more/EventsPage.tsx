@@ -36,9 +36,7 @@ interface EventMeta {
 
 function getEventMeta(type: string, payload: Record<string, unknown> | null): EventMeta {
   const t = type.toLowerCase();
-  // camera/event stores the detection class in payload.label (not payload.class)
   const label = String(payload?.label ?? "").toLowerCase();
-  // event/fused stores the fused event type in payload.event_type
   const eventType = String(payload?.event_type ?? "").toLowerCase();
 
   // ── camera/event ────────────────────────────────────────────────────────────
@@ -47,6 +45,8 @@ function getEventMeta(type: string, payload: Record<string, unknown> | null): Ev
       return { label: "Вогонь", Icon: Flame, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
     if (label === "smoke")
       return { label: "Дим", Icon: Wind, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
+    if (label === "fall")
+      return { label: "Падіння", Icon: PersonStanding, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
     if (label === "person") {
       const faceId = payload?.face_id as string | undefined;
       if (faceId && faceId !== "unknown")
@@ -64,14 +64,22 @@ function getEventMeta(type: string, payload: Record<string, unknown> | null): Ev
       return { label: "Дим", Icon: Wind, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
     if (eventType === "fall" || eventType === "fall_detected")
       return { label: "Падіння", Icon: PersonStanding, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
+    if (eventType === "person")
+      return { label: "Людина", Icon: User, iconBg: "bg-primary-500/20", iconColor: "text-primary-400" };
     if (eventType === "motion")
       return { label: "Рух", Icon: Activity, iconBg: "bg-violet-500/20", iconColor: "text-violet-400" };
-    return { label: "Сигнал", Icon: Zap, iconBg: "bg-warm-500/20", iconColor: "text-warm-400" };
+    if (eventType === "gas")
+      return { label: "Газ / CO", Icon: Gauge, iconBg: "bg-yellow-500/20", iconColor: "text-yellow-400", significant: true };
+    // Show the raw event_type when not recognised so the user sees something useful
+    if (eventType)
+      return { label: eventType, Icon: Zap, iconBg: "bg-[color:var(--raised)]", iconColor: "text-[color:var(--text-muted)]" };
+    return { label: "Сигнал", Icon: Zap, iconBg: "bg-[color:var(--raised)]", iconColor: "text-[color:var(--text-muted)]" };
   }
 
   // ── camera/identity ─────────────────────────────────────────────────────────
   if (t === "camera/identity") {
-    const identity = (payload?.name ?? payload?.face_id) as string | undefined;
+    // CV pipeline publishes field "identity"; fall back to legacy field names
+    const identity = (payload?.identity ?? payload?.name ?? payload?.face_id) as string | undefined;
     if (identity && identity !== "unknown")
       return { label: identity, Icon: User, iconBg: "bg-green-500/20", iconColor: "text-green-400" };
     return { label: "Незнайомець", Icon: UserX, iconBg: "bg-orange-500/20", iconColor: "text-orange-400", significant: true };
@@ -96,47 +104,72 @@ function getEventMeta(type: string, payload: Record<string, unknown> | null): Ev
 
 // ── Payload summary ─────────────────────────────────────────────────────────
 
+const SOURCE_LABELS: Record<string, string> = {
+  camera: "камера",
+  smoke_sensor: "димовий сенсор",
+  pir: "PIR сенсор",
+  gas_sensor: "газовий сенсор",
+  audio: "мікрофон",
+  sensors: "сенсори",
+};
+
 function formatPayloadSummary(type: string, payload: Record<string, unknown> | null): string | null {
   if (!payload) return null;
 
   const t = type.toLowerCase();
   const parts: string[] = [];
 
-  // Confidence
   const conf = payload.confidence ?? payload.conf ?? payload.score;
-  if (typeof conf === "number") parts.push(`впевненість ${Math.round(conf * 100)}%`);
+  const confStr = typeof conf === "number" ? `${Math.round(conf * 100)}%` : null;
 
-  // camera/event: label is the detection class (fire/smoke/person)
+  // ── camera/event ─────────────────────────────────────────────────────────────
   if (t === "camera/event") {
+    const label = String(payload.label ?? "").toLowerCase();
     const faceId = payload.face_id as string | undefined;
-    if (faceId && faceId !== "unknown") parts.push(`👤 ${faceId}`);
     const trackId = payload.track_id;
+
+    if (label === "person") {
+      if (faceId && faceId !== "unknown") parts.push(`Ідентифіковано: ${faceId}`);
+      else parts.push("Обличчя не розпізнано");
+    }
+    if (label === "fall") parts.push("виявлено падіння");
+    if (confStr) parts.push(`впевненість ${confStr}`);
     if (typeof trackId === "number") parts.push(`трек #${trackId}`);
     return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  // event/fused: show contributing sources
+  // ── event/fused ───────────────────────────────────────────────────────────────
   if (t === "event/fused") {
+    if (confStr) parts.push(`впевненість ${confStr}`);
     const sources = payload.sources;
     if (Array.isArray(sources) && sources.length > 0) {
-      const srcLabel: Record<string, string> = { camera: "камера", sensors: "сенсори", audio: "аудіо" };
-      parts.push(sources.map((s: unknown) => srcLabel[String(s)] ?? String(s)).join(", "));
+      const srcStr = sources.map((s: unknown) => SOURCE_LABELS[String(s)] ?? String(s)).join(" + ");
+      parts.push(`джерела: ${srcStr}`);
     }
+    const pir = payload.pir_adjusted;
+    if (pir) parts.push("знижено (без PIR)");
     return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  // camera/identity: show who was seen
+  // ── camera/identity ───────────────────────────────────────────────────────────
   if (t === "camera/identity") {
+    const identity = (payload.identity ?? payload.name ?? payload.face_id) as string | undefined;
+    if (identity && identity !== "unknown") {
+      parts.push(`Розпізнано: ${identity}`);
+    } else {
+      parts.push("Невідома особа");
+    }
+    if (confStr) parts.push(`впевненість ${confStr}`);
     const trackId = payload.track_id;
     if (typeof trackId === "number") parts.push(`трек #${trackId}`);
     return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  // Sensors
+  // ── sensors ───────────────────────────────────────────────────────────────────
   const temp = payload.temperature ?? payload.temp_c;
   const hum = payload.humidity;
   if (typeof temp === "number") parts.push(`${temp.toFixed(1)} °C`);
-  if (typeof hum === "number") parts.push(`${hum.toFixed(0)}% RH`);
+  if (typeof hum === "number") parts.push(`вологість ${hum.toFixed(0)}%`);
 
   const ppm = payload.ppm ?? payload.gas_ppm;
   if (typeof ppm === "number") parts.push(`${ppm.toFixed(0)} ppm`);
@@ -144,8 +177,7 @@ function formatPayloadSummary(type: string, payload: Record<string, unknown> | n
   const open = payload.open ?? payload.state;
   if (open === true || open === "open") parts.push("відчинено");
   if (open === false || open === "closed") parts.push("зачинено");
-
-  if (payload.pir === true) parts.push("виявлено рух");
+  if (payload.pir === true) parts.push("рух виявлено");
 
   if (parts.length === 0) {
     const entries = Object.entries(payload)
@@ -331,17 +363,64 @@ function EventCard({ event }: { event: HubEvent }) {
   );
 }
 
+// ── Filtering helpers ────────────────────────────────────────────────────────
+
+type CategoryFilter = "all" | "people" | "danger" | "motion" | "sensors";
+
+const CATEGORIES: { value: CategoryFilter; label: string }[] = [
+  { value: "all",     label: "Всі" },
+  { value: "people",  label: "Люди" },
+  { value: "danger",  label: "Небезпека" },
+  { value: "motion",  label: "Рух" },
+  { value: "sensors", label: "Сенсори" },
+];
+
+function matchesCategory(e: HubEvent, cat: CategoryFilter): boolean {
+  if (cat === "all") return true;
+  const t = e.type.toLowerCase();
+  const label = String(e.payload?.label ?? "").toLowerCase();
+  const eventType = String(e.payload?.event_type ?? "").toLowerCase();
+
+  if (cat === "people")
+    return (t === "camera/event" && label === "person") || t === "camera/identity";
+  if (cat === "danger")
+    return (
+      (t === "camera/event" && (label === "fire" || label === "smoke" || label === "fall")) ||
+      (t === "event/fused" && (eventType === "fire" || eventType === "smoke" || eventType === "fall" || eventType === "fall_detected" || eventType === "gas")) ||
+      t === "alert" || t.includes("gas") || t.includes("mq2")
+    );
+  if (cat === "motion")
+    return (
+      (t === "event/fused" && (eventType === "person" || eventType === "motion")) ||
+      t.includes("pir") || t.includes("motion")
+    );
+  if (cat === "sensors")
+    return t === "sensors" || t.includes("dht") || t.includes("temperature") || t.includes("door");
+  return true;
+}
+
+function getConfidence(e: HubEvent): number | null {
+  const c = e.payload?.confidence ?? e.payload?.conf ?? e.payload?.score;
+  return typeof c === "number" ? c : null;
+}
+
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function EventsPage() {
   const { t } = useTranslation("events");
   const { events, connected, missedCount, clearMissed } = useWebSocket();
-  const [filterType, setFilterType] = useState("");
+  const [category, setCategory] = useState<CategoryFilter>("all");
   const [filterRoom, setFilterRoom] = useState("");
+  const [confFilter, setConfFilter] = useState(true); // hide < 50 % by default
 
   const filtered = events.filter((e: HubEvent) => {
-    if (filterType && !e.type.toLowerCase().includes(filterType.toLowerCase())) return false;
+    if (!matchesCategory(e, category)) return false;
     if (filterRoom && e.room !== filterRoom) return false;
+    if (confFilter) {
+      const conf = getConfidence(e);
+      // Only apply the threshold when the event actually carries a confidence value
+      if (conf !== null && conf < 0.5) return false;
+    }
     return true;
   });
 
@@ -364,29 +443,56 @@ export default function EventsPage() {
       </div>
 
       {/* Filters */}
-      <div className="card rounded-2xl px-4 py-3 flex gap-3 items-center">
-        <Filter size={15} className="text-[color:var(--text-faint)] shrink-0" />
-        <input
-          type="text"
-          placeholder={t("filter.placeholder")}
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="flex-1 min-w-0 text-sm bg-transparent outline-none text-[color:var(--text)] placeholder-[color:var(--text-faint)]"
-        />
-        {rooms.length > 0 && (
-          <select
-            value={filterRoom}
-            onChange={(e) => setFilterRoom(e.target.value)}
-            className="text-xs bg-transparent outline-none text-[color:var(--text-muted)] cursor-pointer"
-          >
-            <option value="">{t("filter.all")}</option>
-            {rooms.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-        )}
+      <div className="card rounded-2xl px-4 py-3 space-y-2.5">
+        {/* Category chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter size={14} className="text-[color:var(--text-faint)] shrink-0" />
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.value}
+              onClick={() => setCategory(cat.value)}
+              className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                category === cat.value
+                  ? "border-primary-500/60 bg-primary-500/15 text-primary-300"
+                  : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:border-[color:var(--text-faint)]"
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Second row: confidence toggle + room */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <div
+              onClick={() => setConfFilter((v) => !v)}
+              className={`w-8 h-4 rounded-full transition-colors relative ${
+                confFilter ? "bg-primary-600" : "bg-[color:var(--raised)]"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all ${
+                  confFilter ? "left-4" : "left-0.5"
+                }`}
+              />
+            </div>
+            <span className="text-xs text-[color:var(--text-muted)]">Впевненість &gt; 50%</span>
+          </label>
+
+          {rooms.length > 0 && (
+            <select
+              value={filterRoom}
+              onChange={(e) => setFilterRoom(e.target.value)}
+              className="ml-auto text-xs bg-transparent outline-none text-[color:var(--text-muted)] cursor-pointer"
+            >
+              <option value="">Усі кімнати</option>
+              {rooms.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       {missedCount > 0 && (
