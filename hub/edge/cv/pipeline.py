@@ -561,10 +561,14 @@ class CVPipeline:
         try:
             keypoints = self._pose.estimate(frame, track.detection.bbox)
         except (NotImplementedError, RuntimeError) as e:
-            # Hailo pipeline not available at runtime — degrade silently.
-            logger.debug("Pose estimate skipped: %s", e)
+            logger.warning("Pose estimate exception (track=%d): %s", track.track_id, e)
             return None
         if keypoints is None:
+            logger.warning(
+                "Pose estimate returned None for track=%d bbox=%s",
+                track.track_id,
+                track.detection.bbox,
+            )
             return None
         fall = self._fall.update(track.track_id, keypoints, track.detection.bbox)
         if fall is not None:

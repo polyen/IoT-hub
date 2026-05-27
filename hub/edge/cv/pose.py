@@ -257,6 +257,12 @@ class PoseEstimator:
                 best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
 
         if best_kpts_raw is None:
+            logger.warning(
+                "Pose _decode_multi: no tensor above threshold=%.2f (best=%.3f), scales=%s",
+                self._confidence_threshold,
+                best_conf,
+                list(by_scale.keys()),
+            )
             return None
 
         # Decode keypoints: x,y in input-pixel space → normalise to [0,1].
