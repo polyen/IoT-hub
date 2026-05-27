@@ -93,8 +93,8 @@ export const CameraLive = forwardRef<CameraLiveHandle, Props>(function CameraLiv
     },
   });
 
-  const handleEnrollRequest = useCallback((trackId: number, room: string) => {
-    setEnrollState({ trackId, room, name: "" });
+  const handleEnrollRequest = useCallback((trackId: number, room: string, currentName: string) => {
+    setEnrollState({ trackId, room, name: currentName });
   }, []);
 
   useEffect(() => {
@@ -200,7 +200,9 @@ export const CameraLive = forwardRef<CameraLiveHandle, Props>(function CameraLiv
       {enrollState && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-10">
           <div className="bg-slate-800 border border-slate-600 rounded-2xl p-5 w-72 shadow-xl">
-            <p className="text-sm font-semibold text-white mb-3">Як звати цю людину?</p>
+            <p className="text-sm font-semibold text-white mb-3">
+              {enrollState.name ? "Змінити ім'я?" : "Як звати цю людину?"}
+            </p>
             <input
               autoFocus
               type="text"

@@ -6,12 +6,13 @@ interface Props {
   videoWidth: number;
   videoHeight: number;
   visible: boolean;
-  onEnrollRequest?: (trackId: number, room: string) => void;
+  onEnrollRequest?: (trackId: number, room: string, currentName: string) => void;
 }
 
 const CLS_COLORS: Record<string, string> = {
   person: "#22c55e",
   stranger: "#ef4444",
+  uncertain_person: "#f59e0b",
   face: "#3b82f6",
   fall: "#f59e0b",
 };
@@ -55,8 +56,16 @@ export function DetectionOverlay({
       const rw = (x2 - x1) * videoWidth;
       const rh = (y2 - y1) * videoHeight;
 
-      const isStranger = det.face_id === "unknown" || det.face_id === null;
-      const effectiveCls = isStranger && det.cls === "person" ? "stranger" : det.cls;
+      const isUnknown = det.face_id === "unknown" || det.face_id === null;
+      const isUncertain = typeof det.face_id === "string" && det.face_id.endsWith("?");
+      const effectiveCls =
+        det.cls === "person"
+          ? isUnknown
+            ? "stranger"
+            : isUncertain
+              ? "uncertain_person"
+              : "person"
+          : det.cls;
       const color = CLS_COLORS[effectiveCls] ?? "#94a3b8";
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
@@ -67,11 +76,16 @@ export function DetectionOverlay({
       ctx.font = "12px monospace";
       ctx.fillText(label, rx + 4, ry + 14);
 
-      // Enroll hint for strangers
-      if (isStranger && det.cls === "person" && onEnrollRequest) {
-        ctx.fillStyle = "rgba(239,68,68,0.75)";
+      // Enroll / correct hint for all persons
+      if (det.cls === "person" && onEnrollRequest) {
+        const [hintColor, hintText] = isUnknown
+          ? ["rgba(239,68,68,0.75)", "+ Назвати"]
+          : isUncertain
+            ? ["rgba(245,158,11,0.85)", "? Підтвердити"]
+            : ["rgba(148,163,184,0.6)", "✎ Змінити"];
+        ctx.fillStyle = hintColor;
         ctx.font = "bold 10px monospace";
-        ctx.fillText("+ Назвати", rx + 4, ry + rh - 6);
+        ctx.fillText(hintText, rx + 4, ry + rh - 6);
       }
     }
   }, [frame, videoWidth, videoHeight, visible, onEnrollRequest]);
@@ -86,11 +100,15 @@ export function DetectionOverlay({
 
     for (const det of frame.dets ?? []) {
       if (det.cls !== "person") continue;
-      if (det.face_id && det.face_id !== "unknown") continue;
       if (det.track_id == null) continue;
       const [x1, y1, x2, y2] = det.bbox;
       if (nx >= x1 && nx <= x2 && ny >= y1 && ny <= y2) {
-        onEnrollRequest(det.track_id, frame.room);
+        // Strip "?" suffix so the dialog pre-fills with the base name
+        const currentName =
+          det.face_id && det.face_id !== "unknown"
+            ? det.face_id.replace(/\?$/, "")
+            : "";
+        onEnrollRequest(det.track_id, frame.room, currentName);
         return;
       }
     }

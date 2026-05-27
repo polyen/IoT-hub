@@ -278,7 +278,9 @@ class FaceRecognizer:
         if best_sim < COSINE_UNKNOWN_THRESHOLD:
             return "unknown", best_sim
         if best_sim < COSINE_KNOWN_THRESHOLD:
-            return "uncertain", best_sim
+            # Uncertain match — return the candidate name with "?" so the UI can
+            # display it as amber and let the user confirm or correct it.
+            return f"{best_name}?", best_sim
         return best_name, best_sim
 
     def get_throttle_state(self) -> dict[int, float]:
