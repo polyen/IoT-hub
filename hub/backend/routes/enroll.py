@@ -8,6 +8,7 @@ import os
 import pickle
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -28,6 +29,48 @@ class EnrollBody(BaseModel):
 class EnrollResponse(BaseModel):
     status: str
     enrolled_count: int
+
+
+@router.get("/api/cv/enrollments")
+async def list_enrollments() -> dict[str, Any]:
+    """Return the names of all enrolled faces (without embeddings)."""
+    enrolled: dict[str, list[float]] = {}
+    if EMBEDDINGS_PATH.exists():
+        try:
+            with open(EMBEDDINGS_PATH, "rb") as f:
+                enrolled = pickle.load(f)  # noqa: S301
+        except (EOFError, pickle.UnpicklingError):
+            pass
+    return {"names": sorted(enrolled.keys()), "count": len(enrolled)}
+
+
+@router.delete("/api/cv/enrollments/{name}")
+async def delete_enrollment(name: str) -> dict[str, Any]:
+    """Remove a named face from embeddings.pkl and hot-reload the CV pipeline."""
+    if not EMBEDDINGS_PATH.exists():
+        raise HTTPException(status_code=404, detail="No enrollments file found")
+
+    enrolled: dict[str, list[float]] = {}
+    try:
+        with open(EMBEDDINGS_PATH, "rb") as f:
+            enrolled = pickle.load(f)  # noqa: S301
+    except (EOFError, pickle.UnpicklingError) as exc:
+        raise HTTPException(status_code=500, detail=f"Corrupt embeddings file: {exc}") from exc
+
+    if name not in enrolled:
+        raise HTTPException(status_code=404, detail=f"'{name}' not found in enrollments")
+
+    del enrolled[name]
+
+    tmp = EMBEDDINGS_PATH.with_suffix(".pkl.tmp")
+    with open(tmp, "wb") as f:
+        pickle.dump(enrolled, f)
+    tmp.replace(EMBEDDINGS_PATH)
+
+    logger.info("Deleted enrollment: '%s'", name)
+    _sighup_cv()
+
+    return {"status": "ok", "enrolled_count": len(enrolled)}
 
 
 @router.post("/api/cv/enroll", response_model=EnrollResponse)

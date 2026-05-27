@@ -1,10 +1,11 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Camera, Eye, EyeOff, Crosshair, ImageDown, PenLine } from "lucide-react";
+import { Camera, Eye, EyeOff, Crosshair, ImageDown, PenLine, Users } from "lucide-react";
 import { api } from "../../lib/api";
 import { CameraLive, type CameraLiveHandle } from "./CameraLive";
 import { AnnotationModal } from "./AnnotationModal";
+import { EnrollmentsDialog } from "./EnrollmentsDialog";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
 import { Button } from "../../components/Button";
@@ -130,6 +131,7 @@ export default function CamerasPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [snapshotCamera, setSnapshotCamera] = useState<CameraType | null>(null);
   const [annotationFrame, setAnnotationFrame] = useState<string | null>(null);
+  const [enrollmentsOpen, setEnrollmentsOpen] = useState(false);
   const cameraLiveRef = useRef<CameraLiveHandle>(null);
 
   const handleAnnotate = () => {
@@ -208,6 +210,16 @@ export default function CamerasPage() {
             <PenLine size={14} />
             Розмітити
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setEnrollmentsOpen(true)}
+            className="gap-1.5"
+            title="Знайомі обличчя"
+          >
+            <Users size={14} />
+            Знайомі
+          </Button>
         </div>
       </div>
 
@@ -242,6 +254,10 @@ export default function CamerasPage() {
           imageDataUrl={annotationFrame}
           onClose={() => setAnnotationFrame(null)}
         />
+      )}
+
+      {enrollmentsOpen && (
+        <EnrollmentsDialog onClose={() => setEnrollmentsOpen(false)} />
       )}
     </div>
   );
