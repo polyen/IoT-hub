@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     ntfy_url: str = "http://ntfy"
     deploy_token: str = ""
     mediamtx_api: str = "http://mediamtx:9997"
+    annotation_dataset_dir: str = "datasets/fire_smoke_mixed"
 
 
 settings = Settings()

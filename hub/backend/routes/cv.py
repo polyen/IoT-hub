@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import logging
 import uuid
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 import httpx
@@ -16,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from hub.backend.config import settings
 from hub.backend.db import AsyncSessionLocal, get_session
 from hub.backend.models import DevicePlacement, Event
-from hub.backend.schemas.cv import CameraOut
+from hub.backend.schemas.cv import AnnotationRequest, CameraOut
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["cv"])
@@ -181,6 +185,40 @@ async def pipeline_config(session: SessionDep) -> dict[str, Any]:
         "room": cfg.get("mqtt_room") or placement.room.slug,
         "camera_id": str(placement.id),
     }
+
+
+@router.post("/api/cv/annotate")
+async def save_annotation(req: AnnotationRequest) -> dict[str, Any]:
+    """Save a manually-annotated frame to the fire_smoke_mixed training dataset.
+
+    Writes a JPEG image + YOLO-format label file (.txt) to the configured
+    dataset directory.  class_id mapping: 0=person, 1=fire, 2=smoke.
+    """
+    try:
+        image_bytes = base64.b64decode(req.image_b64)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid base64 image") from exc
+
+    dataset_dir = Path(settings.annotation_dataset_dir)
+    images_dir = dataset_dir / "images" / "train"
+    labels_dir = dataset_dir / "labels" / "train"
+    try:
+        images_dir.mkdir(parents=True, exist_ok=True)
+        labels_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Cannot create dataset dirs: {exc}") from exc
+
+    ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f")
+    stem = f"annot_{ts}"
+    image_path = images_dir / f"{stem}.jpg"
+    label_path = labels_dir / f"{stem}.txt"
+
+    image_path.write_bytes(image_bytes)
+    label_lines = [f"{b.class_id} {b.cx:.6f} {b.cy:.6f} {b.w:.6f} {b.h:.6f}" for b in req.boxes]
+    label_path.write_text("\n".join(label_lines) + ("\n" if label_lines else ""))
+
+    logger.info("Saved annotation %s (%d boxes)", stem, len(req.boxes))
+    return {"saved": stem, "boxes": len(req.boxes)}
 
 
 @router.websocket("/ws/cv/{camera_id}")

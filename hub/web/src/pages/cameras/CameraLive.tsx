@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { DetectionOverlay } from "../../features/cv/DetectionOverlay";
@@ -10,6 +10,11 @@ interface Props {
   camera: Camera;
   overlayEnabled: boolean;
   blurred?: boolean;
+}
+
+export interface CameraLiveHandle {
+  /** Capture the current video frame as a JPEG data URL, or null if not ready. */
+  capture: () => string | null;
 }
 
 // Derive WHEP URL from HLS URL: /hls/camera/index.m3u8 → /whep/camera/whep
@@ -55,11 +60,26 @@ interface EnrollState {
   name: string;
 }
 
-export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
+export const CameraLive = forwardRef<CameraLiveHandle, Props>(function CameraLive(
+  { camera, overlayEnabled, blurred = false },
+  ref,
+) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoDims, setVideoDims] = useState({ w: 640, h: 360 });
   const [enrollState, setEnrollState] = useState<EnrollState | null>(null);
   const frame = useCameraStream(camera.id);
+
+  useImperativeHandle(ref, () => ({
+    capture: () => {
+      const video = videoRef.current;
+      if (!video || !video.videoWidth) return null;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d")?.drawImage(video, 0, 0);
+      return canvas.toDataURL("image/jpeg", 0.92);
+    },
+  }));
 
   const enrollMutation = useMutation({
     mutationFn: (s: EnrollState) =>
@@ -213,4 +233,4 @@ export function CameraLive({ camera, overlayEnabled, blurred = false }: Props) {
       )}
     </div>
   );
-}
+});

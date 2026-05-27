@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Camera, Eye, EyeOff, Crosshair, ImageDown } from "lucide-react";
+import { Camera, Eye, EyeOff, Crosshair, ImageDown, PenLine } from "lucide-react";
 import { api } from "../../lib/api";
-import { CameraLive } from "./CameraLive";
+import { CameraLive, type CameraLiveHandle } from "./CameraLive";
+import { AnnotationModal } from "./AnnotationModal";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
 import { Button } from "../../components/Button";
@@ -128,6 +129,17 @@ export default function CamerasPage() {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [snapshotCamera, setSnapshotCamera] = useState<CameraType | null>(null);
+  const [annotationFrame, setAnnotationFrame] = useState<string | null>(null);
+  const cameraLiveRef = useRef<CameraLiveHandle>(null);
+
+  const handleAnnotate = () => {
+    const dataUrl = cameraLiveRef.current?.capture();
+    if (dataUrl) {
+      setAnnotationFrame(dataUrl);
+    } else {
+      toast.error("Не вдалося захопити кадр — відео ще не завантажено");
+    }
+  };
 
   if (isLoading) {
     return (
@@ -185,10 +197,21 @@ export default function CamerasPage() {
             <ImageDown size={14} />
             Знімок
           </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleAnnotate}
+            className="gap-1.5"
+            disabled={privacyMode}
+            title="Захопити кадр і розмітити об'єкти"
+          >
+            <PenLine size={14} />
+            Розмітити
+          </Button>
         </div>
       </div>
 
-      <CameraLive camera={selected} overlayEnabled={overlayEnabled} blurred={privacyMode} />
+      <CameraLive ref={cameraLiveRef} camera={selected} overlayEnabled={overlayEnabled} blurred={privacyMode} />
 
       {cameras.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
@@ -212,6 +235,13 @@ export default function CamerasPage() {
 
       {snapshotCamera && (
         <SnapshotDialog camera={snapshotCamera} onClose={() => setSnapshotCamera(null)} />
+      )}
+
+      {annotationFrame && (
+        <AnnotationModal
+          imageDataUrl={annotationFrame}
+          onClose={() => setAnnotationFrame(null)}
+        />
       )}
     </div>
   );
