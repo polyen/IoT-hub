@@ -251,8 +251,13 @@ class PoseEstimator:
         best_score = 0.0
         actual_max = 0.0
         best_kpts_raw: Any = None
+        best_gy = 0
+        best_gx = 0
+        best_stride = self._input_h // 8  # fallback
 
-        for (_sh, sw), tensors in by_scale.items():
+        for (sh, sw), tensors in by_scale.items():
+            stride = self._input_h // sh  # 640/80=8, 640/40=16, 640/20=32
+
             kpts_map = tensors.get(51)  # [H, W, 51] — keypoints
             if kpts_map is None:
                 continue
@@ -280,6 +285,9 @@ class PoseEstimator:
             if score > best_score:
                 best_score = score
                 best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
+                best_gy = gy
+                best_gx = gx
+                best_stride = stride
 
         if best_kpts_raw is None or best_score < self._confidence_threshold:
             channels_per_scale = {k: sorted(v.keys()) for k, v in by_scale.items()}
@@ -293,19 +301,16 @@ class PoseEstimator:
             )
             return None
 
-        # One-shot diagnostic: log raw keypoint values to determine coordinate space.
-        if not getattr(self, "_kpts_logged", False):
-            self._kpts_logged = True
-            raw_kps_debug = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
-            logger.warning("pose kpts_raw first5 (x,y,vis): %s", raw_kps_debug[:5].tolist())
-
-        # Decode keypoints: x,y in input-pixel space → normalise to [0,1].
+        # Decode keypoints.
+        # The Hailo yolov8s_pose HEF outputs kp_x/kp_y as offsets from the grid
+        # cell origin in cell-unit space (NOT pixel coordinates).  The correct
+        # decode is: pixel = (grid_index + raw_offset) * stride.
         # Visibility is a raw logit → sigmoid.
         kps = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
         points: list[tuple[float, float, float]] = []
-        for kp_x, kp_y, kp_v in kps:
-            nx = float(kp_x) / self._input_w
-            ny = float(kp_y) / self._input_h
+        for kp_x_raw, kp_y_raw, kp_v in kps:
+            nx = (best_gx + float(kp_x_raw)) * best_stride / self._input_w
+            ny = (best_gy + float(kp_y_raw)) * best_stride / self._input_h
             vis = _sigmoid(float(kp_v))
             points.append((nx, ny, vis))
         return points
