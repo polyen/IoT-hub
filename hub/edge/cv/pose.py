@@ -235,8 +235,9 @@ class PoseEstimator:
                       NOTE: always 0.0 when input is a tight person crop (person
                       fills the entire 640×640 — no anchor matches).  Fallback:
                       use mean keypoint visibility as proxy confidence.
-          [H, W, 51]  keypoints — x,y in input-pixel coords [0, input_w/h],
-                      visibility is a raw logit.
+          [H, W, 51]  keypoints — x,y are logit(coord/input_size), i.e.
+                      sigmoid(raw) gives the crop-normalised [0,1] coordinate.
+                      Visibility is a raw logit.
         """
         import numpy as np  # type: ignore[import]
 
@@ -251,13 +252,8 @@ class PoseEstimator:
         best_score = 0.0
         actual_max = 0.0
         best_kpts_raw: Any = None
-        best_gy = 0
-        best_gx = 0
-        best_stride = self._input_h // 8  # fallback
 
         for (sh, sw), tensors in by_scale.items():
-            stride = self._input_h // sh  # 640/80=8, 640/40=16, 640/20=32
-
             kpts_map = tensors.get(51)  # [H, W, 51] — keypoints
             if kpts_map is None:
                 continue
@@ -273,7 +269,7 @@ class PoseEstimator:
                 # Tight person crop: confidence is all-zero because no anchor spans
                 # the full image.  Fall back to mean keypoint visibility (logit →
                 # sigmoid), which is non-zero whenever keypoints are predicted.
-                kps_grid = kpts_map.reshape(kpts_map.shape[0], kpts_map.shape[1], NUM_KEYPOINTS, 3)
+                kps_grid = kpts_map.reshape(sh, sw, NUM_KEYPOINTS, 3)
                 vis_logits = kps_grid[..., 2]  # [H, W, 17]
                 score_map = (1.0 / (1.0 + np.exp(-vis_logits.clip(-500, 500)))).mean(axis=-1)
 
@@ -285,9 +281,6 @@ class PoseEstimator:
             if score > best_score:
                 best_score = score
                 best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
-                best_gy = gy
-                best_gx = gx
-                best_stride = stride
 
         if best_kpts_raw is None or best_score < self._confidence_threshold:
             channels_per_scale = {k: sorted(v.keys()) for k, v in by_scale.items()}
@@ -301,35 +294,15 @@ class PoseEstimator:
             )
             return None
 
-        # One-shot: log best cell + decoded coords to verify formula.
-        if not getattr(self, "_cell_logged", False):
-            self._cell_logged = True
-            kps_dbg = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
-            decoded3 = [
-                (
-                    round((best_gx + float(kp[0])) * best_stride / self._input_w, 3),
-                    round((best_gy + float(kp[1])) * best_stride / self._input_h, 3),
-                )
-                for kp in kps_dbg[:3]
-            ]
-            logger.warning(
-                "pose best_cell gy=%d gx=%d stride=%d → decoded first3 (nx,ny): %s",
-                best_gy,
-                best_gx,
-                best_stride,
-                decoded3,
-            )
-
         # Decode keypoints.
-        # The Hailo yolov8s_pose HEF outputs kp_x/kp_y as offsets from the grid
-        # cell origin in cell-unit space (NOT pixel coordinates).  The correct
-        # decode is: pixel = (grid_index + raw_offset) * stride.
-        # Visibility is a raw logit → sigmoid.
+        # The Hailo yolov8s_pose HEF encodes x, y as logit(coord / input_size),
+        # i.e. sigmoid(raw) gives the crop-normalised [0, 1] coordinate directly.
+        # Visibility is also a raw logit → sigmoid.
         kps = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
         points: list[tuple[float, float, float]] = []
         for kp_x_raw, kp_y_raw, kp_v in kps:
-            nx = (best_gx + float(kp_x_raw)) * best_stride / self._input_w
-            ny = (best_gy + float(kp_y_raw)) * best_stride / self._input_h
+            nx = _sigmoid(float(kp_x_raw))
+            ny = _sigmoid(float(kp_y_raw))
             vis = _sigmoid(float(kp_v))
             points.append((nx, ny, vis))
         return points
