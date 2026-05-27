@@ -804,6 +804,12 @@ def _suppress_paho_gc_noise(args: sys.UnraisableHookArgs) -> None:
 if __name__ == "__main__":
     import sys
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s %(message)s",
+        stream=sys.stderr,
+    )
+
     sys.unraisablehook = _suppress_paho_gc_noise
 
     if PROM_AVAILABLE:
