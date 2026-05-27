@@ -188,6 +188,17 @@ class PoseEstimator:
             for name, buf in self._out_bufs.items():
                 bindings.output(name).set_buffer(buf)
             self._configured.run([bindings], timeout=1000)
+            # One-shot diagnostic: log tensor shapes and value ranges after first run.
+            if not getattr(self, "_shapes_logged", False):
+                self._shapes_logged = True
+                for name, buf in self._out_bufs.items():
+                    logger.warning(
+                        "pose tensor %r shape=%s max=%.4f min=%.4f",
+                        name,
+                        buf.shape,
+                        float(buf.max()),
+                        float(buf.min()),
+                    )
             kp_pts = self._decode_multi()
         else:
             # Legacy: calibrated on [0, 255].
