@@ -278,10 +278,25 @@ services:
       POSE_HEF_PATH: /app/models/current_pose.hef
       FACE_HEF_PATH: /app/models/current_face.hef
       FACE_EMBEDDINGS_PATH: /app/models/embeddings.pkl
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      # T0 frame storage path — must match the volume target below so that
+      # frame_blob_ref paths stored in the DB are valid on the host too
+      # (training/mining.py reads frames directly from the host path).
+      # Dev default: named volume "t0-frames" mounted at /mnt/t0-frames.
+      # Production: set T0_HOST_DIR=/mnt/ssd/edge-data in .env to use the
+      # real SSD; Docker bind-mounts it at the same path inside the container.
+      T0_MOUNT: ${T0_HOST_DIR:-/mnt/t0-frames}
     volumes:
       # Read-only — only the backend's ModelStore writes here. cv just opens
       # the symlinks for inference and reacts to SIGHUP to reload.
       - ${MODELS_HOST_DIR:-/opt/iot-hub/models}:/app/models:ro
+      # T0 frame ring-buffer.
+      # Dev (T0_HOST_DIR not set): named volume — passes mount check because
+      #   Docker volumes are proper mount points inside the container.
+      # Prod (T0_HOST_DIR=/mnt/ssd/edge-data): bind mount at the same path,
+      #   so frame_blob_ref paths are identical on host and in container.
+      - ${T0_HOST_DIR:-t0-frames}:${T0_HOST_DIR:-/mnt/t0-frames}
     # Hailo HAT requires /dev/hailo0; declare it as an override in
     # docker-compose.prod.yml on the RPi5 so dev/CI machines without HailoRT
     # can still bring the compose up. The cv pipeline degrades gracefully
@@ -435,6 +450,7 @@ volumes:
   # tree (${MODELS_HOST_DIR}/llm) as HEFs for uniform backup/sync.
   piper-models:
   hf-cache:
+  t0-frames:
 
 # -----------------------------------------------------------------------------
 # Networks

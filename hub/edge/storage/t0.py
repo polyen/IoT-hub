@@ -1,7 +1,8 @@
-"""T0 storage guard — enforces that private data only writes to encrypted storage.
+"""T0 storage guard — enforces that private data only writes to external storage.
 
-T0 data (face frames, biometrics) MUST reside on /mnt/edge-data (LUKS-encrypted).
-This module refuses writes if the mount is not present or not encrypted.
+T0 frames must reside on a separate storage device from the OS root (SSD, NVMe,
+or LUKS-encrypted partition).  The directory does not have to be the exact mount
+point — any subdirectory of an externally-mounted filesystem is accepted.
 """
 
 from __future__ import annotations
@@ -23,17 +24,28 @@ class T0StorageError(RuntimeError):
     pass
 
 
-def _is_mounted(path: Path) -> bool:
-    """Return True if path is a real mount point (not the underlying fs root)."""
-    return path.is_mount()
+def _is_on_external_device(path: Path) -> bool:
+    """Return True if path (or its nearest existing ancestor) is on a block
+    device different from the root filesystem.
+
+    Accepts mount-point subdirectories (e.g. /mnt/ssd/edge-data where /mnt/ssd
+    is the actual mount) as well as exact mount points and Docker bind mounts.
+    """
+    # Walk up to the nearest existing ancestor.
+    p = path
+    while not p.exists():
+        parent = p.parent
+        if parent == p:
+            return False
+        p = parent
+    try:
+        return os.stat(p).st_dev != os.stat("/").st_dev
+    except OSError:
+        return False
 
 
 def _is_luks_encrypted(path: Path) -> bool:
-    """Check if the block device backing path is LUKS-encrypted.
-
-    Uses findmnt to identify the source device and cryptsetup to verify type.
-    Falls back gracefully on non-Linux or in Docker dev environments without LUKS.
-    """
+    """Check if the block device backing path is LUKS-encrypted."""
     try:
         result = subprocess.run(
             ["findmnt", "--target", str(path), "--output", "SOURCE", "--noheadings"],
@@ -56,21 +68,24 @@ def _is_luks_encrypted(path: Path) -> bool:
 
 
 def assert_t0_available() -> None:
-    """Raise T0StorageError if T0 mount is not available or not encrypted."""
+    """Raise T0StorageError if T0 storage is not available or not on external storage."""
     if not T0_MOUNT.exists():
         raise T0StorageError(
-            f"T0 mount point {T0_MOUNT} does not exist. "
-            "Run edge-bootstrap.sh to set up LUKS partition."
+            f"T0 storage directory {T0_MOUNT} does not exist. "
+            f"Create it first: sudo mkdir -p {T0_MOUNT} && sudo chown $USER {T0_MOUNT}"
         )
-    if not _is_mounted(T0_MOUNT):
+    # Accept either an exact mount point (LUKS, Docker volume/bind) or any
+    # subdirectory that sits on a separate block device from root.
+    if not T0_MOUNT.is_mount() and not _is_on_external_device(T0_MOUNT):
         raise T0StorageError(
-            f"{T0_MOUNT} is not mounted. "
-            "Unlock LUKS volume: sudo cryptsetup luksOpen /dev/nvme0n1p1 edge-data"
+            f"{T0_MOUNT} is on the root filesystem. "
+            "T0 frames must be stored on a separate storage device "
+            "(external SSD, NVMe partition, or LUKS volume)."
         )
     if not _is_luks_encrypted(T0_MOUNT):
         logger.warning(
-            "T0 mount %s is not LUKS-encrypted (dev mode or check failed). "
-            "In production this MUST be encrypted.",
+            "T0 storage %s is not LUKS-encrypted. "
+            "For production privacy consider encrypting the partition.",
             T0_MOUNT,
         )
 

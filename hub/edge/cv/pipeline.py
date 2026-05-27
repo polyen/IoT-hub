@@ -606,6 +606,10 @@ class CVPipeline:
 
                             for lost_id in self._active_track_ids - current_ids:
                                 self._fall.clear_track(lost_id)
+                                # Allow a fresh T0 frame to be saved if this
+                                # track re-enters frame later (new DB Event will
+                                # carry frame_blob_ref, keeping mining viable).
+                                self._t0_saved_tracks.discard(lost_id)
                             self._active_track_ids = current_ids
 
                             # One camera/event per frame carrying every
