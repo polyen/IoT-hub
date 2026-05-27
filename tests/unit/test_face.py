@@ -305,3 +305,19 @@ def test_select_diverse_templates_handles_empty() -> None:
     empty = np.zeros((0, 512), dtype="float32")
     out = select_diverse_templates(empty, k=5)
     assert out.shape == (0, 512)
+
+
+def test_samples_save_load_roundtrip(tmp_path: Path) -> None:
+    """Regression: numpy.savez_compressed auto-appends '.npz' to path args,
+    which previously broke atomic-replace on samples.npz.tmp."""
+    from hub.backend.routes.enroll import _load_samples, _save_samples
+
+    arr = np.random.RandomState(0).randn(7, 512).astype("float32")
+    target = tmp_path / "person" / "samples.npz"
+    _save_samples(target, arr)
+    assert target.exists()
+    # The tmp must be gone (replace consumed it) and no stray .npz.tmp.npz.
+    assert not (target.parent / "samples.npz.tmp").exists()
+    assert not (target.parent / "samples.npz.tmp.npz").exists()
+    loaded = _load_samples(target)
+    np.testing.assert_array_equal(loaded, arr)

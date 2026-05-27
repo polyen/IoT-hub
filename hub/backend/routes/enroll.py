@@ -94,8 +94,13 @@ def _load_samples(path: Path) -> np.ndarray:
 
 def _save_samples(path: Path, arr: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".npz.tmp")
-    np.savez_compressed(tmp, embeddings=arr)
+    # numpy.savez_compressed auto-appends ".npz" when given a path, which
+    # turns "samples.npz.tmp" into "samples.npz.tmp.npz" and breaks the
+    # atomic-replace dance. Passing an open file-handle skips that suffix
+    # logic and writes to exactly the name we asked for.
+    tmp = path.parent / (path.name + ".tmp")
+    with open(tmp, "wb") as f:
+        np.savez_compressed(f, embeddings=arr)
     tmp.replace(path)
 
 
