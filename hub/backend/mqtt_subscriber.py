@@ -44,8 +44,14 @@ _RedisClient = Any
 # Per-room {track_id: last-seen monotonic ts}. A camera detection is persisted
 # to the DB only when its track_id is absent here — i.e. the object just
 # entered frame — so the events feed shows one row per object, not per frame.
-_SEEN_TRACK_TTL_SEC = 10.0
+_SEEN_TRACK_TTL_SEC = 60.0
 _seen_tracks: dict[str, dict[Any, float]] = {}
+
+# Deduplication for non-camera events (fused, sensors).  Key: "{room}/{type_}",
+# value: last-persisted monotonic ts.  Prevents flooding when fusion or sensor
+# nodes publish the same event type repeatedly.
+_EVENT_DEDUP_TTL_SEC = 60.0
+_seen_events: dict[str, float] = {}
 
 
 async def run(redis_client: _RedisClient) -> None:
@@ -141,6 +147,12 @@ async def _handle(
         MQTT_MSGS.labels(topic=type_, status="ok").inc()
         return
 
+    # Deduplicate repetitive non-alert event types (sensors, fused) so the
+    # events feed doesn't flood.  Alerts always bypass this check.
+    if type_ != "alert" and _is_event_suppressed(room, type_):
+        MQTT_MSGS.labels(topic=type_, status="suppressed").inc()
+        return
+
     if await _persist_event(redis_client, room, type_, tier, payload) is None:
         MQTT_MSGS.labels(topic=type_, status="db_error").inc()
         return
@@ -192,6 +204,18 @@ async def _persist_event(
         ),
     )
     return event
+
+
+def _is_event_suppressed(room: str | None, type_: str) -> bool:
+    """Return True and skip DB write if an identical (room, type_) event was
+    persisted within _EVENT_DEDUP_TTL_SEC.  Updates the seen-timestamp on first
+    occurrence so subsequent calls within the window are suppressed."""
+    key = f"{room}/{type_}"
+    now = time.monotonic()
+    if now - _seen_events.get(key, 0.0) < _EVENT_DEDUP_TTL_SEC:
+        return True
+    _seen_events[key] = now
+    return False
 
 
 def _new_tracks(room: str, dets: list[Any]) -> list[dict[str, Any]]:

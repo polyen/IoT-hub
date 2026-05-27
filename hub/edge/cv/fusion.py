@@ -14,6 +14,9 @@ FUSION_WEIGHTS: dict[str, dict[str, float]] = {
     "person": {"camera": 0.8, "pir": 0.5, "combined_bonus": 0.1},
 }
 FUSION_WINDOW_SEC = 30
+# Minimum seconds between two published fused events of the same type in the
+# same room.  Prevents 15-FPS camera frames from flooding the events feed.
+FUSED_COOLDOWN_SEC: float = 60.0
 # Confidence multiplier applied to person events when the camera sees a person
 # but no PIR trigger exists for that room in the fusion window.  A PIR-less
 # person detection is a possible glare / false-positive (see §7.2).
@@ -29,6 +32,9 @@ class RoomBuffer:
 class FusionEngine:
     def __init__(self) -> None:
         self._buffers: dict[str, RoomBuffer] = {}
+        # {room: {event_type: last_published_monotonic}} — suppresses re-publishing
+        # the same fused event type within FUSED_COOLDOWN_SEC.
+        self._last_fused: dict[str, dict[str, float]] = {}
 
     def _prune(self, room: str) -> None:
         buf = self._buffers.get(room)
@@ -159,6 +165,14 @@ class FusionEngine:
         confidence = self._compute_confidence(room, event_type)
         if confidence == 0.0:
             return None
+        # Rate-limit: skip if we already emitted the same event type for this
+        # room within the cooldown window (avoids per-frame flooding).
+        now = time.monotonic()
+        room_last = self._last_fused.setdefault(room, {})
+        if now - room_last.get(event_type, 0.0) < FUSED_COOLDOWN_SEC:
+            return None
+        room_last[event_type] = now
+
         buf = self._buffers[room]
         sources: list[str] = []
         for _ts, ev in buf.camera_events:
