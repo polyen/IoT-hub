@@ -37,6 +37,17 @@ export function DetectionOverlay({
     canvas.width = videoWidth;
     canvas.height = videoHeight;
 
+    // Show overlay lag: compare frame timestamp to browser clock.
+    if (frame.ts) {
+      const frameAge = (Date.now() - new Date(frame.ts).getTime()) / 1000;
+      const lagColor = frameAge > 5 ? "#ef4444" : frameAge > 2 ? "#f59e0b" : "#22c55e";
+      ctx.font = "11px monospace";
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.fillRect(4, 4, 132, 18);
+      ctx.fillStyle = lagColor;
+      ctx.fillText(`overlay lag: ${frameAge.toFixed(1)}s`, 8, 17);
+    }
+
     for (const det of frame.dets ?? []) {
       const [x1, y1, x2, y2] = det.bbox;
       const rx = x1 * videoWidth;
