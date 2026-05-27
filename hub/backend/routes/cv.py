@@ -6,6 +6,7 @@ import asyncio
 import base64
 import binascii
 import logging
+import time as _time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -255,14 +256,20 @@ async def ws_cv(camera_id: str, websocket: WebSocket) -> None:
         pubsub = redis.pubsub()
         await pubsub.subscribe(channel)
         try:
+            ping_at = _time.monotonic() + 25
             while True:
-                msg = await asyncio.wait_for(
-                    pubsub.get_message(ignore_subscribe_messages=True), timeout=30
-                )
+                # get_message(timeout=1.0) blocks inside redis-py for up to 1s
+                # then returns None — safe, no coroutine cancellation.
+                # asyncio.wait_for is intentionally avoided: cancelling the
+                # underlying read_response coroutine corrupts the pubsub reader
+                # state and causes 30–60 s delivery stalls.
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if msg and msg["type"] == "message":
                     await websocket.send_text(msg["data"])
-                else:
+                now = _time.monotonic()
+                if now >= ping_at:
                     await websocket.send_text('{"type":"ping"}')
+                    ping_at = now + 25
         finally:
             await pubsub.unsubscribe(channel)
             await pubsub.aclose()
