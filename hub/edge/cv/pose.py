@@ -19,7 +19,11 @@ Multi-output — ``yolov8s_pose`` / ``yolov8m_pose`` (9 tensors, 3 scales):
                 ``raw_x`` / ``raw_y`` are **unbounded floats** (no sigmoid
                 pre-applied), allowing a keypoint to land anywhere in the
                 640×640 input — not just inside the predicting cell.
-  Input must be normalised to [0, 1] (Hailo Model Zoo calibration convention).
+  Input is fed as **float32 in [0, 255]** (uint8 cast to float, no /255).
+  Hailo Model Zoo compiles yolov8s_pose with ``normalize_in_net: true``
+  (mean=0, std=255) — the first layer of the HEF rescales internally to
+  [0, 1].  Pre-dividing in Python collapses the input to ≈0 and the model
+  falls back to bias-driven outputs (a constant "default" skeleton).
 
 Single-output (legacy, shape [num_anchors, 56] or [56, num_anchors]):
     Kept for forward-compat in case a single-output HEF is loaded.
@@ -221,8 +225,11 @@ class PoseEstimator:
         bindings = self._configured.create_bindings()
 
         if self._multi_output:
-            # Hailo Model Zoo models: calibrated on [0, 1] input.
-            input_tensor = np.ascontiguousarray(padded.astype(np.float32) / 255.0)
+            # HMZ yolov8s_pose is compiled with ``normalize_in_net: true``
+            # (mean=0, std=255) — feed the raw [0, 255] float; the HEF's first
+            # layer rescales internally.  Dividing here gives ≈0 activations
+            # and the model collapses to a fixed bias-driven skeleton.
+            input_tensor = np.ascontiguousarray(padded.astype(np.float32))
             bindings.input().set_buffer(input_tensor)
             for name, buf in self._out_bufs.items():
                 bindings.output(name).set_buffer(buf)
