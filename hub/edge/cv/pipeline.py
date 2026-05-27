@@ -249,6 +249,15 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
 # containerised deployment.
 MODEL_POLL_INTERVAL_SEC = 5.0
 
+# Live face-enrollment buffer. The pipeline pushes every per-track ArcFace
+# embedding into a Redis list capped at this length; the /api/cv/enroll route
+# averages whatever is in the list at enrollment time. A larger N improves the
+# enrolled embedding's quality (averages out blur, head pose, lighting), at
+# the cost of taking longer to fill — the per-track throttle is 1 Hz, so 20
+# samples corresponds to ~20 s of in-frame time.
+MAX_ENROLL_EMBEDDINGS = 20
+ENROLL_BUFFER_TTL_SEC = 90
+
 
 def _fetch_pipeline_config(backend_url: str) -> dict[str, Any] | None:
     """Blocking GET of the CV pipeline config from the backend.
@@ -529,17 +538,22 @@ class CVPipeline:
             return
         if IDENTITY_COUNTER is not None:
             IDENTITY_COUNTER.labels(identity_class=result.identity).inc()
-        # Cache embedding for live enrollment — TTL 90s covers the typical
-        # time between spotting a face and the user naming it in the UI.
+        # Rolling buffer of the most recent N embeddings per track. The enroll
+        # route averages whatever is in the list when the user clicks save —
+        # one frame is too noisy (blur, head pose, eyes closed) to be a stable
+        # ArcFace anchor. LPUSH+LTRIM keeps the newest MAX_ENROLL_EMBEDDINGS;
+        # EXPIRE refreshes the 90 s TTL on every push so the buffer stays
+        # alive as long as the track is being observed.
         if self._redis is not None:
             try:
-                await self._redis.setex(
-                    f"cv:face_emb:{self.room}:{result.track_id}",
-                    90,
-                    json.dumps(result.embedding),
-                )
+                key = f"cv:face_embs:{self.room}:{result.track_id}"
+                pipe = self._redis.pipeline()
+                pipe.lpush(key, json.dumps(result.embedding))
+                pipe.ltrim(key, 0, MAX_ENROLL_EMBEDDINGS - 1)
+                pipe.expire(key, ENROLL_BUFFER_TTL_SEC)
+                await pipe.execute()
             except Exception as exc:
-                logger.debug("Redis face_emb cache write failed: %s", exc)
+                logger.debug("Redis face_embs cache write failed: %s", exc)
         payload = {
             "room": self.room,
             "event_type": "identity",

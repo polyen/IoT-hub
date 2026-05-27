@@ -82,14 +82,23 @@ export const CameraLive = forwardRef<CameraLiveHandle, Props>(function CameraLiv
   }));
 
   const enrollMutation = useMutation({
+    // silent: api client would auto-toast the raw backend detail; we want to
+    // localize the message based on which 4xx we got.
     mutationFn: (s: EnrollState) =>
-      api.post("/api/cv/enroll", { room: s.room, track_id: s.trackId, name: s.name }),
+      api.post("/api/cv/enroll", { room: s.room, track_id: s.trackId, name: s.name }, true),
     onSuccess: (_data, s) => {
       toast.success(`"${s.name}" додано до знайомих`);
       setEnrollState(null);
     },
     onError: (err: Error) => {
-      toast.error(err.message.includes("404") ? "Обличчя зникло з кадру — спробуйте ще раз" : "Помилка збереження");
+      const msg = err.message.toLowerCase();
+      if (msg.includes("no embeddings buffered") || msg.includes("left the frame")) {
+        toast.error("Обличчя зникло з кадру — спробуйте ще раз");
+      } else if (msg.includes("sample") && msg.includes("need at least")) {
+        toast.error("Затримайте людину в кадрі ще на кілька секунд і спробуйте знову");
+      } else {
+        toast.error(err.message || "Помилка збереження");
+      }
     },
   });
 
