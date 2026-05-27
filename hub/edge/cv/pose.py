@@ -166,6 +166,19 @@ class PoseEstimator:
 
         h, w = frame.shape[:2]
         x1, y1, x2, y2 = bbox
+
+        # Expand the crop with padding so the person occupies ~40–65% of the
+        # 640×640 HEF input rather than 100%.  Tight crops suppress the
+        # objectness head (confidence≈0 for all cells) because no anchor
+        # "fits" a person that fills the entire image; with padding the model
+        # sees a normally-sized person and returns a valid confidence signal
+        # that selects the correct cell for keypoint decoding.
+        bw, bh = x2 - x1, y2 - y1
+        x1 = max(0.0, x1 - bw * 0.75)
+        y1 = max(0.0, y1 - bh * 0.75)
+        x2 = min(1.0, x2 + bw * 0.75)
+        y2 = min(1.0, y2 + bh * 0.75)
+
         px1 = max(0, int(x1 * w))
         py1 = max(0, int(y1 * h))
         px2 = min(w, int(x2 * w))
@@ -258,9 +271,9 @@ class PoseEstimator:
             if kpts_map is None:
                 continue
 
-            conf_map = tensors.get(1)  # [H, W, 1] — may be all zeros for tight crops
+            conf_map = tensors.get(1)  # [H, W, 1]
             if conf_map is not None and float(conf_map.max()) > 1e-6:
-                # Normal scene detection: find cell with highest confidence.
+                # Padded crop: confidence has signal — use the highest-confidence cell.
                 conf = conf_map[..., 0]
                 if float(conf.max()) > 1.01:
                     conf = 1.0 / (1.0 + np.exp(-conf.clip(-500, 500)))
@@ -268,10 +281,8 @@ class PoseEstimator:
                 gy, gx = divmod(idx, sw)
                 score = float(conf[gy, gx])
             else:
-                # Tight person crop: confidence is all-zero.  Use the centre cell
-                # — the person always fills the crop so their torso is near the
-                # image centre.  This is stable across frames (unlike argmax over
-                # visibility which jumps cell-to-cell each frame).
+                # Tight crop fallback (padding couldn't prevent conf=0, e.g. person
+                # fills full frame vertically).  Use centre cell as stable fallback.
                 gy, gx = sh // 2, sw // 2
                 vis_logits = kpts_map[gy, gx].reshape(NUM_KEYPOINTS, 3)[:, 2]
                 score = float((1.0 / (1.0 + np.exp(-vis_logits.clip(-500, 500)))).mean())
