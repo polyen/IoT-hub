@@ -18,3 +18,5 @@ class EventOut(BaseModel):
     payload: dict[str, Any] | None
     model_version: str | None
     user_consent_cloud: bool
+    # Latest user feedback label for this event (tp/fp/not_sure), or None.
+    user_feedback: str | None = None

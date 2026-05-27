@@ -8,6 +8,7 @@ export interface HubEvent {
   tier: number;
   payload: Record<string, unknown> | null;
   model_version: string | null;
+  user_feedback?: string | null;
 }
 
 export interface FeedbackPayload {

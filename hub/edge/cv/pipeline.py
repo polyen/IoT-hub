@@ -439,7 +439,7 @@ class CVPipeline:
             logger.debug("T0 frame saved: %s (track=%d)", path, track.track_id)
             return str(path)
         except Exception as exc:
-            logger.debug("T0 frame save skipped: %s", exc)
+            logger.warning("T0 frame save failed (track=%d): %s", track.track_id, exc)
             return None
 
     async def _maybe_run_face(

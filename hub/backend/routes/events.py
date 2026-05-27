@@ -52,7 +52,24 @@ async def list_events(
     if tier is not None:
         stmt = stmt.where(Event.tier <= tier)
     res = await session.execute(stmt)
-    return [EventOut.model_validate(e) for e in res.scalars()]
+    events_out = [EventOut.model_validate(e) for e in res.scalars()]
+
+    # Attach latest feedback label so the UI can restore its state on reload.
+    if events_out:
+        event_ids = [e.id for e in events_out]
+        fb_res = await session.execute(
+            select(FeedbackEvent.alert_id, FeedbackEvent.user_label)
+            .where(FeedbackEvent.alert_id.in_(event_ids))
+            .order_by(FeedbackEvent.ts.desc())
+        )
+        fb_map: dict[uuid.UUID, str] = {}
+        for alert_id, label in fb_res:
+            if alert_id not in fb_map:  # keep the most-recent label per event
+                fb_map[alert_id] = label
+        for ev in events_out:
+            ev.user_feedback = fb_map.get(ev.id)
+
+    return events_out
 
 
 @router.get("/api/events/{event_id}", response_model=EventOut)

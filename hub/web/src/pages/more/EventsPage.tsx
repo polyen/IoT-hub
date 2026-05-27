@@ -161,15 +161,32 @@ function formatPayloadSummary(type: string, payload: Record<string, unknown> | n
 
 const PRESET_TAGS = ["свічка", "пара", "сонце", "відбиття", "інше"];
 
-function FeedbackRow({ eventId }: { eventId: string }) {
-  const [choice, setChoice] = useState<"tp" | "fp" | "not_sure" | null>(null);
+type FeedbackLabel = "tp" | "fp" | "not_sure";
+
+function normalizeFeedback(raw: string | null | undefined): FeedbackLabel | null {
+  if (!raw) return null;
+  const l = raw.toLowerCase();
+  if (l === "tp" || l === "fp" || l === "not_sure") return l;
+  return null;
+}
+
+function FeedbackRow({
+  eventId,
+  initialFeedback,
+}: {
+  eventId: string;
+  initialFeedback?: string | null;
+}) {
+  const [choice, setChoice] = useState<FeedbackLabel | null>(
+    () => normalizeFeedback(initialFeedback),
+  );
   const [tag, setTag] = useState("");
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState(!!initialFeedback);
   const [sending, setSending] = useState(false);
 
   const submit = useCallback(
-    async (label: "tp" | "fp" | "not_sure") => {
-      if (sent || sending) return;
+    async (label: FeedbackLabel) => {
+      if (sending) return;
       setChoice(label);
       setSending(true);
       try {
@@ -185,10 +202,24 @@ function FeedbackRow({ eventId }: { eventId: string }) {
         setSending(false);
       }
     },
-    [eventId, tag, sent, sending],
+    [eventId, tag, sending],
   );
 
-  if (sent) return <p className="text-[11px] text-green-400 mt-2">Дякуємо!</p>;
+  if (sent && choice) {
+    const labelText =
+      choice === "tp" ? "✓ Реальна" : choice === "fp" ? "✗ Хибна" : "? Не впевнений";
+    return (
+      <div className="mt-2.5 pt-2.5 border-t border-[color:var(--border)] flex items-center gap-2">
+        <span className="text-[11px] text-blue-400">{labelText}</span>
+        <button
+          onClick={() => { setSent(false); setChoice(null); }}
+          className="text-[10px] text-[color:var(--text-faint)] hover:text-[color:var(--text-muted)] transition-colors"
+        >
+          змінити
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-2.5 pt-2.5 border-t border-[color:var(--border)]">
@@ -291,7 +322,9 @@ function EventCard({ event }: { event: HubEvent }) {
             )}
           </div>
 
-          {showFeedback && <FeedbackRow eventId={event.id} />}
+          {showFeedback && (
+            <FeedbackRow eventId={event.id} initialFeedback={event.user_feedback} />
+          )}
         </div>
       </div>
     </div>
