@@ -270,11 +270,14 @@ class PoseEstimator:
                 best_kpts_raw = kpts_map[gy, gx].copy()  # [51]
 
         if best_kpts_raw is None:
+            channels_per_scale = {k: sorted(v.keys()) for k, v in by_scale.items()}
             logger.warning(
-                "Pose _decode_multi: no tensor above threshold=%.3f (actual_max=%.4f), scales=%s",
+                "Pose _decode_multi: no tensor above threshold=%.3f (actual_max=%.4f), "
+                "scales=%s channels_per_scale=%s",
                 self._confidence_threshold,
                 actual_max,
                 list(by_scale.keys()),
+                channels_per_scale,
             )
             return None
 
