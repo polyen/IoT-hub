@@ -301,6 +301,25 @@ class PoseEstimator:
             )
             return None
 
+        # One-shot: log best cell + decoded coords to verify formula.
+        if not getattr(self, "_cell_logged", False):
+            self._cell_logged = True
+            kps_dbg = best_kpts_raw.reshape(NUM_KEYPOINTS, 3)
+            decoded3 = [
+                (
+                    round((best_gx + float(kp[0])) * best_stride / self._input_w, 3),
+                    round((best_gy + float(kp[1])) * best_stride / self._input_h, 3),
+                )
+                for kp in kps_dbg[:3]
+            ]
+            logger.warning(
+                "pose best_cell gy=%d gx=%d stride=%d → decoded first3 (nx,ny): %s",
+                best_gy,
+                best_gx,
+                best_stride,
+                decoded3,
+            )
+
         # Decode keypoints.
         # The Hailo yolov8s_pose HEF outputs kp_x/kp_y as offsets from the grid
         # cell origin in cell-unit space (NOT pixel coordinates).  The correct
