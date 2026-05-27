@@ -292,6 +292,7 @@ async def _handle_camera_event(
             "conf": d.get("confidence", 0.0),
             "track_id": d.get("track_id"),
             "face_id": d.get("face_id"),
+            "kps": d.get("kps"),
         }
         tid = d.get("track_id")
         if tid is not None:
