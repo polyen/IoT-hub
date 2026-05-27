@@ -258,6 +258,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
+      start_period: 10s
 
   # ---------------------------------------------------------------------------
   # CV pipeline (stub — T2.x)
@@ -428,8 +429,12 @@ services:
     depends_on:
       backend:
         condition: service_started
+      # mediamtx is NOT a hard dependency: nginx already handles mediamtx being
+      # temporarily down (resolver+variable in /whep/ and /hls/ locations).
+      # Keeping a service_started (not service_healthy) guard just ensures the
+      # mediamtx container object exists so Docker DNS resolves the hostname.
       mediamtx:
-        condition: service_healthy
+        condition: service_started
     networks:
       - iot-internal
 
