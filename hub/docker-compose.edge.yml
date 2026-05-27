@@ -75,6 +75,10 @@ services:
     container_name: redis
     restart: unless-stopped
     command: redis-server --save 60 1 --loglevel warning
+    ports:
+      # Loopback-only — the iot-hub-cv systemd service runs on the host and
+      # needs direct Redis access for face embedding caching (/api/cv/enroll).
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     networks:

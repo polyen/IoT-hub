@@ -32,6 +32,9 @@ Environment=ENABLE_FUSION=true
 # Directory must exist and be on a separate device from root (SSD/NVMe).
 # Create once: sudo mkdir -p /mnt/ssd/edge-data && sudo chown vlad /mnt/ssd/edge-data
 Environment=T0_MOUNT=/mnt/ssd/edge-data
+# Redis on the Docker host (loopback). Required for face embedding caching so
+# that /api/cv/enroll can read cv:face_emb:{room}:{track_id} within 90 s TTL.
+Environment=REDIS_URL=redis://127.0.0.1:6379/0
 
 # Optional site-local overrides (create this file to change any of the above)
 EnvironmentFile=-/etc/iot-hub-cv.env
