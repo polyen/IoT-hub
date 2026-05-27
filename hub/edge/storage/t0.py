@@ -19,6 +19,10 @@ T0_MOUNT = Path(os.environ.get("T0_MOUNT", "/mnt/edge-data"))
 T0_FRAMES_DIR = T0_MOUNT / "frames"
 RETENTION_DAYS = int(os.environ.get("T0_RETENTION_DAYS", "7"))
 
+# Cached result of assert_t0_available() — the storage device and LUKS status
+# don't change at runtime, so subprocess checks run only once.
+_t0_check_done: bool = False
+
 
 class T0StorageError(RuntimeError):
     pass
@@ -68,7 +72,14 @@ def _is_luks_encrypted(path: Path) -> bool:
 
 
 def assert_t0_available() -> None:
-    """Raise T0StorageError if T0 storage is not available or not on external storage."""
+    """Raise T0StorageError if T0 storage is not available or not on external storage.
+
+    Storage device and LUKS status are checked only once per process — results
+    are cached in _t0_check_done to avoid subprocess spam on every frame.
+    """
+    global _t0_check_done
+    if _t0_check_done:
+        return
     if not T0_MOUNT.exists():
         raise T0StorageError(
             f"T0 storage directory {T0_MOUNT} does not exist. "
@@ -86,6 +97,7 @@ def assert_t0_available() -> None:
             "For production privacy consider encrypting the partition.",
             T0_MOUNT,
         )
+    _t0_check_done = True
 
 
 def write_frame(frame_bytes: bytes, track_id: int, timestamp: datetime | None = None) -> Path:
