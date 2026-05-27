@@ -12,7 +12,7 @@ Multi-output — ``yolov8s_pose`` / ``yolov8m_pose`` (9 tensors, 3 scales):
     [H, W, 64]  DFL bbox regression — not used; we only need keypoints.
     [H, W,  1]  objectness/confidence — sigmoid already applied by Hailo.
     [H, W, 51]  17 COCO keypoints × (x, y, visibility).
-                x, y are in input-pixel coords [0, input_w/h].
+                x, y are logit(coord/input_size); sigmoid gives crop-normalised [0,1].
                 visibility is a raw logit; ``_decode_multi`` applies sigmoid.
   Input must be normalised to [0, 1] (Hailo Model Zoo calibration convention).
 
@@ -201,17 +201,6 @@ class PoseEstimator:
             for name, buf in self._out_bufs.items():
                 bindings.output(name).set_buffer(buf)
             self._configured.run([bindings], timeout=1000)
-            # One-shot diagnostic: log tensor shapes and value ranges after first run.
-            if not getattr(self, "_shapes_logged", False):
-                self._shapes_logged = True
-                for name, buf in self._out_bufs.items():
-                    logger.warning(
-                        "pose tensor %r shape=%s max=%.4f min=%.4f",
-                        name,
-                        buf.shape,
-                        float(buf.max()),
-                        float(buf.min()),
-                    )
             kp_pts = self._decode_multi()
         else:
             # Legacy: calibrated on [0, 255].
