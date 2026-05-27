@@ -106,6 +106,10 @@ services:
       CV_CONTAINER: cv
       VOICE_CONTAINER: voice
       DEPLOY_TOKEN: ${DEPLOY_TOKEN:?DEPLOY_TOKEN is required}
+      # Directory inside the container where manually-annotated frames are saved.
+      # Override ANNOTATION_HOST_DIR in .env to bind-mount a host path (e.g. SSD)
+      # so annotated data is accessible outside the container for rsync / DVC sync.
+      ANNOTATION_DATASET_DIR: ${ANNOTATION_DATASET_DIR:-/app/annotation-dataset}
     volumes:
       # Read-write so promote() can swap the active_{kind}.hef symlink and
       # append to deployments.json; the underlying versions/ tree is bind-mounted
@@ -115,6 +119,7 @@ services:
       # bind is :ro at the OS level; Docker still requires the docker.sock
       # GID to be exposed to appuser inside the container — see ``group_add``.
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${ANNOTATION_HOST_DIR:-annotation-dataset}:${ANNOTATION_DATASET_DIR:-/app/annotation-dataset}
     # appuser inside the container must be able to read the docker socket on
     # the host. The host docker group GID is passed at runtime via env so the
     # compose file stays portable across hosts (RPi5 usually 988; varies).
@@ -456,6 +461,7 @@ volumes:
   piper-models:
   hf-cache:
   t0-frames:
+  annotation-dataset:
 
 # -----------------------------------------------------------------------------
 # Networks
