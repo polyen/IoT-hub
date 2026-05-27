@@ -75,7 +75,7 @@ class PoseEstimator:
     def __init__(
         self,
         hef_path: Path,
-        confidence_threshold: float = 0.3,
+        confidence_threshold: float = 0.05,
     ) -> None:
         if not HAILO_AVAILABLE:
             raise ImportError("hailo_platform required — run on RPi5 with HailoRT")
@@ -235,6 +235,7 @@ class PoseEstimator:
             by_scale.setdefault((bh, bw), {})[bc] = buf
 
         best_conf = self._confidence_threshold
+        actual_max = 0.0
         best_kpts_raw: Any = None
 
         for (_sh, sw), tensors in by_scale.items():
@@ -251,6 +252,7 @@ class PoseEstimator:
             idx = int(np.argmax(conf))
             gy, gx = divmod(idx, sw)
             score = float(conf[gy, gx])
+            actual_max = max(actual_max, score)
 
             if score > best_conf:
                 best_conf = score
@@ -258,9 +260,9 @@ class PoseEstimator:
 
         if best_kpts_raw is None:
             logger.warning(
-                "Pose _decode_multi: no tensor above threshold=%.2f (best=%.3f), scales=%s",
+                "Pose _decode_multi: no tensor above threshold=%.3f (actual_max=%.4f), scales=%s",
                 self._confidence_threshold,
-                best_conf,
+                actual_max,
                 list(by_scale.keys()),
             )
             return None
