@@ -340,7 +340,7 @@ services:
       WAKE_WORD_MODEL_PATH: ${WAKE_WORD_MODEL_PATH:-}
       FORCE_CPU_STT: ${FORCE_CPU_STT:-false}
       # Hailo Whisper (preferred on RPi5+Hailo-8): tiny (10s window) or base (5s).
-      WHISPER_VARIANT: ${WHISPER_VARIANT:-tiny}
+      WHISPER_VARIANT: ${WHISPER_VARIANT:-base}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-uk}
       WHISPER_ASSETS_DIR: /app/.whisper_cache
       NPU_STRATEGY: ${NPU_STRATEGY:-whisper_waits}
