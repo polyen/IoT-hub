@@ -42,7 +42,14 @@ class LocalLLMClient:
             if stop:
                 payload["stop"] = stop
             resp = await client.post(f"{self._base_url}/v1/completions", json=payload)
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # llama-cpp-server returns a JSON error body — surface it so the
+                # caller's log shows the real cause instead of a bare HTTPStatusError.
+                raise httpx.HTTPStatusError(
+                    f"LLM /v1/completions HTTP {resp.status_code}: {resp.text[:500]}",
+                    request=resp.request,
+                    response=resp,
+                )
             data = resp.json()
             # OpenAI-compatible response: choices[0].text
             choices = data.get("choices")
@@ -66,7 +73,12 @@ class LocalLLMClient:
                 "stream": False,
             }
             resp = await client.post(f"{self._base_url}/v1/completions", json=payload)
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                raise httpx.HTTPStatusError(
+                    f"LLM /v1/completions HTTP {resp.status_code}: {resp.text[:500]}",
+                    request=resp.request,
+                    response=resp,
+                )
             data = resp.json()
             choices = data.get("choices")
             content = (

@@ -128,7 +128,14 @@ class LLMReasoner:
             )
             reasoning = reasoning.strip()
         except Exception as exc:
-            logger.warning("LLMReasoner: reasoning turn failed: %s", exc)
+            # Include exception type + repr — bare str(exc) is empty for several
+            # httpx errors (RemoteProtocolError, some ConnectError variants).
+            logger.warning(
+                "LLMReasoner: reasoning turn failed: %s: %r",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             reasoning = ""
 
         if not reasoning:
@@ -147,11 +154,16 @@ class LLMReasoner:
                 max_tokens=150,
             )
         except Exception as exc:
-            logger.warning("LLMReasoner: constrained turn failed: %s", exc)
+            logger.warning(
+                "LLMReasoner: constrained turn failed: %s: %r",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             return ReasonedAction(
                 success=False,
                 reasoning=reasoning,
-                failure_reason=f"LLM не згенерував tool call: {exc}",
+                failure_reason=f"LLM не згенерував tool call: {type(exc).__name__}: {exc}",
             )
 
         device_id = str(raw.get("device_id", "")).strip()
