@@ -169,11 +169,26 @@ async def _init_mediamtx_from_db() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.redis = aioredis.from_url(settings.redis_url, decode_responses=True)
 
+    # Device registry — must load before orchestrator starts
+    from hub.backend.db import AsyncSessionLocal  # noqa: PLC0415
+    from hub.backend.services.device_registry import DeviceRegistry  # noqa: PLC0415
+
+    device_registry = DeviceRegistry(
+        session_factory=AsyncSessionLocal,
+        redis_client=app.state.redis,
+    )
+    try:
+        await device_registry.load()
+    except Exception as exc:
+        logger.warning("DeviceRegistry initial load failed (DB may not be up yet): %s", exc)
+    app.state.device_registry = device_registry
+
     await _init_mediamtx_from_db()
 
     tasks: list[asyncio.Task[None]] = [
         asyncio.create_task(mqtt_subscriber.run(app.state.redis), name="mqtt-subscriber"),
         asyncio.create_task(mqtt_subscriber.run_outbound(app.state.redis), name="mqtt-outbound"),
+        asyncio.create_task(device_registry.watch(), name="device-registry-watch"),
     ]
     if os.environ.get("ENABLE_DEPLOY_MONITOR", "true").lower() == "true":
         # Watch every kind that has its own rollback trigger (yolo + pose);

@@ -133,6 +133,7 @@ async def put_floorplan(
             polygon=ri.polygon,
             color=ri.color,
             order=ri.order,
+            aliases=ri.aliases,
         )
         session.add(room)
         room_id_map[str(ri.id)] = room.id
@@ -151,11 +152,23 @@ async def put_floorplan(
                 y=pi.y,
                 label=pi.label,
                 config=pi.config,
+                aliases=pi.aliases,
+                controllable=pi.controllable,
+                actions=pi.actions,
             )
         )
 
     await session.commit()
     bg.add_task(_sync_cameras_bg, body.placements)
+
+    # Notify voice registry that topology changed
+    try:
+        from hub.backend.main import app as _app  # noqa: PLC0415
+
+        await _app.state.redis.publish("devices:registry_changed", "")
+    except Exception:
+        pass
+
     return await get_floorplan(session)
 
 

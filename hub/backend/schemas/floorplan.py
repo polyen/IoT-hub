@@ -16,6 +16,7 @@ class RoomOut(BaseModel):
     polygon: list[list[float]]
     color: str | None
     order: int
+    aliases: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -29,6 +30,9 @@ class DevicePlacementOut(BaseModel):
     y: float
     label: str | None
     config: dict[str, Any]
+    aliases: list[str] = []
+    controllable: bool = False
+    actions: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -59,6 +63,7 @@ class RoomIn(BaseModel):
     polygon: list[list[float]]
     color: str | None = None
     order: int = 0
+    aliases: list[str] = []
 
     @field_validator("polygon")
     @classmethod
@@ -80,6 +85,9 @@ class DevicePlacementIn(BaseModel):
     y: float = 0.5
     label: str | None = None
     config: dict[str, Any] = {}
+    aliases: list[str] = []
+    controllable: bool = False
+    actions: list[str] = []
 
 
 class FloorPlanIn(BaseModel):

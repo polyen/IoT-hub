@@ -8,6 +8,7 @@ import { useFloorPlan } from "../../features/floorplan/useFloorPlan";
 import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
+import { RoomAliasesPanel } from "./RoomAliasesPanel";
 import type { DeviceKind, DevicePlacement, Room } from "../../lib/types";
 
 interface DiscoveredDevice {
@@ -40,19 +41,19 @@ const ROOM_FILL_COLORS = ["#0c1a30", "#091420", "#130a18", "#091614", "#180e0a"]
 
 // Canvas color constants (hardcoded for Konva — cannot use CSS vars in canvas props)
 const C = {
-  grid:                "#0d1824",
-  roomStroke:          "#1a2e4a",
-  roomStrokeSelected:  "#c9a84c",
-  roomText:            "#c8c4b8",
-  vertexFill:          "#c9a84c",
-  vertexStroke:        "#f2dfa0",
-  pendingStroke:       "#c9a84c",
-  pendingStrokeClose:  "#e8c95a",
-  deviceFill:          "#08132a",
-  deviceFillSelected:  "#1a2840",
-  deviceStroke:        "#1e3050",
-  deviceStrokeSelected:"#c9a84c",
-  deviceLabel:         "#7a8ba8",
+  grid: "#0d1824",
+  roomStroke: "#1a2e4a",
+  roomStrokeSelected: "#c9a84c",
+  roomText: "#c8c4b8",
+  vertexFill: "#c9a84c",
+  vertexStroke: "#f2dfa0",
+  pendingStroke: "#c9a84c",
+  pendingStrokeClose: "#e8c95a",
+  deviceFill: "#08132a",
+  deviceFillSelected: "#1a2840",
+  deviceStroke: "#1e3050",
+  deviceStrokeSelected: "#c9a84c",
+  deviceLabel: "#7a8ba8",
 } as const;
 const SNAP = 0.05;
 
@@ -133,7 +134,7 @@ export function FloorPlanEditor() {
       setStageW(w);
       setStageH(Math.max(1, Math.round(w * ratio)));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // once on mount
 
   // Resize observer — keep stage sized to container on subsequent changes
@@ -204,10 +205,12 @@ export function FloorPlanEditor() {
       id: uuid4(),
       floor_plan_id: draft.floor_plans[0].id,
       name: name.trim() || "Кімната",
+      slug: "",        // set by backend on PUT /api/floorplan
       type: "other",
       polygon: newRoomState.polygon,
       color: null,
       order: draft.rooms.length,
+      aliases: [],
     };
     updateRooms([...draft.rooms, room]);
     setNewRoomState(null);
@@ -301,6 +304,9 @@ export function FloorPlanEditor() {
         y: clampN(ny),
         label: null,
         config: {},
+        aliases: [],
+        controllable: false,
+        actions: [],
       };
       updatePlacements([...draft.placements, placement]);
       // Reset discovered device selection after placing
@@ -353,8 +359,8 @@ export function FloorPlanEditor() {
               : "Клацни кімнату або пристрій для вибору.";
 
   const modeLabel: Record<string, string> = {
-    select:       "↖ Вибір",
-    "add-room":   "⬡ + Кімната",
+    select: "↖ Вибір",
+    "add-room": "⬡ + Кімната",
     "add-device": "· + Пристрій",
   };
 
@@ -501,6 +507,20 @@ export function FloorPlanEditor() {
           )}
         </div>
       )}
+
+      {/* ── Room aliases panel (shown when a room is selected in select mode) ── */}
+      {inSelectMode && selectedId && draft?.rooms.some((r) => r.id === selectedId) && (() => {
+        const room = draft.rooms.find((r) => r.id === selectedId)!;
+        return (
+          <RoomAliasesPanel
+            room={room}
+            onUpdate={(updated) => {
+              pushHistory();
+              updateRooms(draft.rooms.map((r) => r.id === updated.id ? updated : r));
+            }}
+          />
+        );
+      })()}
 
       {/* ── Hint ── */}
       <p className="text-xs font-mono text-[color:var(--text-faint)] min-h-[1.25rem] px-0.5">{hint}</p>

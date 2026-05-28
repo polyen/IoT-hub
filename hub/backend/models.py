@@ -173,6 +173,8 @@ class Room(Base):
     polygon: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     color: Mapped[str | None] = mapped_column(String(16))
     order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Voice aliases: UA strings users may say to refer to this room ("зала", "велика кімната").
+    aliases: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
 
     floor_plan: Mapped[FloorPlan] = relationship("FloorPlan", back_populates="rooms")
     placements: Mapped[list[DevicePlacement]] = relationship(
@@ -195,6 +197,10 @@ class DevicePlacement(Base):
     y: Mapped[float] = mapped_column(Float, nullable=False, default=0.5)
     label: Mapped[str | None] = mapped_column(String(128))
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    # Voice-control fields
+    aliases: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    controllable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    actions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
 
     room: Mapped[Room] = relationship("Room", back_populates="placements")
 

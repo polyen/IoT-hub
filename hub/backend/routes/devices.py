@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hub.backend.db import get_session
-from hub.backend.models import ConfirmRequest, DevicePlacement
+from hub.backend.models import ConfirmRequest, DevicePlacement, Room
 from hub.backend.services.policy_loader import simulate
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
@@ -26,6 +27,120 @@ class CommandBody(BaseModel):
 class CommandResult(BaseModel):
     result: str  # "auto_executed" | "confirm_required" | "denied"
     confirm_id: str | None = None
+
+
+class DeviceRow(BaseModel):
+    """Full device registry row, returned by GET /api/devices."""
+
+    id: uuid.UUID
+    device_id: str
+    kind: str
+    label: str | None
+    room_id: uuid.UUID
+    room_name: str
+    room_slug: str
+    room_aliases: list[str]
+    aliases: list[str]
+    controllable: bool
+    actions: list[str]
+    config: dict[str, Any]
+
+    model_config = {"from_attributes": True}
+
+
+class DeviceUpdate(BaseModel):
+    """All fields optional — PATCH semantics."""
+
+    label: str | None = None
+    aliases: list[str] | None = None
+    controllable: bool | None = None
+    actions: list[str] | None = None
+    config: dict[str, Any] | None = None
+
+
+async def _publish_registry_changed(request: Request) -> None:
+    """Notify all subscribers that the device registry has changed."""
+    try:
+        await request.app.state.redis.publish("devices:registry_changed", "")
+    except Exception:
+        pass
+
+
+@router.get("", response_model=list[DeviceRow])
+async def list_devices(session: SessionDep, request: Request) -> list[DeviceRow]:
+    """List all DevicePlacements joined with their Room info."""
+    result = await session.execute(
+        select(DevicePlacement, Room).join(Room, DevicePlacement.room_id == Room.id)
+    )
+    rows = result.all()
+    return [
+        DeviceRow(
+            id=p.id,
+            device_id=p.device_id,
+            kind=p.kind,
+            label=p.label,
+            room_id=r.id,
+            room_name=r.name,
+            room_slug=r.slug,
+            room_aliases=list(r.aliases or []),
+            aliases=list(p.aliases or []),
+            controllable=p.controllable,
+            actions=list(p.actions or []),
+            config=dict(p.config or {}),
+        )
+        for p, r in rows
+    ]
+
+
+@router.patch("/{device_id}", response_model=DeviceRow)
+async def patch_device(
+    device_id: str, body: DeviceUpdate, session: SessionDep, request: Request
+) -> DeviceRow:
+    """Partial update of a DevicePlacement (aliases, controllable, actions, config, label)."""
+    res = await session.execute(
+        select(DevicePlacement, Room)
+        .join(Room, DevicePlacement.room_id == Room.id)
+        .where(DevicePlacement.device_id == device_id)
+        .limit(1)
+    )
+    row = res.one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    placement, room = row
+
+    if body.label is not None:
+        placement.label = body.label
+    if body.aliases is not None:
+        placement.aliases = body.aliases
+    if body.controllable is not None:
+        placement.controllable = body.controllable
+    if body.actions is not None:
+        placement.actions = body.actions
+    if body.config is not None:
+        # Merge: keep existing keys, update/add new ones
+        merged = dict(placement.config or {})
+        merged.update(body.config)
+        placement.config = merged
+
+    await session.commit()
+    await session.refresh(placement)
+    await _publish_registry_changed(request)
+
+    return DeviceRow(
+        id=placement.id,
+        device_id=placement.device_id,
+        kind=placement.kind,
+        label=placement.label,
+        room_id=room.id,
+        room_name=room.name,
+        room_slug=room.slug,
+        room_aliases=list(room.aliases or []),
+        aliases=list(placement.aliases or []),
+        controllable=placement.controllable,
+        actions=list(placement.actions or []),
+        config=dict(placement.config or {}),
+    )
 
 
 @router.get("/{device_id}/state")
@@ -47,7 +162,7 @@ async def device_command(device_id: str, body: CommandBody, session: SessionDep)
     if not placement:
         raise HTTPException(status_code=404, detail="Device not found in floor plan")
 
-    cfg: dict = placement.config or {}
+    cfg: dict[str, object] = placement.config or {}
     topic = cfg.get("mqtt_topic", f"home/{device_id}/cmd")
 
     sim = simulate(

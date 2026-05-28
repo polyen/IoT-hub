@@ -23,6 +23,8 @@ export type DeviceKind =
   | "camera" | "light" | "lock" | "thermostat" | "relay"
   | "sensor_pir" | "sensor_door" | "sensor_dht" | "sensor_mq2" | "sensor_power" | "speaker";
 
+export type DeviceAction = "on" | "off" | "toggle" | "brightness_set" | "temp_set";
+
 export interface FloorPlan {
   id: string;
   name: string;
@@ -36,10 +38,12 @@ export interface Room {
   id: string;
   floor_plan_id: string;
   name: string;
+  slug: string;
   type: RoomType;
   polygon: [number, number][];
   color: string | null;
   order: number;
+  aliases: string[];
 }
 
 export interface DevicePlacement {
@@ -51,6 +55,34 @@ export interface DevicePlacement {
   y: number;
   label: string | null;
   config: Record<string, unknown>;
+  aliases: string[];
+  controllable: boolean;
+  actions: string[];
+}
+
+/** Full device registry row returned by GET /api/devices */
+export interface DeviceRow {
+  id: string;
+  device_id: string;
+  kind: DeviceKind;
+  label: string | null;
+  room_id: string;
+  room_name: string;
+  room_slug: string;
+  room_aliases: string[];
+  aliases: string[];
+  controllable: boolean;
+  actions: string[];
+  config: Record<string, unknown>;
+}
+
+/** PATCH /api/devices/{device_id} body */
+export interface DeviceUpdate {
+  label?: string | null;
+  aliases?: string[];
+  controllable?: boolean;
+  actions?: string[];
+  config?: Record<string, unknown>;
 }
 
 export interface FloorPlanData {
