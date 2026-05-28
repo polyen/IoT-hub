@@ -18,9 +18,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_LLM_URL = "http://localhost:8001"
 DEFAULT_MAX_TOKENS = 256
 DEFAULT_TEMPERATURE = 0.0  # deterministic for tool calls
-# Qwen 3 4B on RPi5 CPU runs at ~1.5 tok/s; at 200 max_tokens a single turn can
-# take well over 120s. 90s was clipping reasoning prompts even with no devices.
-DEFAULT_TIMEOUT_SEC = 240.0
+# Qwen 2.5 1.5B on RPi5 should hit 7-12 tok/s in isolation; observed 2-3 tok/s
+# under CPU contention with CV/STT.  360s buffer accommodates worst-case cold
+# starts plus contention; if you reliably need more, the LLM is the wrong tool
+# — switch to scene engine (research §3 D) or smaller draft model.
+DEFAULT_TIMEOUT_SEC = 360.0
 
 
 class LocalLLMClient:

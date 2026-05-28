@@ -34,10 +34,13 @@ _MAX_HISTORY = 3
 _MAX_DEVICES = 15
 
 # Reasoning is meant to be a single short sentence ("Вмикаю світло у вітальні").
-# At ~1.5 tok/s on CPU, 200 tokens = 130s. 60 is enough for two short phrases.
-_REASONING_MAX_TOKENS = 60
-# Tool-call JSON is tiny: {"device_id":"...","action":"on"} fits in ~30 tokens.
-_TOOL_MAX_TOKENS = 60
+# Empirically the model writes 1-2 sentences in 25-35 tokens; cap at 40 so the
+# stop tokens trigger before any tangent.  At 2-3 tok/s observed on Pi5 under
+# load, this is ~12-16s per reasoning turn.
+_REASONING_MAX_TOKENS = 40
+# Tool-call JSON is tiny: {"device_id":"...","action":"on"} fits in ~25 tokens.
+# Grammar enforces structure so we don't need slack for the model to "find" JSON.
+_TOOL_MAX_TOKENS = 40
 
 # Reasoning prompt template
 _REASONING_TMPL = """\

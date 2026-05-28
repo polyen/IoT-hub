@@ -398,7 +398,7 @@ services:
       MODEL_PATH: ${LLM_MODEL_PATH:-}
       MODEL_SHA256: ${LLM_MODEL_SHA256:-}
       N_CTX: ${LLM_N_CTX:-4096}
-      N_THREADS: ${LLM_N_THREADS:-4}
+      N_THREADS: ${LLM_N_THREADS:-6}
     ports:
       - "8001:8001"
     mem_limit: 4g
