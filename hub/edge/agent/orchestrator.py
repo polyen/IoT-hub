@@ -164,6 +164,7 @@ class AgentOrchestrator:
         max_tool_calls_per_turn: int = 5,
         device_registry: Any | None = None,
         state_verifier: Any | None = None,
+        llm_reasoner: Any | None = None,
     ) -> None:
         self._policy = policy
         self._router = router
@@ -173,10 +174,14 @@ class AgentOrchestrator:
         self._session_factory = session_factory
         self._max_tool_calls = max_tool_calls_per_turn
         self._state_verifier = state_verifier
+        self._llm_reasoner = llm_reasoner
 
         # ArcFace identity state (updated by identity MQTT subscription in run())
         self._last_identity: str = "default"
         self._last_identity_room: str | None = None
+
+        # Recent command history for LLM context (last 10 turns)
+        self._command_history: list[Any] = []
 
         # TextResolver (rules-based UA command parser)
         if device_registry is not None:
@@ -211,6 +216,14 @@ class AgentOrchestrator:
     ) -> None:
         """Process one voice/text command end-to-end."""
         t0 = time.monotonic()
+
+        # Track command history for LLM context
+        from hub.edge.agent.llm_reasoning import Turn  # noqa: PLC0415
+
+        self._command_history.append(Turn(text=text))
+        if len(self._command_history) > 10:
+            self._command_history = self._command_history[-10:]
+
         intent = self._router.classify_intent(text)
         logger.info("Intent: %s (score=%.2f) — %r", intent.class_, intent.score, text)
 
@@ -262,6 +275,10 @@ class AgentOrchestrator:
         )
 
         if not resolution.success:
+            # Before emitting failure, try LLM reasoner as fallback (when not forced)
+            if forced_device_id is None and self._llm_reasoner is not None:
+                await self._handle_with_reasoner(text, identity)
+                return
             await self._emit_explainable_failure(resolution, text, identity)
             return
 
@@ -405,7 +422,15 @@ class AgentOrchestrator:
         return base
 
     async def _handle_structured(self, text: str, identity: str, intent: Any = None) -> None:
-        """Use constrained LLM generation to produce tool call JSON."""
+        """Use constrained LLM generation to produce tool call JSON.
+
+        When LLMReasoner is available it provides chain-of-thought reasoning before
+        the constrained generation which improves accuracy.
+        """
+        if self._llm_reasoner is not None:
+            await self._handle_with_reasoner(text, identity)
+            return
+
         prototype = getattr(intent, "prototype", None) if intent else None
         lower = text.lower()
         # Inline grammar selection (GRAMMAR_MAP removed — use prototype + text keywords)
@@ -436,7 +461,14 @@ class AgentOrchestrator:
         await self._execute_decision(decision, tool_call, text, identity)
 
     async def _handle_creative(self, text: str, identity: str) -> None:
-        """Use LLM chat to select and parameterize a tool."""
+        """Use LLM chat to select and parameterize a tool.
+
+        When LLMReasoner is available it handles this via structured reasoning.
+        """
+        if self._llm_reasoner is not None:
+            await self._handle_with_reasoner(text, identity)
+            return
+
         system = _CREATIVE_SYSTEM.format(tool_schemas=_TOOL_SCHEMA_SUMMARY)
         raw = ""
         parsed: dict[str, Any] = {}
@@ -471,6 +503,65 @@ class AgentOrchestrator:
             payload = {"question": text}
 
         tool_call = ToolCall(tool=tool_name, topic=None, payload=payload)
+        decision = self._policy.evaluate(tool_call, text, identity)
+        await self._execute_decision(decision, tool_call, text, identity)
+
+    async def _handle_with_reasoner(self, text: str, identity: str) -> None:
+        """Run 2-turn LLM pipeline (reasoning → constrained tool call).
+
+        Publishes a ``reasoning`` event to ``agent:turn`` for the UI reasoning fold,
+        then executes the resulting tool call through the normal PolicyEngine path.
+        """
+        from hub.edge.agent.llm_reasoning import Turn  # noqa: PLC0415
+
+        history = [Turn(text=t.text) for t in self._command_history[:-1]]  # exclude current turn
+
+        result = await self._llm_reasoner.reason_and_act(text, history)  # type: ignore[union-attr]
+
+        # Always publish reasoning so the UI reasoning fold has content
+        await self._pub(
+            "agent:turn",
+            {
+                "type": "reasoning",
+                "text": result.reasoning or "(немає роздумів)",
+                "source": "llm_reasoner",
+            },
+        )
+
+        if not result.success:
+            await self._pub(
+                "agent:result",
+                {
+                    "type": "result",
+                    "action_class": "INFO",
+                    "text": result.failure_reason or "Не вдалося виконати команду через LLM.",
+                    "failure_kind": "UNCLEAR_INTENT",
+                },
+            )
+            return
+
+        # Convert ReasonedAction into a ToolCall and route through policy
+        topic = f"home/{identity}/{result.device_id}/set"
+        payload: dict[str, Any] = {}
+        action = result.action or "on"
+        if action == "on":
+            payload = {"state": "ON"}
+        elif action == "off":
+            payload = {"state": "OFF"}
+        elif action == "toggle":
+            payload = {"state": "TOGGLE"}
+        elif action == "brightness_set":
+            payload = {"brightness": result.params.get("brightness", 128)}
+        elif action == "temp_set":
+            payload = {"temperature": result.params.get("temperature", 20)}
+        else:
+            payload = result.params or {"state": "ON"}
+
+        tool_call = ToolCall(
+            tool="mqtt_publish",
+            topic=topic,
+            payload=payload,
+        )
         decision = self._policy.evaluate(tool_call, text, identity)
         await self._execute_decision(decision, tool_call, text, identity)
 

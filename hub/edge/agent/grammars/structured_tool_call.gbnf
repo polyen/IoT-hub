@@ -1,0 +1,6 @@
+root   ::= "{" ws "\"device_id\":" ws string "," ws "\"action\":" ws action ("," ws "\"params\":" ws object)? "}"
+action ::= "\"on\"" | "\"off\"" | "\"toggle\"" | "\"brightness_set\"" | "\"temp_set\"" | "\"ask_user\""
+object ::= "{" (ws string ":" ws (string | number) ("," ws string ":" ws (string | number))*)? "}"
+string ::= "\"" [^"]* "\""
+number ::= [0-9]+
+ws     ::= [ \t\n]*

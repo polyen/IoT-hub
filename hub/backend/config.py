@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     deploy_token: str = ""
     mediamtx_api: str = "http://mediamtx:9997"
     annotation_dataset_dir: str = "datasets/fire_smoke_mixed"
+    llm_reasoning_enabled: bool = True
 
 
 settings = Settings()
