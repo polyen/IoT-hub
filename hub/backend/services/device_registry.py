@@ -108,6 +108,17 @@ class DeviceRegistry:
         async with self._lock:
             self._devices = devices
 
+        # Publish state-topic → device_id map so mqtt_subscriber can write
+        # home:state:{device_id} when it receives device state messages.
+        topic_map: dict[str, str] = {
+            d.mqtt_state_topic: d.device_id for d in devices if d.mqtt_state_topic
+        }
+        async with self._redis.pipeline(transaction=True) as pipe:
+            await pipe.delete("home:device-state-topics")
+            if topic_map:
+                await pipe.hset("home:device-state-topics", mapping=topic_map)
+            await pipe.execute()
+
         logger.info("DeviceRegistry: loaded %d controllable device(s)", len(devices))
 
     async def watch(self) -> None:

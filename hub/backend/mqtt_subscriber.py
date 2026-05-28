@@ -31,6 +31,7 @@ SUBSCRIPTIONS = [
     "home/+/event/fused",
     "home/+/camera/event",
     "home/+/camera/identity",
+    "home/+/+/state",  # device state feedback (controllable devices)
 ]
 
 # How long a face recognition result is cached in Redis for overlay enrichment.
@@ -122,6 +123,13 @@ async def _handle(
         MQTT_MSGS.labels(topic=type_, status="dead_letter").inc()
         return
 
+    # Device state feedback: handled before tier check because ESPHome/Zigbee
+    # devices don't include a tier field in state messages.
+    if type_.endswith("/state") or type_ == "state":
+        await _handle_device_state(redis_client, topic_str, payload)
+        MQTT_MSGS.labels(topic=type_, status="ok").inc()
+        return
+
     tier_raw = payload.get("tier", 1)
     try:
         tier = int(tier_raw)
@@ -158,6 +166,26 @@ async def _handle(
         return
 
     MQTT_MSGS.labels(topic=type_, status="ok").inc()
+
+
+async def _handle_device_state(
+    redis_client: _RedisClient,
+    topic_str: str,
+    payload: dict[str, Any],
+) -> None:
+    """Write device state to Redis ``home:state:{device_id}`` hash.
+
+    The topic → device_id map is maintained by ``DeviceRegistry.load()``
+    in ``home:device-state-topics``.
+    """
+    device_id_raw = await redis_client.hget("home:device-state-topics", topic_str)
+    if device_id_raw is None:
+        logger.debug("Received state on unregistered topic %s — skipping", topic_str)
+        return
+    device_id = device_id_raw.decode() if isinstance(device_id_raw, bytes) else str(device_id_raw)
+    state_fields = {str(k): str(v) for k, v in payload.items()}
+    await redis_client.hset(f"home:state:{device_id}", mapping=state_fields)
+    logger.debug("Device state updated: %s → %s", device_id, state_fields)
 
 
 async def _persist_event(

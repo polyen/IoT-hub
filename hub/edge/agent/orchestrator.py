@@ -163,6 +163,7 @@ class AgentOrchestrator:
         session_factory: Any | None = None,
         max_tool_calls_per_turn: int = 5,
         device_registry: Any | None = None,
+        state_verifier: Any | None = None,
     ) -> None:
         self._policy = policy
         self._router = router
@@ -171,6 +172,7 @@ class AgentOrchestrator:
         self._mqtt = mqtt_client
         self._session_factory = session_factory
         self._max_tool_calls = max_tool_calls_per_turn
+        self._state_verifier = state_verifier
 
         # ArcFace identity state (updated by identity MQTT subscription in run())
         self._last_identity: str = "default"
@@ -273,9 +275,56 @@ class AgentOrchestrator:
             decision = self._policy.evaluate(tool_call, text, identity)
             await self._execute_decision(decision, tool_call, text, identity)
 
+            # Phase 3: verify device acknowledged the command via its state topic
+            if (
+                decision.action_class == ActionClass.AUTO
+                and device.mqtt_state_topic
+                and self._state_verifier is not None
+            ):
+                await self._verify_state_change(device, payload)
+
+    async def _verify_state_change(self, device: Any, payload: dict[str, Any]) -> None:
+        """Call StateVerifier and override agent:result with WARN if device didn't respond."""
+        from hub.edge.agent.state_verifier import VerificationResult  # noqa: PLC0415
+
+        if self._state_verifier is None:
+            return
+        result = await self._state_verifier.expect_change(
+            device_id=device.device_id,
+            expected=payload,
+        )
+        if result == VerificationResult.TIMEOUT:
+            speech = "Команду відправив, але пристрій не відповів. Можливо, він офлайн."
+            await self._pub(
+                "agent:result",
+                {
+                    "type": "result",
+                    "action_class": "WARN",
+                    "tool": "mqtt_publish",
+                    "text": speech,
+                },
+            )
+        elif result == VerificationResult.MISMATCH:
+            speech = "Пристрій не змінив стан. Можливо, заблоковано локально."
+            await self._pub(
+                "agent:result",
+                {
+                    "type": "result",
+                    "action_class": "WARN",
+                    "tool": "mqtt_publish",
+                    "text": speech,
+                },
+            )
+        # CONFIRMED and STATE_NOT_TRACKED: original speech stands
+
     async def _emit_explainable_failure(self, resolution: Any, text: str, identity: str) -> None:
-        """Publish an INFO result with a UA-rendered explanation of why resolution failed."""
+        """Publish an INFO result with a UA-rendered explanation of why resolution failed.
+
+        For AMBIGUOUS failures, also publishes a ``confirm:request`` event so the
+        UI can render a device-picker instead of requiring spoken disambiguation.
+        """
         from hub.edge.agent.i18n_uk import render_failure  # noqa: PLC0415
+        from hub.edge.agent.text_resolver import ResolutionFailureKind  # noqa: PLC0415
 
         msg = render_failure(resolution)
         logger.info(
@@ -296,6 +345,32 @@ class AgentOrchestrator:
                 "reasoning": resolution.reasoning,
             },
         )
+
+        # For AMBIGUOUS, push a structured candidate list so the UI can render a picker
+        if resolution.failure_kind == ResolutionFailureKind.AMBIGUOUS and resolution.candidates:
+            candidates = [
+                {
+                    "device_id": d.device_id,
+                    "label": d.label,
+                    "room": d.room_name_ua,
+                    "kind": d.kind,
+                }
+                for d in resolution.candidates
+            ]
+            try:
+                await self._redis.publish(
+                    "confirm:request",
+                    json.dumps(
+                        {
+                            "type": "ambiguity",
+                            "question": msg,
+                            "candidates": candidates,
+                            "original_text": text,
+                        }
+                    ),
+                )
+            except Exception:
+                logger.warning("Failed to publish ambiguity confirm:request")
 
     @staticmethod
     def _build_mqtt_payload(resolution: Any, device: Any) -> dict[str, Any]:
