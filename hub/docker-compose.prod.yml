@@ -26,3 +26,8 @@ services:
       # localhost-only Redis for the host voice systemd service (TTS responder
       # subscribes to agent:result, PTT consumer reads voice:audio_stream).
       - "127.0.0.1:6379:6379"
+  postgres:
+    ports:
+      # localhost-only Postgres for the host voice systemd service so it can
+      # resolve camera RTSP URLs from the DevicePlacement table.
+      - "127.0.0.1:5432:5432"

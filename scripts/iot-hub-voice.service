@@ -17,6 +17,11 @@ SupplementaryGroups=audio
 Environment=MQTT_HOST=127.0.0.1
 Environment=MQTT_PORT=1883
 Environment=REDIS_URL=redis://127.0.0.1:6379/0
+# Required so the pipeline can resolve camera-mic RTSP URLs from the
+# DevicePlacement table. Postgres is in Docker and exposed on 127.0.0.1:5432
+# only in `make up-edge-prod` mode — add that port mapping to compose if missing.
+# Fill in the real POSTGRES_PASSWORD from your .env when installing this unit.
+Environment=DATABASE_URL=postgresql+asyncpg://iothub:CHANGE_ME@127.0.0.1:5432/iothub?ssl=disable
 
 # Hailo Whisper config — tiny is multilingual (uk supported), 10 s window.
 Environment=WHISPER_VARIANT=tiny
@@ -46,10 +51,17 @@ EnvironmentFile=-/etc/iot-hub-voice.env
 # Uses the same shared venv pattern as iot-hub-cv.service (system Python +
 # --system-site-packages so hailo_platform is importable).
 # One-time setup:
+#   sudo apt install libportaudio2 libsndfile1 ffmpeg espeak-ng
 #   python3 -m venv --system-site-packages /mnt/ssd/iot-hub/repo/.venv-voice
 #   .venv-voice/bin/pip install -e /mnt/ssd/iot-hub/repo[voice] --no-deps
 #   .venv-voice/bin/pip install aiomqtt redis prometheus-client transformers scipy \
 #                               openwakeword faster-whisper soundfile sounddevice
+# The apt packages are mandatory:
+#   - libportaudio2 → sounddevice (microphone capture); without it the mic loop
+#     fails with "PortAudio library not found" and only PTT path works.
+#   - libsndfile1   → soundfile (audio file I/O).
+#   - ffmpeg        → RTSP audio decoding (rtsp_mic_stream) and PTT WebM/OGG decode.
+#   - espeak-ng     → optional, fallback voice for piper.
 ExecStart=/mnt/ssd/iot-hub/repo/.venv-voice/bin/python -m hub.edge.voice.pipeline
 
 Restart=on-failure

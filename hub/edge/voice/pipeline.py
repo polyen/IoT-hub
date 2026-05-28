@@ -313,7 +313,7 @@ async def _audio_stream_for_device(
 
 
 async def _resolve_camera_rtsp(camera_id: str, redis_url: str) -> str | None:
-    """Look up the RTSP URL for a camera placement from Redis cache or backend DB."""
+    """Look up the RTSP URL for a camera placement from the backend DB."""
     try:
         from sqlalchemy import select
 
@@ -327,11 +327,27 @@ async def _resolve_camera_rtsp(camera_id: str, redis_url: str) -> str | None:
                 select(DevicePlacement).where(DevicePlacement.id == _uuid.UUID(camera_id)).limit(1)
             )
             p = res.scalar_one_or_none()
-            if p:
-                cfg = p.config or {}
-                return cfg.get("rtsp_url") or cfg.get("stream_rtsp")
+            if not p:
+                logger.warning("Camera placement %s not found in DB", camera_id)
+                return None
+            cfg = p.config or {}
+            url = cfg.get("rtsp_url") or cfg.get("stream_rtsp")
+            if not url:
+                logger.warning(
+                    "Camera %s has no rtsp_url / stream_rtsp in placement.config (keys: %s)",
+                    camera_id,
+                    list(cfg.keys()),
+                )
+            return url
     except Exception as exc:
-        logger.debug("RTSP resolve failed for %s: %s", camera_id, exc)
+        # Most common cause on host systemd: DATABASE_URL env var missing or DB
+        # unreachable from the host (Postgres in Docker, host can't dial it).
+        logger.warning(
+            "RTSP resolve failed for camera %s (%s: %s) — set DATABASE_URL?",
+            camera_id,
+            type(exc).__name__,
+            exc,
+        )
     return None
 
 
@@ -381,13 +397,14 @@ async def _run_mic_loop(
 
             if listen_task in done and listen_task.exception():
                 exc = listen_task.exception()
-                # Device-not-found is a persistent condition; back off longer to
-                # avoid log spam. PTT path is unaffected and continues to work.
-                delay = (
-                    30
-                    if "querying device" in str(exc).lower() or "no device" in str(exc).lower()
-                    else 3
+                # Persistent failures (missing libportaudio, no device, missing
+                # input device) won't fix themselves between iterations — back off
+                # long to avoid flooding the journal. PTT/TTS paths are unaffected.
+                exc_str = str(exc).lower()
+                persistent = (
+                    "portaudio" in exc_str or "querying device" in exc_str or "no device" in exc_str
                 )
+                delay = 60 if persistent else 3
                 logger.error("Mic loop error: %s — restarting in %ds", exc, delay)
                 await asyncio.sleep(delay)
     finally:
