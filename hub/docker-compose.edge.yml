@@ -336,7 +336,7 @@ services:
       # UsefulSensors/moonshine-tiny-uk has no ONNX export; leave empty to use
       # faster-whisper with language=uk instead (set to "moonshine/tiny" for English).
       MOONSHINE_MODEL: ${MOONSHINE_MODEL:-}
-      FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-small}
+      FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-base}
       WAKE_WORD_MODEL_PATH: ${WAKE_WORD_MODEL_PATH:-}
       FORCE_CPU_STT: ${FORCE_CPU_STT:-false}
       NPU_STRATEGY: ${NPU_STRATEGY:-whisper_waits}

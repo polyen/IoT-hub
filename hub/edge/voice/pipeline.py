@@ -27,8 +27,8 @@ from hub.edge.voice.wake_word import WakeWordDetector
 
 logger = logging.getLogger(__name__)
 
-SILENCE_TIMEOUT_SEC = 2.0
-MAX_RECORD_SEC = 15.0
+SILENCE_TIMEOUT_SEC = 0.8
+MAX_RECORD_SEC = 8.0
 MQTT_TOPIC = "voice/command"
 
 

@@ -15,6 +15,29 @@ CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_MS // 1000
 CHUNK_BYTES = CHUNK_SAMPLES * 2  # int16 = 2 bytes
 
 
+def is_raw_pcm(audio_bytes: bytes) -> bool:
+    """True if buffer has no recognised audio-container magic — treat as raw PCM.
+
+    Mic / RTSP paths produce headerless int16 PCM; browser PTT produces WebM/OGG.
+    ffmpeg autodetect fails on raw PCM, so callers must branch on this.
+    """
+    if len(audio_bytes) < 12:
+        return True
+    head = audio_bytes[:4]
+    # RIFF/WAVE, OggS, fLaC, ID3, EBML (WebM/MKV)
+    if head in (b"RIFF", b"OggS", b"fLaC", b"ID3\x03", b"ID3\x04"):
+        return False
+    if head == b"\x1a\x45\xdf\xa3":
+        return False
+    # MP3 frame sync
+    if audio_bytes[0] == 0xFF and (audio_bytes[1] & 0xE0) == 0xE0:
+        return False
+    # ISO-BMFF (MP4/M4A): "....ftyp" at offset 4
+    if audio_bytes[4:8] == b"ftyp":
+        return False
+    return True
+
+
 async def local_mic_stream(device_index: int | None = None) -> AsyncGenerator[bytes, None]:
     """Yield raw 16kHz int16 mono chunks from a local sounddevice input."""
     try:
@@ -45,10 +68,24 @@ async def rtsp_mic_stream(rtsp_url: str) -> AsyncGenerator[bytes, None]:
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg not found — install it in the voice container")
 
+    # Low-latency RTSP flags: disable input buffering and probing so audio reaches
+    # the wake-word/VAD path in ~ one frame instead of ffmpeg's default 5-10 s buffer.
     cmd = [
         "ffmpeg",
         "-loglevel",
         "error",
+        "-fflags",
+        "nobuffer",
+        "-flags",
+        "low_delay",
+        "-probesize",
+        "32",
+        "-analyzeduration",
+        "0",
+        "-max_delay",
+        "0",
+        "-reorder_queue_size",
+        "0",
         "-rtsp_transport",
         "tcp",
         "-i",

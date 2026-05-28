@@ -52,37 +52,43 @@ class MoonshineBackend:
         import subprocess
         import tempfile
 
-        # Decode any container (WebM, OGG, WAV) to 16 kHz mono PCM via ffmpeg,
-        # then read as float32 numpy array for Moonshine.
-        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as src:
-            src.write(audio_bytes)
-            src_path = src.name
-        wav_path = src_path + ".wav"
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-loglevel",
-                    "error",
-                    "-i",
-                    src_path,
-                    "-ar",
-                    "16000",
-                    "-ac",
-                    "1",
-                    "-f",
-                    "wav",
-                    wav_path,
-                ],
-                check=True,
-            )
-            audio_f32, sr = soundfile.read(wav_path, dtype="float32")
-        finally:
-            os.unlink(src_path)
-            if os.path.exists(wav_path):
-                os.unlink(wav_path)
+        from hub.edge.voice.audio_io import SAMPLE_RATE, is_raw_pcm
 
-        if audio_f32.ndim > 1:
-            audio_f32 = audio_f32.mean(axis=1)
+        # Mic / RTSP paths deliver headerless int16 PCM at SAMPLE_RATE — bypass
+        # ffmpeg, which can't autodetect a raw stream. Only container blobs
+        # (browser PTT WebM/OGG) need the transcode pass below.
+        if is_raw_pcm(audio_bytes):
+            audio_f32 = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as src:
+                src.write(audio_bytes)
+                src_path = src.name
+            wav_path = src_path + ".wav"
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        src_path,
+                        "-ar",
+                        str(SAMPLE_RATE),
+                        "-ac",
+                        "1",
+                        "-f",
+                        "wav",
+                        wav_path,
+                    ],
+                    check=True,
+                )
+                audio_f32, _sr = soundfile.read(wav_path, dtype="float32")
+            finally:
+                os.unlink(src_path)
+                if os.path.exists(wav_path):
+                    os.unlink(wav_path)
+            if audio_f32.ndim > 1:
+                audio_f32 = audio_f32.mean(axis=1)
+
         tokens = self._model.generate(audio_f32[np.newaxis, :])
         return self._model.tokenizer.decode_batch(tokens)[0].strip()

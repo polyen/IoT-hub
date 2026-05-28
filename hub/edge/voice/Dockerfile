@@ -47,7 +47,7 @@ USER appuser
 
 ENV WAKE_WORD_MODEL_PATH="" \
     MOONSHINE_MODEL="" \
-    FASTER_WHISPER_MODEL="small" \
+    FASTER_WHISPER_MODEL="base" \
     FORCE_CPU_STT="false" \
     WHISPER_HEF_PATH="" \
     NPU_STRATEGY="whisper_waits" \

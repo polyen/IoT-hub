@@ -182,43 +182,46 @@ class FasterWhisperBackend:
 
         import numpy as np
 
+        from hub.edge.voice.audio_io import is_raw_pcm
+
         logger.debug("transcribe: %d bytes, header=%s", len(audio_bytes), audio_bytes[:16].hex())
 
-        # Use system ffmpeg to decode any container (WebM/OGG/WAV/MP4) to raw
-        # 16 kHz int16 mono PCM, then hand a float32 numpy array to the model.
-        # This bypasses faster-whisper's internal PyAV call, which fails on some
-        # WebM streams from browser MediaRecorder.
-        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as f:
-            f.write(audio_bytes)
-            src = f.name
-        try:
-            result = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-loglevel",
-                    "error",
-                    "-i",
-                    src,
-                    "-ar",
-                    "16000",
-                    "-ac",
-                    "1",
-                    "-f",
-                    "s16le",
-                    "-",
-                ],
-                capture_output=True,
-                check=True,
-            )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"ffmpeg decode failed (stderr={e.stderr.decode()!r}, "
-                f"header={audio_bytes[:16].hex()!r})"
-            ) from e
-        finally:
-            os.unlink(src)
-
-        pcm = np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+        # Mic / RTSP paths deliver headerless int16 PCM at 16 kHz; ffmpeg can't
+        # autodetect that, so decode directly. Container blobs (browser PTT
+        # WebM/OGG) still go through ffmpeg for robust demuxing.
+        if is_raw_pcm(audio_bytes):
+            pcm = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        else:
+            with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as f:
+                f.write(audio_bytes)
+                src = f.name
+            try:
+                result = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        src,
+                        "-ar",
+                        "16000",
+                        "-ac",
+                        "1",
+                        "-f",
+                        "s16le",
+                        "-",
+                    ],
+                    capture_output=True,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(
+                    f"ffmpeg decode failed (stderr={e.stderr.decode()!r}, "
+                    f"header={audio_bytes[:16].hex()!r})"
+                ) from e
+            finally:
+                os.unlink(src)
+            pcm = np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
         segments, _ = self._model.transcribe(
             pcm,
             language=self._language,
