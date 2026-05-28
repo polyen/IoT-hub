@@ -6,7 +6,8 @@ import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { shortDateTime, relativeTime } from "../../lib/format";
-import type { AgentAuditEntry } from "../../lib/types";
+import type { AgentAuditEntry, AgentTurnEvent, ActionClass } from "../../lib/types";
+import { AmbiguityResolver } from "../../features/voice/AmbiguityResolver";
 
 type Tab = "transcripts" | "try" | "audit" | "stack";
 
@@ -14,6 +15,9 @@ const ACTION_COLORS: Record<string, string> = {
   AUTO: "bg-green-900/60 text-green-300",
   CONFIRM: "bg-amber-900/60 text-amber-300",
   DENY: "bg-red-900/60 text-red-300",
+  ERROR: "bg-red-900/60 text-red-300",
+  INFO: "bg-sky-900/60 text-sky-300",
+  WARN: "bg-yellow-900/60 text-yellow-300",
 };
 
 interface VoiceMessage {
@@ -162,13 +166,12 @@ function TranscriptsTab() {
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`rounded-lg px-4 py-3 text-sm border ${
-                msg.type === "wakeword"
+              className={`rounded-lg px-4 py-3 text-sm border ${msg.type === "wakeword"
                   ? "border-blue-700 bg-blue-900/30 text-blue-200"
                   : msg.type === "agent_result"
-                  ? "border-green-700/60 bg-green-950/30 text-green-200"
-                  : "border-slate-700 bg-slate-800/60"
-              }`}
+                    ? "border-green-700/60 bg-green-950/30 text-green-200"
+                    : "border-slate-700 bg-slate-800/60"
+                }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <p className="flex-1">{msg.text}</p>
@@ -177,7 +180,13 @@ function TranscriptsTab() {
               <p className="mt-1 text-xs text-slate-500">
                 {msg.type === "wakeword" && "Ключове слово"}
                 {msg.type === "transcript" && (msg.confidence !== undefined ? `Транскрипція · ${Math.round(msg.confidence * 100)}%` : "Транскрипція")}
-                {msg.type === "agent_result" && `Відповідь${msg.tool ? ` · ${msg.tool}` : ""}`}
+                {msg.type === "agent_result" && (
+                    msg.action_class === "AUTO"   ? "✅ Виконано" :
+                    msg.action_class === "WARN"   ? "⚠️ Попередження" :
+                    msg.action_class === "DENY"   ? "🚫 Заблоковано" :
+                    msg.action_class === "INFO"   ? "ℹ️ Відповідь" :
+                    "Відповідь"
+                  )}
               </p>
             </div>
           ))}
@@ -350,49 +359,90 @@ function AuditTab() {
 
 // ── Stack tab — live agent turn stream ──────────────────────────────────────
 
-interface AgentTurnEvent {
-  type: "intent" | "tool_call" | "result" | "ping";
-  text?: string;
-  tool?: string;
-  topic?: string;
-  payload?: unknown;
-  action_class?: "AUTO" | "CONFIRM" | "DENY" | "ERROR";
-  class_?: string;      // routing class for intent events
-  score?: number;
-  prototype?: string;
-  ts?: string;
-}
+// AgentTurnEvent is exported from lib/types.ts
 
 const CLASS_BADGE: Record<string, string> = {
-  AUTO: "bg-green-900/70 text-green-300",
-  CONFIRM: "bg-amber-900/70 text-amber-300",
-  DENY: "bg-red-900/70 text-red-300",
-  ERROR: "bg-red-900/70 text-red-400",
-  DETERMINISTIC: "bg-blue-900/70 text-blue-300",
-  STRUCTURED: "bg-purple-900/70 text-purple-300",
-  CREATIVE: "bg-pink-900/70 text-pink-300",
-  UNKNOWN: "bg-slate-800 text-slate-400",
+  AUTO:         "bg-green-900/70 text-green-300",
+  CONFIRM:      "bg-amber-900/70 text-amber-300",
+  DENY:         "bg-red-900/70 text-red-300",
+  ERROR:        "bg-red-900/70 text-red-400",
+  INFO:         "bg-sky-900/70 text-sky-300",
+  WARN:         "bg-yellow-900/70 text-yellow-300",
+  DETERMINISTIC:"bg-blue-900/70 text-blue-300",
+  STRUCTURED:   "bg-purple-900/70 text-purple-300",
+  CREATIVE:     "bg-pink-900/70 text-pink-300",
+  UNKNOWN:      "bg-slate-800 text-slate-400",
 };
 
 const TYPE_CONFIG: Record<string, { icon: string; border: string; bg: string; label: string }> = {
-  intent:    { icon: "💬", border: "border-blue-800/60",   bg: "bg-blue-950/30",   label: "Намір" },
-  tool_call: { icon: "⚙️",  border: "border-amber-800/60", bg: "bg-amber-950/30",  label: "Виклик" },
-  result:    { icon: "✓",  border: "border-green-800/60", bg: "bg-green-950/30",  label: "Результат" },
+  intent:    { icon: "💬", border: "border-blue-800/60",   bg: "bg-blue-950/30",  label: "Намір" },
+  tool_call: { icon: "⚙️",  border: "border-amber-800/60", bg: "bg-amber-950/30", label: "Виклик" },
+  result:    { icon: "✓",  border: "border-slate-700",    bg: "bg-slate-800/40", label: "Результат" },
+};
+
+const RESULT_BORDER: Record<string, string> = {
+  AUTO:    "border-green-700/60 bg-green-950/30",
+  CONFIRM: "border-amber-700/60 bg-amber-950/30",
+  DENY:    "border-red-700/60 bg-red-950/30",
+  ERROR:   "border-red-700/60 bg-red-950/30",
+  WARN:    "border-yellow-700/60 bg-yellow-950/30",
+  INFO:    "border-sky-700/60 bg-sky-950/30",
+};
+
+const RESULT_LABEL: Record<string, string> = {
+  AUTO:    "✅ Виконано",
+  CONFIRM: "⏳ Підтвердження",
+  DENY:    "🚫 Заблоковано",
+  ERROR:   "❌ Помилка",
+  WARN:    "⚠️ Попередження",
+  INFO:    "ℹ️ Відповідь",
+};
+
+const FAILURE_LABEL: Record<string, string> = {
+  ambiguous:           "🔀 Оберіть пристрій",
+  device_not_found:    "🔍 Пристрій не знайдено",
+  unclear_intent:      "🤔 Незрозуміла команда",
+  unknown_device_kind: "❓ Невідомий тип",
+  unsupported_action:  "⛔ Дія не підтримується",
+};
+
+const TOOL_LABEL: Record<string, string> = {
+  mqtt_publish:     "Пристрій",
+  ask_user:         "Уточнення",
+  set_timer:        "Таймер",
+  send_push:        "Сповіщення",
+  get_home_state:   "Стан дому",
+  query_events_db:  "База подій",
+  summarize_period: "Підсумок",
 };
 
 function EventCard({ ev }: { ev: AgentTurnEvent }) {
   const [expanded, setExpanded] = useState(false);
+  const [reasonExpanded, setReasonExpanded] = useState(false);
+
+  const isResult = ev.type === "result";
+  const ac = ev.action_class as ActionClass | undefined;
+  const borderBg = isResult && ac ? (RESULT_BORDER[ac] ?? "border-slate-700 bg-slate-800/40") : undefined;
   const cfg = TYPE_CONFIG[ev.type] ?? { icon: "•", border: "border-slate-700", bg: "bg-slate-800/60", label: ev.type };
-  const badge = ev.action_class ?? ev.class_;
+
+  const badge = !isResult ? (ev.class_ ?? undefined) : undefined;
   const hasPayload = ev.payload != null && typeof ev.payload === "object" && Object.keys(ev.payload as object).length > 0;
+  const hasReasoning = isResult && !!ev.reasoning;
+  const isAmbiguous = isResult && ev.failure_kind === "ambiguous" && (ev.candidates?.length ?? 0) > 0;
+
+  const resultLabel = isResult && ac
+    ? (ev.failure_kind ? (FAILURE_LABEL[ev.failure_kind] ?? RESULT_LABEL[ac] ?? "Результат") : (RESULT_LABEL[ac] ?? "Результат"))
+    : cfg.label;
+
+  const toolDisplay = ev.tool ? (TOOL_LABEL[ev.tool] ?? ev.tool) : null;
 
   return (
-    <div className={`rounded-lg border ${cfg.border} ${cfg.bg} px-3 py-2 text-xs`}>
+    <div className={`rounded-lg border px-3 py-2 text-xs ${borderBg ?? `${cfg.border} ${cfg.bg}`}`}>
       <div className="flex items-start gap-2">
         <span className="text-base leading-none mt-0.5 select-none">{cfg.icon}</span>
         <div className="flex-1 min-w-0 space-y-0.5">
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-semibold text-white/80">{cfg.label}</span>
+            <span className="font-semibold text-white/80">{resultLabel}</span>
             {badge && (
               <span className={`rounded px-1.5 py-px text-[10px] font-bold ${CLASS_BADGE[badge] ?? "bg-slate-700 text-slate-300"}`}>
                 {badge}
@@ -408,14 +458,35 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
 
           {ev.text && (
             <p className="text-white/70 leading-snug"
-               style={{ display: "-webkit-box", WebkitLineClamp: expanded ? undefined : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+               style={{ display: "-webkit-box", WebkitLineClamp: expanded || isAmbiguous ? undefined : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
               {ev.text}
             </p>
           )}
-          {ev.tool && (
-            <p className="font-mono text-amber-300/80">{ev.tool}{ev.topic ? ` → ${ev.topic}` : ""}</p>
+          {toolDisplay && (
+            <p className="font-mono text-amber-300/80">{toolDisplay}{ev.topic ? ` → ${ev.topic}` : ""}</p>
           )}
 
+          {/* Ambiguity resolver — inline candidate picker */}
+          {isAmbiguous && ev.text && (
+            <AmbiguityResolver intentText={ev.text} candidates={ev.candidates!} />
+          )}
+
+          {/* Reasoning fold */}
+          {hasReasoning && (
+            <button
+              onClick={() => setReasonExpanded((v) => !v)}
+              className="text-slate-500 hover:text-slate-300 mt-0.5"
+            >
+              {reasonExpanded ? "▲ скрити причину" : "▼ Чому?"}
+            </button>
+          )}
+          {reasonExpanded && hasReasoning && (
+            <p className="mt-1 rounded bg-black/30 p-2 text-[10px] text-slate-300 leading-relaxed">
+              {ev.reasoning}
+            </p>
+          )}
+
+          {/* Payload fold */}
           {hasPayload && (
             <button
               onClick={() => setExpanded((v) => !v)}
@@ -468,7 +539,7 @@ function StackTab() {
           listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
         });
       })
-      .catch(() => {});
+      .catch(() => { });
   }
 
   // Hydrate with recent history on mount

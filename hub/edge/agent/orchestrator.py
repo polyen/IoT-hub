@@ -206,7 +206,9 @@ class AgentOrchestrator:
         except Exception:
             pass
 
-    async def handle_command(self, text: str, identity: str = "default") -> None:
+    async def handle_command(
+        self, text: str, identity: str = "default", forced_device_id: str | None = None
+    ) -> None:
         """Process one voice/text command end-to-end."""
         t0 = time.monotonic()
         intent = self._router.classify_intent(text)
@@ -226,7 +228,7 @@ class AgentOrchestrator:
 
         try:
             if intent.class_ == IntentClass.DETERMINISTIC:
-                await self._handle_deterministic(text, identity, intent)
+                await self._handle_deterministic(text, identity, intent, forced_device_id)
             elif intent.class_ == IntentClass.STRUCTURED:
                 await self._handle_structured(text, identity, intent)
             elif intent.class_ == IntentClass.CREATIVE:
@@ -243,7 +245,9 @@ class AgentOrchestrator:
             latency_ms = int((time.monotonic() - t0) * 1000)
             logger.info("Command handled in %dms", latency_ms)
 
-    async def _handle_deterministic(self, text: str, identity: str, intent: Any) -> None:
+    async def _handle_deterministic(
+        self, text: str, identity: str, intent: Any, forced_device_id: str | None = None
+    ) -> None:
         """Resolve device command via TextResolver, then route through PolicyEngine."""
         if self._text_resolver is None:
             # No registry available — cannot resolve; fall back to ask_user
@@ -253,7 +257,9 @@ class AgentOrchestrator:
             return
 
         speaker_room: str | None = self._last_identity_room
-        resolution = await self._text_resolver.resolve(text, intent.prototype, speaker_room)
+        resolution = await self._text_resolver.resolve(
+            text, intent.prototype, speaker_room, forced_device_id
+        )
 
         if not resolution.success:
             await self._emit_explainable_failure(resolution, text, identity)
@@ -333,20 +339,30 @@ class AgentOrchestrator:
             text,
             resolution.reasoning,
         )
-        await self._pub(
-            "agent:result",
-            {
-                "type": "result",
-                "action_class": "INFO",
-                "text": msg,
-                "failure_kind": (
-                    resolution.failure_kind.value if resolution.failure_kind else None
-                ),
-                "reasoning": resolution.reasoning,
-            },
-        )
 
-        # For AMBIGUOUS, push a structured candidate list so the UI can render a picker
+        result_payload: dict[str, Any] = {
+            "type": "result",
+            "action_class": "INFO",
+            "text": msg,
+            "failure_kind": (resolution.failure_kind.value if resolution.failure_kind else None),
+            "reasoning": resolution.reasoning,
+        }
+
+        # Include candidates in agent:result so the Stack tab can render a picker inline
+        if resolution.failure_kind == ResolutionFailureKind.AMBIGUOUS and resolution.candidates:
+            result_payload["candidates"] = [
+                {
+                    "device_id": d.device_id,
+                    "label": d.label,
+                    "room": d.room_name_ua,
+                    "kind": d.kind,
+                }
+                for d in resolution.candidates
+            ]
+
+        await self._pub("agent:result", result_payload)
+
+        # For AMBIGUOUS, also push a structured candidate list to confirm:request channel
         if resolution.failure_kind == ResolutionFailureKind.AMBIGUOUS and resolution.candidates:
             candidates = [
                 {
@@ -758,6 +774,7 @@ class AgentOrchestrator:
                                 }
                             ),
                         )
-                        await self.handle_command(text, self._last_identity)
+                        forced_device_id = data.get("forced_device_id") or None
+                        await self.handle_command(text, self._last_identity, forced_device_id)
                 except Exception:
                     logger.exception("Failed to process message: %s", message.payload)

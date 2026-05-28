@@ -225,14 +225,18 @@ class TextResolver:
         text: str,
         prototype: str | None = None,
         speaker_room: str | None = None,
+        forced_device_id: str | None = None,
     ) -> Resolution:
         """Parse ``text`` into a Resolution.
 
         ``speaker_room``: room slug of the speaker (from ArcFace identity,
         used as fallback when the command omits a room name).
+
+        ``forced_device_id``: when set, bypass ambiguity by selecting this
+        specific device from the candidate list (used by the UI disambiguator).
         """
         try:
-            return await self._resolve_inner(text, prototype, speaker_room)
+            return await self._resolve_inner(text, prototype, speaker_room, forced_device_id)
         except Exception:
             logger.exception("TextResolver.resolve() raised unexpectedly for %r", text)
             return Resolution(
@@ -250,6 +254,7 @@ class TextResolver:
         text: str,
         prototype: str | None,
         speaker_room: str | None,
+        forced_device_id: str | None = None,
     ) -> Resolution:
         lower = text.casefold()
 
@@ -347,21 +352,28 @@ class TextResolver:
             )
 
         if len(candidates) > 1:
-            # Ambiguous: more than one device matches
-            labels = ", ".join(f"«{d.label or d.device_id}»" for d in candidates[:5])
-            room_name = (
-                rooms.get(room_slug, [room_slug or "кімнаті"])[0] if room_slug else "кімнаті"
-            )
-            return Resolution(
-                success=False,
-                failure_kind=ResolutionFailureKind.AMBIGUOUS,
-                candidates=candidates,
-                failure_context={
-                    "room_ua": room_name,
-                    "candidate_labels": labels,
-                },
-                reasoning=f"Ambiguous: {len(candidates)} devices match kind={kind!r} room={room_slug!r}",
-            )
+            # UI can pass forced_device_id to bypass ambiguity (post-disambiguation)
+            if forced_device_id:
+                matched = [d for d in candidates if d.device_id == forced_device_id]
+                if matched:
+                    candidates = matched
+
+            if len(candidates) > 1:
+                # Still ambiguous: more than one device matches
+                labels = ", ".join(f"«{d.label or d.device_id}»" for d in candidates[:5])
+                room_name = (
+                    rooms.get(room_slug, [room_slug or "кімнаті"])[0] if room_slug else "кімнаті"
+                )
+                return Resolution(
+                    success=False,
+                    failure_kind=ResolutionFailureKind.AMBIGUOUS,
+                    candidates=candidates,
+                    failure_context={
+                        "room_ua": room_name,
+                        "candidate_labels": labels,
+                    },
+                    reasoning=f"Ambiguous: {len(candidates)} devices match kind={kind!r} room={room_slug!r}",
+                )
 
         device = candidates[0]
 

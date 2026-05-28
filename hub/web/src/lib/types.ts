@@ -133,12 +133,37 @@ export interface CvFrame {
 }
 
 /* Agent */
+export type ActionClass = "AUTO" | "CONFIRM" | "DENY" | "ERROR" | "INFO" | "WARN";
+
+export interface DisambiguateCandidate {
+  device_id: string;
+  label: string | null;
+  room: string;
+  kind: string;
+}
+
+export interface AgentTurnEvent {
+  type: "intent" | "tool_call" | "result" | "ping";
+  text?: string;
+  class_?: string;
+  failure_kind?: string;
+  reasoning?: string;
+  action_class?: ActionClass;
+  tool?: string | null;
+  topic?: string | null;
+  payload?: Record<string, unknown>;
+  candidates?: DisambiguateCandidate[];
+  score?: number;
+  prototype?: string;
+  ts: string;
+}
+
 export interface AgentAuditEntry {
   id: string;
   timestamp: string;
   intent_text: string;
   tool: string | null;
-  action_class: "AUTO" | "CONFIRM" | "DENY";
+  action_class: ActionClass;
   executed: boolean;
   confirmation: string | null;
   latency_ms: number | null;

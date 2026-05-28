@@ -175,7 +175,27 @@ async def run_intent(body: TryBody, request: Request, session: SessionDep) -> di
     return {"result": "queued", "id": str(entry.id)}
 
 
-@router.post("/voice/audio")
+class DisambiguateBody(BaseModel):
+    intent_text: str
+    chosen_device_id: str
+
+
+@router.post("/disambiguate")
+async def disambiguate(body: DisambiguateBody, request: Request) -> dict[str, str]:
+    """Re-run a voice intent forcing a specific device, bypassing ambiguity.
+
+    The UI calls this after the user taps a candidate device in the AmbiguityResolver.
+    """
+    import json as _json  # noqa: PLC0415
+
+    redis = request.app.state.redis
+    await redis.publish(
+        "mqtt:publish:voice/command",
+        _json.dumps({"text": body.intent_text, "forced_device_id": body.chosen_device_id}),
+    )
+    return {"result": "queued"}
+
+
 async def submit_voice_audio(websocket_request: Request) -> dict[str, Any]:
     """Receive audio blob from PTT, store in Redis, notify voice pipeline.
 
