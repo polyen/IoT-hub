@@ -2,8 +2,10 @@
 Description=IoT Hub CV Pipeline (Hailo-8 NPU)
 Documentation=https://github.com/your-org/iot-hub
 # Start after Docker is up so mosquitto + mediamtx containers are available.
-After=network-online.target docker.service local-fs.target
-Wants=network-online.target
+# hailort.service is the HailoRT multi-process arbiter — required so CV and
+# voice can share the single Hailo-8 (with group_id="SHARED" in pipeline.py).
+After=network-online.target docker.service local-fs.target hailort.service
+Wants=network-online.target hailort.service
 RequiresMountsFor=/mnt/ssd
 
 [Service]

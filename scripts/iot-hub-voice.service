@@ -2,8 +2,11 @@
 Description=IoT Hub Voice Pipeline (Hailo-8 Whisper + wake-word + TTS)
 Documentation=https://github.com/your-org/iot-hub
 # Start after Docker is up so mosquitto + redis containers are available.
-After=network-online.target docker.service local-fs.target
-Wants=network-online.target
+# hailort.service is the HailoRT multi-process arbiter — required so CV and
+# voice can both attach to the single Hailo-8 (with group_id="SHARED"). Without
+# it the second VDevice() raises HAILO_OUT_OF_PHYSICAL_DEVICES(74).
+After=network-online.target docker.service local-fs.target hailort.service
+Wants=network-online.target hailort.service
 RequiresMountsFor=/mnt/ssd
 
 [Service]
@@ -52,13 +55,15 @@ EnvironmentFile=-/etc/iot-hub-voice.env
 # --system-site-packages so hailo_platform is importable).
 # One-time setup:
 #   sudo apt install libportaudio2 libsndfile1 ffmpeg espeak-ng
+#   # HailoRT multi-process arbiter — without it, CV and voice can't share Hailo-8:
+#   sudo systemctl enable --now hailort.service
 #   python3 -m venv --system-site-packages /mnt/ssd/iot-hub/repo/.venv-voice
 #   .venv-voice/bin/pip install -e /mnt/ssd/iot-hub/repo[voice] --no-deps
 #   .venv-voice/bin/pip install \
 #       aiomqtt redis[hiredis] prometheus-client \
 #       transformers scipy soundfile sounddevice \
 #       openwakeword faster-whisper \
-#       "sqlalchemy[asyncio]" asyncpg \
+#       "sqlalchemy[asyncio]" asyncpg pgvector \
 #       pydantic pydantic-settings
 # The apt packages are mandatory:
 #   - libportaudio2 → sounddevice (microphone capture); without it the mic loop
