@@ -164,6 +164,25 @@ async def run_ptt_consumer(
                             logger.info("PTT transcribed: %s", text)
                             payload = {"text": text, "tier": 1, "source": "ptt"}
                             await mqtt.publish(MQTT_TOPIC, json.dumps(payload))
+                    except aiomqtt.MqttError:
+                        # MQTT-level failures (disconnect, broker restart) must
+                        # bubble up so the outer reconnect loop spins a fresh
+                        # client.  Swallowing them leaves the consumer publishing
+                        # into a permanently-disconnected client.
+                        logger.warning("PTT publish failed — MQTT disconnected, restarting")
+                        # ack the message so we don't re-process on reconnect
+                        try:
+                            await asyncio.shield(
+                                redis_client.xack(stream_key, consumer_group, msg_id)
+                            )
+                        except Exception:
+                            pass
+                        if blob_key:
+                            try:
+                                await asyncio.shield(redis_client.delete(blob_key))
+                            except Exception:
+                                pass
+                        raise
                     except Exception:
                         logger.exception("PTT transcription failed for %s", blob_key)
                     finally:
@@ -265,7 +284,13 @@ async def run_pipeline_with_ptt(
     moonshine_model: str | None = None,
     redis_url: str = "redis://redis:6379",
 ) -> None:
-    """Run mic pipeline, PTT consumer, and TTS responder concurrently."""
+    """Run mic pipeline, PTT consumer, and TTS responder concurrently.
+
+    The MQTT client lives inside a reconnect loop — if mosquitto restarts or the
+    keepalive expires, child tasks raise aiomqtt.MqttError which bubbles up via
+    ``FIRST_EXCEPTION``; the outer loop re-opens the client and re-spawns tasks.
+    Without this, every publish after a single disconnect fails with code 4.
+    """
     vad = SileroVAD()
     vad.load()
     wwd = WakeWordDetector(model_path=wake_word_model)
@@ -275,22 +300,34 @@ async def run_pipeline_with_ptt(
 
     logger.info("Voice pipeline (mic+PTT+TTS) ready — backend=%s", type(stt).__name__)
 
-    async with aiomqtt.Client(mqtt_host, mqtt_port) as mqtt:
-        mic_task = asyncio.create_task(
-            _run_mic_loop(vad, wwd, stt, scheduler, mqtt, redis_url), name="voice-mic"
-        )
-        ptt_task = asyncio.create_task(
-            run_ptt_consumer(stt, scheduler, mqtt, redis_url), name="voice-ptt"
-        )
-        tts_task = asyncio.create_task(run_tts_responder(redis_url), name="voice-tts")
-        done, pending = await asyncio.wait(
-            [mic_task, ptt_task, tts_task], return_when=asyncio.FIRST_EXCEPTION
-        )
-        for task in pending:
-            task.cancel()
-        for task in done:
-            if task.exception():
-                raise task.exception()  # type: ignore[misc]
+    while True:
+        try:
+            async with aiomqtt.Client(mqtt_host, mqtt_port) as mqtt:
+                mic_task = asyncio.create_task(
+                    _run_mic_loop(vad, wwd, stt, scheduler, mqtt, redis_url), name="voice-mic"
+                )
+                ptt_task = asyncio.create_task(
+                    run_ptt_consumer(stt, scheduler, mqtt, redis_url), name="voice-ptt"
+                )
+                tts_task = asyncio.create_task(run_tts_responder(redis_url), name="voice-tts")
+                done, pending = await asyncio.wait(
+                    [mic_task, ptt_task, tts_task], return_when=asyncio.FIRST_EXCEPTION
+                )
+                for task in pending:
+                    task.cancel()
+                # Wait for cancellations so tasks don't leak across reconnects
+                for task in pending:
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                for task in done:
+                    exc = task.exception()
+                    if exc is not None:
+                        raise exc
+        except aiomqtt.MqttError as exc:
+            logger.warning("Voice MQTT lost: %s — reconnecting in 5s", exc)
+            await asyncio.sleep(5)
 
 
 async def _audio_stream_for_device(
@@ -416,6 +453,11 @@ async def _run_mic_loop(
 
             if listen_task in done and listen_task.exception():
                 exc = listen_task.exception()
+                # MQTT errors must propagate so run_pipeline_with_ptt reopens the
+                # client.  Without this we'd retry the mic loop forever against a
+                # dead aiomqtt client.
+                if isinstance(exc, aiomqtt.MqttError):
+                    raise exc
                 # Persistent failures (missing libportaudio, no device, missing
                 # input device) won't fix themselves between iterations — back off
                 # long to avoid flooding the journal. PTT/TTS paths are unaffected.
@@ -487,6 +529,12 @@ async def _listen_with_device(
             if text:
                 payload = {"text": text, "tier": 1}
                 await mqtt.publish(MQTT_TOPIC, json.dumps(payload))
+        except aiomqtt.MqttError:
+            # Bubble MQTT failures up so the outer reconnect loop restarts.
+            logger.warning("Mic-loop publish failed — MQTT disconnected, restarting")
+            wwd.reset()
+            vad._reset_states()
+            raise
         except Exception:
             logger.exception("STT/publish error — continuing")
         finally:
