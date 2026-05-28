@@ -371,11 +371,21 @@ class HailoWhisperBackend:
         return text
 
     def _tokenize_host(self, dec_ids: np.ndarray) -> np.ndarray:
-        """Gather + Add + Unsqueeze + Transpose — these ops were stripped from
-        the Hailo-8 decoder HEF during compile and must run on host."""
+        """Gather + Add + Unsqueeze + Transpose — stripped from the Hailo-8
+        decoder HEF during compile, must run on host.
+
+        Output layout MUST be NHWC = (1, seq_len, 1, d_model). The DFC-SDK
+        reference in hailocs/hailo-whisper does this in two transposes
+        ((0,3,2,1) inside tokenize, then (0,2,3,1) at the call site); the
+        production runtime in hailo-ai/hailo-apps fuses them into a single
+        (0,2,1,3) transpose. We follow the runtime path — feeding the
+        SDK-only first transpose alone produces garbage transcriptions
+        (the decoder reads d_model as seq_len and vice-versa).
+        """
         gather = self._tok_embed[dec_ids]  # (1, seq_len, d_model)
         added = gather + self._add_input
-        return np.transpose(np.expand_dims(added, axis=0), (0, 3, 2, 1))
+        nchw = np.expand_dims(added, axis=0)  # (1, 1, seq_len, d_model)
+        return np.transpose(nchw, (0, 2, 1, 3))  # (1, seq_len, 1, d_model) — NHWC
 
 
 class FasterWhisperBackend:

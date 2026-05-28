@@ -212,13 +212,29 @@ async def run_tts_responder(
             try:
                 output_id: str | None = await redis_client.get("audio:output_device")
                 pcm = await synthesize(text)
+                rtsp_failed = False
                 if output_id and output_id.startswith("camera:spk:"):
                     camera_id = output_id.split(":", 2)[2]
                     rtsp_url = await _resolve_camera_rtsp(camera_id, redis_url)
                     if rtsp_url:
-                        await rtsp_speaker_play(pcm, rtsp_url)
-                        continue
-                    logger.warning("Could not resolve RTSP for speaker %s — using local", camera_id)
+                        try:
+                            await rtsp_speaker_play(pcm, rtsp_url)
+                            continue
+                        except Exception as exc:
+                            # Many cameras advertise RTSP but don't accept the
+                            # back-channel ANNOUNCE method (Reolink E1 Pro, most
+                            # PoE bullets). Fall back to local speaker instead
+                            # of looping the error every agent reply.
+                            rtsp_failed = True
+                            logger.warning(
+                                "RTSP back-channel rejected by %s (%s) — using local speaker",
+                                camera_id,
+                                type(exc).__name__,
+                            )
+                    else:
+                        logger.warning(
+                            "Could not resolve RTSP for speaker %s — using local", camera_id
+                        )
                 spk_idx: int | None = None
                 if output_id and output_id.startswith("local:spk:"):
                     try:
@@ -226,6 +242,8 @@ async def run_tts_responder(
                     except ValueError:
                         pass
                 await local_speaker_play(pcm, spk_idx)
+                if rtsp_failed:
+                    logger.info("TTS played on local speaker (RTSP back-channel unavailable)")
             except Exception as exc:
                 if "querying device" in str(exc).lower() or "portaudio" in str(exc).lower():
                     logger.debug("TTS skipped — no audio output device")
