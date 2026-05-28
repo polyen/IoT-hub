@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from hub.edge.agent.llm_local import LocalLLMClient
-from hub.edge.agent.orchestrator import DETERMINISTIC_MAP, AgentOrchestrator
+from hub.edge.agent.orchestrator import AgentOrchestrator
 from hub.edge.agent.policy import ActionClass, Decision, PolicyEngine, ToolCall
 from hub.edge.agent.router import Intent, IntentClass, IntentRouter
 
@@ -258,42 +258,18 @@ async def test_creative_intent_invalid_json_falls_back_to_summarize() -> None:
     assert tool_call.tool == "summarize_period"
 
 
-# ── 7: DETERMINISTIC intent → DETERMINISTIC_MAP lookup, no LLM ───────────────
+# ── 7: DETERMINISTIC intent — TextResolver path ───────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_deterministic_with_known_prototype_uses_map() -> None:
+async def test_deterministic_no_registry_falls_back_to_ask_user() -> None:
+    """With no device_registry, DETERMINISTIC must fall back to ask_user."""
     orch, policy, llm, _ = make_orchestrator(
         intent_class=IntentClass.DETERMINISTIC,
         action_class=ActionClass.AUTO,
         prototype="light_on",
     )
-
-    with (
-        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
-        patch(
-            "hub.edge.agent.orchestrator.agent_tools.mqtt_publish", new_callable=AsyncMock
-        ) as mock_pub,
-    ):
-        mock_pub.return_value = None
-        # mqtt_publish needs a topic — policy returns AUTO but tool_call.topic is None
-        # so _run_tool will skip it. We just verify LLM was NOT called.
-        await orch.handle_command("увімкни світло у вітальні")
-
-    llm.generate.assert_not_called()
-    llm.generate_constrained.assert_not_called()
-    policy.evaluate.assert_called_once()
-    tool_call = policy.evaluate.call_args[0][0]
-    assert tool_call.tool == DETERMINISTIC_MAP["light_on"]
-
-
-@pytest.mark.asyncio
-async def test_deterministic_unknown_prototype_falls_back_to_ask_user() -> None:
-    orch, policy, llm, _ = make_orchestrator(
-        intent_class=IntentClass.DETERMINISTIC,
-        action_class=ActionClass.AUTO,
-        prototype=None,  # prototype not in DETERMINISTIC_MAP
-    )
+    # orch has no device_registry (make_orchestrator default) → _text_resolver is None
 
     with (
         patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
@@ -302,10 +278,85 @@ async def test_deterministic_unknown_prototype_falls_back_to_ask_user() -> None:
         ) as mock_ask,
     ):
         mock_ask.return_value = {"status": "sent"}
-        await orch.handle_command("перемкни")
+        await orch.handle_command("увімкни світло у вітальні")
 
+    llm.generate.assert_not_called()
+    llm.generate_constrained.assert_not_called()
+    policy.evaluate.assert_called_once()
     tool_call = policy.evaluate.call_args[0][0]
     assert tool_call.tool == "ask_user"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_with_resolver_success_publishes_mqtt() -> None:
+    """TextResolver returning success → mqtt_publish tool call."""
+    from hub.edge.agent.text_resolver import Resolution
+
+    orch, policy, llm, _ = make_orchestrator(
+        intent_class=IntentClass.DETERMINISTIC,
+        action_class=ActionClass.AUTO,
+        prototype="light_on",
+    )
+    # Inject a mock text_resolver
+    mock_device = MagicMock()
+    mock_device.mqtt_command_topic = "home/living-room/light/cmd"
+    mock_device.payload_on = {"state": "ON"}
+    mock_device.payload_off = None
+    mock_device.actions = ["on", "off"]
+
+    mock_resolver = AsyncMock()
+    mock_resolver.resolve.return_value = Resolution(
+        success=True,
+        action="on",
+        device=mock_device,
+        params={},
+    )
+    orch._text_resolver = mock_resolver
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.mqtt_publish", new_callable=AsyncMock
+        ) as mock_pub,
+    ):
+        mock_pub.return_value = None
+        await orch.handle_command("увімкни світло у вітальні")
+
+    llm.generate.assert_not_called()
+    policy.evaluate.assert_called_once()
+    tool_call = policy.evaluate.call_args[0][0]
+    assert tool_call.tool == "mqtt_publish"
+    assert tool_call.topic == "home/living-room/light/cmd"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_resolver_failure_emits_info() -> None:
+    """TextResolver returning failure → INFO result published, no mqtt_publish."""
+    from hub.edge.agent.text_resolver import Resolution, ResolutionFailureKind
+
+    orch, policy, llm, redis = make_orchestrator(
+        intent_class=IntentClass.DETERMINISTIC,
+        action_class=ActionClass.AUTO,
+        prototype="light_on",
+    )
+
+    mock_resolver = AsyncMock()
+    mock_resolver.resolve.return_value = Resolution(
+        success=False,
+        failure_kind=ResolutionFailureKind.DEVICE_NOT_FOUND,
+        failure_context={"kind_ua": "світло", "room_part": " у вітальні"},
+        reasoning="No light found",
+    )
+    orch._text_resolver = mock_resolver
+
+    with patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock):
+        await orch.handle_command("увімкни світло у вітальні")
+
+    # policy.evaluate should NOT be called (failure path skips execution)
+    policy.evaluate.assert_not_called()
+    # Redis publish called with INFO result
+    calls = [c for c in redis.publish.call_args_list if "agent:result" in str(c)]
+    assert any("INFO" in str(c) for c in calls)
 
 
 # ── 8: CONFIRM decision → ntfy push sent, redis pubsub used ──────────────────

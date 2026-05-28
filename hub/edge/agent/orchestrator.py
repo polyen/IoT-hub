@@ -35,7 +35,6 @@ from hub.edge.agent.llm_local import LocalLLMClient
 from hub.edge.agent.policy import (
     ActionClass,
     Decision,
-    EvaluationContext,
     PolicyEngine,
     ToolCall,
     write_audit,
@@ -46,24 +45,6 @@ from hub.edge.agent.router import IntentClass, IntentRouter
 _CONFIRM_DEFAULT_TIMEOUT_SEC = 60
 
 logger = logging.getLogger(__name__)
-
-# Deterministic routing table: intent prototype label → tool name
-DETERMINISTIC_MAP: dict[str, str] = {
-    "light_on": "mqtt_publish",
-    "light_off": "mqtt_publish",
-    "device_off": "mqtt_publish",
-    "relay_toggle": "mqtt_publish",
-    "timer_set": "set_timer",
-}
-
-# STRUCTURED prototype → GBNF grammar name
-GRAMMAR_MAP: dict[str, str] = {
-    "light_on": "light",
-    "light_off": "light",
-    "relay_toggle": "relay",
-    "device_off": "relay",
-    "timer_set": "timer",
-}
 
 # System prompt for CREATIVE branch — tells the LLM which tools it can call
 _CREATIVE_SYSTEM = """You are a smart home assistant. Choose ONE tool and respond with valid JSON only.
@@ -181,6 +162,7 @@ class AgentOrchestrator:
         mqtt_client: aiomqtt.Client,
         session_factory: Any | None = None,
         max_tool_calls_per_turn: int = 5,
+        device_registry: Any | None = None,
     ) -> None:
         self._policy = policy
         self._router = router
@@ -189,6 +171,18 @@ class AgentOrchestrator:
         self._mqtt = mqtt_client
         self._session_factory = session_factory
         self._max_tool_calls = max_tool_calls_per_turn
+
+        # ArcFace identity state (updated by identity MQTT subscription in run())
+        self._last_identity: str = "default"
+        self._last_identity_room: str | None = None
+
+        # TextResolver (rules-based UA command parser)
+        if device_registry is not None:
+            from hub.edge.agent.text_resolver import TextResolver  # noqa: PLC0415
+
+            self._text_resolver: Any | None = TextResolver(device_registry)
+        else:
+            self._text_resolver = None
 
     @asynccontextmanager
     async def _get_session(self) -> AsyncGenerator[AsyncSession | None, None]:
@@ -248,25 +242,92 @@ class AgentOrchestrator:
             logger.info("Command handled in %dms", latency_ms)
 
     async def _handle_deterministic(self, text: str, identity: str, intent: Any) -> None:
-        """Route via DETERMINISTIC_MAP, skip LLM entirely."""
-        tool_name = DETERMINISTIC_MAP.get(intent.prototype or "", "ask_user")
-        tool_call = ToolCall(tool=tool_name, topic=None, payload={"text": text})
-        ctx = EvaluationContext()
-        decision = self._policy.evaluate(tool_call, text, identity, ctx)
-        await self._execute_decision(decision, tool_call, text, identity)
+        """Resolve device command via TextResolver, then route through PolicyEngine."""
+        if self._text_resolver is None:
+            # No registry available — cannot resolve; fall back to ask_user
+            tool_call = ToolCall(tool="ask_user", topic=None, payload={"question": text})
+            decision = self._policy.evaluate(tool_call, text, identity)
+            await self._execute_decision(decision, tool_call, text, identity)
+            return
+
+        speaker_room: str | None = self._last_identity_room
+        resolution = await self._text_resolver.resolve(text, intent.prototype, speaker_room)
+
+        if not resolution.success:
+            await self._emit_explainable_failure(resolution, text, identity)
+            return
+
+        # Broadcast: publish to every matched device
+        targets = (
+            resolution.all_devices
+            if resolution.all_devices
+            else ([resolution.device] if resolution.device else [])
+        )
+        for device in targets:
+            payload = self._build_mqtt_payload(resolution, device)
+            tool_call = ToolCall(
+                tool="mqtt_publish",
+                topic=device.mqtt_command_topic,
+                payload=payload,
+            )
+            decision = self._policy.evaluate(tool_call, text, identity)
+            await self._execute_decision(decision, tool_call, text, identity)
+
+    async def _emit_explainable_failure(self, resolution: Any, text: str, identity: str) -> None:
+        """Publish an INFO result with a UA-rendered explanation of why resolution failed."""
+        from hub.edge.agent.i18n_uk import render_failure  # noqa: PLC0415
+
+        msg = render_failure(resolution)
+        logger.info(
+            "Explainable failure [%s]: %r — %s",
+            resolution.failure_kind,
+            text,
+            resolution.reasoning,
+        )
+        await self._pub(
+            "agent:result",
+            {
+                "type": "result",
+                "action_class": "INFO",
+                "text": msg,
+                "failure_kind": (
+                    resolution.failure_kind.value if resolution.failure_kind else None
+                ),
+                "reasoning": resolution.reasoning,
+            },
+        )
+
+    @staticmethod
+    def _build_mqtt_payload(resolution: Any, device: Any) -> dict[str, Any]:
+        """Build MQTT command payload for a single device from a successful Resolution."""
+        action = resolution.action or "on"
+        if action in ("on", "open"):
+            base: dict[str, Any] = dict(device.payload_on) if device.payload_on else {"state": "ON"}
+        elif action in ("off", "close"):
+            base = dict(device.payload_off) if device.payload_off else {"state": "OFF"}
+        elif action == "toggle":
+            base = {"state": "TOGGLE"}
+        else:
+            # set / brightness_set / temp_set / inc / dec — use params directly
+            base = {}
+        base.update(resolution.params)
+        return base
 
     async def _handle_structured(self, text: str, identity: str, intent: Any = None) -> None:
         """Use constrained LLM generation to produce tool call JSON."""
         prototype = getattr(intent, "prototype", None) if intent else None
-        grammar_name = GRAMMAR_MAP.get(prototype or "", None)
-        if grammar_name is None:
-            lower = text.lower()
-            if any(kw in lower for kw in ("таймер", "нагадай", "timer", "remind")):
-                grammar_name = "timer"
-            elif any(kw in lower for kw in ("relay", "реле", "device_off", "розетк")):
-                grammar_name = "relay"
-            else:
-                grammar_name = "light"
+        lower = text.lower()
+        # Inline grammar selection (GRAMMAR_MAP removed — use prototype + text keywords)
+        if prototype == "temp_set" or any(kw in lower for kw in ("температур", "градус", "°")):
+            grammar_name = "thermostat"
+        elif prototype == "brightness_set" or any(kw in lower for kw in ("яскравість", "відсоток")):
+            grammar_name = "light"
+        elif any(kw in lower for kw in ("таймер", "нагадай", "timer", "remind")):
+            grammar_name = "timer"
+        elif any(kw in lower for kw in ("relay", "реле", "розетк")):
+            grammar_name = "relay"
+        else:
+            grammar_name = "light"
 
         grammar = load_grammar(grammar_name)
         prompt = f"Convert to smart home JSON tool call: {text}\nJSON:"
@@ -591,13 +652,25 @@ class AgentOrchestrator:
             return None
 
     async def run(self) -> None:
-        """Subscribe to voice/command and process commands."""
-        logger.info("Orchestrator starting, subscribing to voice/command")
+        """Subscribe to voice/command and home/+/camera/identity; process commands."""
+        logger.info("Orchestrator starting, subscribing to voice/command and camera identity")
         async with self._mqtt:
             await self._mqtt.subscribe("voice/command")
+            await self._mqtt.subscribe("home/+/camera/identity")
             async for message in self._mqtt.messages:
+                topic = str(message.topic)
                 try:
                     data = json.loads(message.payload)
+                    if topic.endswith("/camera/identity"):
+                        # Update speaker-room context from ArcFace face recognition
+                        self._last_identity = str(data.get("identity", "default"))
+                        self._last_identity_room = data.get("room") or None
+                        logger.debug(
+                            "Identity update: %r in room %r",
+                            self._last_identity,
+                            self._last_identity_room,
+                        )
+                        continue
                     text = str(data.get("text", ""))
                     if text:
                         await self._redis.publish(
@@ -610,6 +683,6 @@ class AgentOrchestrator:
                                 }
                             ),
                         )
-                        await self.handle_command(text)
+                        await self.handle_command(text, self._last_identity)
                 except Exception:
                     logger.exception("Failed to process message: %s", message.payload)
