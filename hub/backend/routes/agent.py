@@ -196,6 +196,7 @@ async def disambiguate(body: DisambiguateBody, request: Request) -> dict[str, st
     return {"result": "queued"}
 
 
+@router.post("/voice/audio")
 async def submit_voice_audio(websocket_request: Request) -> dict[str, Any]:
     """Receive audio blob from PTT, store in Redis, notify voice pipeline.
 
