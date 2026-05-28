@@ -15,9 +15,11 @@ help: ## Show this help
 up-edge: ## Start all edge services
 	$(COMPOSE) -f $(EDGE_COMPOSE) up -d
 
-up-edge-prod: ## Start edge stack on RPi5; CV runs as systemd service (hailo_platform/glibc conflict)
-	$(COMPOSE) -f $(EDGE_COMPOSE) -f hub/docker-compose.prod.yml up -d --scale cv=0
-	@echo "CV pipeline runs outside Docker. Install once: sudo cp scripts/iot-hub-cv.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now iot-hub-cv"
+up-edge-prod: ## Start edge stack on RPi5; CV + voice run as systemd services (hailo_platform/glibc conflict)
+	$(COMPOSE) -f $(EDGE_COMPOSE) -f hub/docker-compose.prod.yml up -d --scale cv=0 --scale voice=0
+	@echo "CV + voice run outside Docker. Install once:"
+	@echo "  sudo cp scripts/iot-hub-cv.service scripts/iot-hub-voice.service /etc/systemd/system/"
+	@echo "  sudo systemctl daemon-reload && sudo systemctl enable --now iot-hub-cv iot-hub-voice"
 
 up-edge-dev: ## Start edge + expose MQTT 1883 for mock_sensors (dev only)
 	$(COMPOSE) -f $(EDGE_COMPOSE) -f hub/docker-compose.dev.yml up -d

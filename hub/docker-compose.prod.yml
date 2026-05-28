@@ -1,22 +1,28 @@
 # docker-compose.prod.yml — RPi5 production overrides.
 #
-# On RPi5 the CV pipeline runs as a systemd service (scripts/iot-hub-cv.service)
-# rather than in Docker, because hailo_platform has deep system-library ties
-# (glibc/libstdc++ compiled for Debian Trixie) that conflict with standard
-# Docker base images.
+# On RPi5 the CV and Voice pipelines run as systemd services rather than in
+# Docker, because hailo_platform has deep system-library ties (glibc/libstdc++
+# compiled for Debian Trixie) that conflict with standard Docker base images.
+#   - scripts/iot-hub-cv.service     (Hailo YOLO + pose + face)
+#   - scripts/iot-hub-voice.service  (Hailo Whisper + wake-word + TTS)
 #
 # Usage:
-#   make up-edge-prod           — starts all edge services except cv
-#   sudo systemctl start iot-hub-cv
+#   make up-edge-prod                 — starts all edge services except cv + voice
+#   sudo systemctl start iot-hub-cv iot-hub-voice
 #
 # What this file does:
 #   - Exposes mosquitto port 1883 on 127.0.0.1 (localhost only) so the host
-#     CV systemd service can connect without mTLS.
-#   - cv is excluded at the make level via --scale cv=0.
+#     CV / Voice systemd services can connect without mTLS.
+#   - cv and voice are excluded at the make level via --scale cv=0 --scale voice=0.
 
 services:
   mosquitto:
     ports:
-      # localhost-only plain MQTT for the host CV systemd service.
+      # localhost-only plain MQTT for the host CV / Voice systemd services.
       # Not exposed on 0.0.0.0 — remains inaccessible from the network.
       - "127.0.0.1:1883:1883"
+  redis:
+    ports:
+      # localhost-only Redis for the host voice systemd service (TTS responder
+      # subscribes to agent:result, PTT consumer reads voice:audio_stream).
+      - "127.0.0.1:6379:6379"

@@ -1,0 +1,68 @@
+[Unit]
+Description=IoT Hub Voice Pipeline (Hailo-8 Whisper + wake-word + TTS)
+Documentation=https://github.com/your-org/iot-hub
+# Start after Docker is up so mosquitto + redis containers are available.
+After=network-online.target docker.service local-fs.target
+Wants=network-online.target
+RequiresMountsFor=/mnt/ssd
+
+[Service]
+Type=simple
+User=vlad
+Group=vlad
+WorkingDirectory=/mnt/ssd/iot-hub/repo
+SupplementaryGroups=audio
+
+# Pipeline defaults — all can be overridden in /etc/iot-hub-voice.env
+Environment=MQTT_HOST=127.0.0.1
+Environment=MQTT_PORT=1883
+Environment=REDIS_URL=redis://127.0.0.1:6379/0
+
+# Hailo Whisper config — tiny is multilingual (uk supported), 10 s window.
+Environment=WHISPER_VARIANT=tiny
+Environment=WHISPER_LANGUAGE=uk
+Environment=WHISPER_ASSETS_DIR=/mnt/ssd/iot-hub/whisper-cache
+
+# CPU fallback (only used if hailo_platform import fails)
+Environment=FASTER_WHISPER_MODEL=base
+Environment=FORCE_CPU_STT=false
+
+# NPU contention strategy with the CV systemd service (which uses the same NPU).
+# whisper_waits = zero CV FPS impact; whisper_inference yields between CV frames.
+Environment=NPU_STRATEGY=whisper_waits
+
+# Wake-word: empty → PTT-only mode. Point to a .onnx model to enable mic activation.
+Environment=WAKE_WORD_MODEL_PATH=
+# Moonshine (English ONNX) — leave empty for Ukrainian (Hailo Whisper handles it).
+Environment=MOONSHINE_MODEL=
+
+# Piper TTS voice model
+Environment=PIPER_MODEL=uk_UA-lada-x_low
+Environment=PIPER_MODEL_DIR=/mnt/ssd/iot-hub/piper-models
+
+# Optional site-local overrides
+EnvironmentFile=-/etc/iot-hub-voice.env
+
+# Uses the same shared venv pattern as iot-hub-cv.service (system Python +
+# --system-site-packages so hailo_platform is importable).
+# One-time setup:
+#   python3 -m venv --system-site-packages /mnt/ssd/iot-hub/repo/.venv-voice
+#   .venv-voice/bin/pip install -e /mnt/ssd/iot-hub/repo[voice] --no-deps
+#   .venv-voice/bin/pip install aiomqtt redis prometheus-client transformers scipy \
+#                               openwakeword faster-whisper soundfile sounddevice
+ExecStart=/mnt/ssd/iot-hub/repo/.venv-voice/bin/python -m hub.edge.voice.pipeline
+
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-hub-voice
+
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

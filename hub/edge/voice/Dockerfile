@@ -49,7 +49,9 @@ ENV WAKE_WORD_MODEL_PATH="" \
     MOONSHINE_MODEL="" \
     FASTER_WHISPER_MODEL="base" \
     FORCE_CPU_STT="false" \
-    WHISPER_HEF_PATH="" \
+    WHISPER_VARIANT="tiny" \
+    WHISPER_LANGUAGE="uk" \
+    WHISPER_ASSETS_DIR="/app/.whisper_cache" \
     NPU_STRATEGY="whisper_waits" \
     MQTT_HOST="mosquitto" \
     MQTT_PORT="1883" \
@@ -57,5 +59,8 @@ ENV WAKE_WORD_MODEL_PATH="" \
     PIPER_MODEL_DIR="/home/appuser/.local/share/piper" \
     SILERO_VAD_ONNX_PATH="/app/.silero_vad/silero_vad.onnx" \
     HF_HOME="/app/.hf_cache"
+
+# Whisper asset cache — owned by appuser so the named volume gets correct perms.
+RUN mkdir -p /app/.whisper_cache && chown -R appuser:appuser /app/.whisper_cache
 
 CMD ["python", "-m", "hub.edge.voice.pipeline"]

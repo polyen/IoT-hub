@@ -334,11 +334,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-iothub}?ssl=disable
       # UsefulSensors/moonshine-tiny-uk has no ONNX export; leave empty to use
-      # faster-whisper with language=uk instead (set to "moonshine/tiny" for English).
+      # Hailo Whisper (multilingual) on RPi or faster-whisper on dev machines.
       MOONSHINE_MODEL: ${MOONSHINE_MODEL:-}
       FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-base}
       WAKE_WORD_MODEL_PATH: ${WAKE_WORD_MODEL_PATH:-}
       FORCE_CPU_STT: ${FORCE_CPU_STT:-false}
+      # Hailo Whisper (preferred on RPi5+Hailo-8): tiny (10s window) or base (5s).
+      WHISPER_VARIANT: ${WHISPER_VARIANT:-tiny}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-uk}
+      WHISPER_ASSETS_DIR: /app/.whisper_cache
       NPU_STRATEGY: ${NPU_STRATEGY:-whisper_waits}
       PIPER_MODEL: ${PIPER_MODEL:-uk_UA-lada-x_low}
       PIPER_MODEL_DIR: /app/piper-models
@@ -351,6 +355,9 @@ services:
       - piper-models:/app/piper-models
       # HuggingFace model cache (faster-whisper downloads here on first start).
       - hf-cache:/app/.hf_cache
+      # Hailo Whisper assets (HEFs + npy + mel filters) — ~140 MB for tiny.
+      # Lazy-downloaded on first transcribe call.
+      - whisper-cache:/app/.whisper_cache
     # sounddevice needs access to the host ALSA/sound subsystem.
     devices:
       - /dev/snd:/dev/snd
@@ -464,6 +471,7 @@ volumes:
   # tree (${MODELS_HOST_DIR}/llm) as HEFs for uniform backup/sync.
   piper-models:
   hf-cache:
+  whisper-cache:
   t0-frames:
   annotation-dataset:
 

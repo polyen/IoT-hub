@@ -1,21 +1,24 @@
-"""Hailo Whisper STT wrapper — encoder on Hailo NPU, decoder on CPU.
+"""Hailo Whisper STT wrapper — encoder + decoder on Hailo-8 NPU.
 
-Primary STT is Moonshine ONNX (see moonshine_stt.py).  This module provides:
-  - HailoWhisperBackend: Whisper encoder on Hailo-8 NPU + CPU decoder (secondary)
-  - FasterWhisperBackend: faster-whisper large-v3-turbo CPU (tertiary fallback)
-  - get_backend(): selects Moonshine → Hailo → faster-whisper in priority order
+Backends:
+  - HailoWhisperBackend: Whisper-tiny/base on Hailo-8 (encoder + decoder HEFs),
+    multilingual (Ukrainian via forced ``<|uk|>`` decoder prefix).
+  - FasterWhisperBackend: faster-whisper int8 on CPU (fallback / dev machines).
+  - MoonshineBackend (see moonshine_stt.py): English-only ONNX, optional.
 
-Hybrid architecture (Hailo path, ~250ms target):
+Hailo Whisper path:
     audio bytes
-        → float32 numpy array (16 kHz)
-        → HailoWhisperBackend.encode()   # mel-spectrogram + encoder on Hailo NPU
-        → encoder features (numpy)
-        → HailoWhisperBackend.decode()   # autoregressive decoder on CPU
-        → transcription text
+        → float32 PCM (16 kHz, ≤ chunk_seconds)
+        → mel spectrogram (host, numpy + scipy)
+        → encoder HEF (Hailo NPU)
+        → encoded features (numpy)
+        → decoder HEF, autoregressive (Hailo NPU, ~seq_len iterations)
+        → token argmax + repetition penalty (host)
+        → tokenizer.decode → transcription text
 
-CPU fallback path (~500ms on RPi 5, ARM Cortex-A76):
+CPU fallback path:
     audio bytes
-        → FasterWhisperBackend           # large-v3-turbo int8
+        → FasterWhisperBackend (ctranslate2 int8)
         → transcription text
 
 See hub.edge.voice.scheduler for NPU contention coordination with CV cascade.
@@ -25,14 +28,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import pathlib
+import queue
+import threading
 from pathlib import Path
 from typing import Any, Protocol
+
+import numpy as np
+
+from hub.edge.voice.whisper_assets import WhisperAssets, ensure_assets
+from hub.edge.voice.whisper_preprocess import audio_to_mel
 
 logger = logging.getLogger(__name__)
 
 try:
-    from hailo_platform import HEF, VDevice  # noqa: F401
+    from hailo_platform import HEF, FormatType, HailoSchedulingAlgorithm, VDevice
 
     HAILO_AVAILABLE = True
 except ImportError:
@@ -45,123 +56,324 @@ try:
 except ImportError:
     FASTER_WHISPER_AVAILABLE = False
 
-# Target language; override via HailoWhisperBackend(language=...) for multilingual
-DEFAULT_LANGUAGE = "uk"
+try:
+    from transformers import AutoTokenizer  # type: ignore[import-not-found]
 
-# How long to wait for NPU encoder before falling back to CPU
-DEFAULT_NPU_TIMEOUT_SEC = 5.0
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+DEFAULT_LANGUAGE = "uk"
+DEFAULT_VARIANT = "tiny"
+DEFAULT_CACHE_DIR = Path(os.environ.get("WHISPER_ASSETS_DIR", "/app/.whisper_cache"))
+
+# Whisper task / format tokens (stable across multilingual variants)
+_TOK_SOT = "<|startoftranscript|>"
+_TOK_TRANSCRIBE = "<|transcribe|>"
+_TOK_NOTIMESTAMPS = "<|notimestamps|>"
+
+# Punctuation token ids exempt from repetition penalty (commas, periods)
+_PUNCT_TOKENS = {11, 13}
 
 
 class STTBackend(Protocol):
     async def transcribe(self, audio_bytes: bytes) -> str: ...
 
 
+def _apply_repetition_penalty(
+    logits: np.ndarray, generated: list[int], penalty: float = 1.5, window: int = 4
+) -> np.ndarray:
+    """Down-weight recently generated tokens to reduce loops. Mirrors the
+    hailo-apps speech_recognition postprocessing.
+    """
+    logits = np.squeeze(logits, axis=0).astype(np.float32, copy=True)
+    for tok in set(generated[-window:]):
+        if tok not in _PUNCT_TOKENS:
+            logits[tok] /= penalty
+    return logits
+
+
 class HailoWhisperBackend:
-    """Whisper encoder on Hailo-8 NPU, autoregressive decoder on CPU.
+    """Whisper encoder + decoder on Hailo-8 NPU via HailoRT InferModel API.
 
-    Requires hailo_platform + official Hailo Whisper HEF from Hailo Model Zoo
-    (announced July 2025 — check hailo-ai/hailo_model_zoo for availability).
-
-    Falls back to FasterWhisperBackend automatically on timeout or NPU error,
-    ensuring the voice pipeline never stalls even under CV cascade load.
+    Adapted from the Apache-2 reference at
+    hailo-ai/hailo-apps/hailo_apps/python/standalone_apps/speech_recognition/whisper_pipeline.py
+    (run loop ported into a daemon thread driven by an asyncio queue).
     """
 
     def __init__(
         self,
-        hef_path: Path,
+        assets: WhisperAssets,
         language: str = DEFAULT_LANGUAGE,
-        npu_timeout_sec: float = DEFAULT_NPU_TIMEOUT_SEC,
     ) -> None:
         if not HAILO_AVAILABLE:
-            raise RuntimeError("hailo_platform not installed — run on RPi5 with HailoRT")
-        self._hef_path = hef_path
+            raise RuntimeError("hailo_platform not installed")
+        if not TRANSFORMERS_AVAILABLE:
+            raise RuntimeError("transformers not installed (needed for tokenizer)")
+
+        self._assets = assets
         self._language = language
-        self._npu_timeout_sec = npu_timeout_sec
-        self._device: Any = None
-        self._network_group: Any = None
-        # CPU fallback ready at construction time so it's warm for fast escalation
-        self._cpu_fallback: FasterWhisperBackend | None = (
-            FasterWhisperBackend(language=language) if FASTER_WHISPER_AVAILABLE else None
+
+        self._tokenizer = AutoTokenizer.from_pretrained(f"openai/whisper-{assets.variant}")
+        sot_id = self._tokenizer.convert_tokens_to_ids(_TOK_SOT)
+        lang_id = self._tokenizer.convert_tokens_to_ids(f"<|{language}|>")
+        if lang_id is None or lang_id == self._tokenizer.unk_token_id:
+            raise RuntimeError(
+                f"Whisper tokenizer has no <|{language}|> token — pick a supported language code"
+            )
+        task_id = self._tokenizer.convert_tokens_to_ids(_TOK_TRANSCRIBE)
+        nots_id = self._tokenizer.convert_tokens_to_ids(_TOK_NOTIMESTAMPS)
+        self._forced_decoder_ids = [int(sot_id), int(lang_id), int(task_id), int(nots_id)]
+        self._eos_id = int(self._tokenizer.eos_token_id)
+
+        # Decoder embedding (operator stripped from HEF — runs on host)
+        self._tok_embed = np.load(assets.token_embedding_npy)
+        self._add_input = np.load(assets.onnx_add_input_npy)
+
+        # Cross-thread plumbing: requests in, transcriptions/errors out
+        self._req_q: queue.Queue[tuple[int, np.ndarray] | None] = queue.Queue()
+        self._res_q: queue.Queue[tuple[int, str | BaseException]] = queue.Queue()
+        self._counter = 0
+        self._stop = threading.Event()
+
+        # Cached at load() — populated by the worker thread once HEFs are configured
+        self._chunk_samples = assets.chunk_seconds * 16000
+
+        self._thread = threading.Thread(target=self._worker_loop, daemon=True, name="hailo-whisper")
+        self._thread.start()
+        logger.info(
+            "Hailo Whisper backend ready — variant=%s lang=%s window=%ds",
+            assets.variant,
+            language,
+            assets.chunk_seconds,
         )
 
-    def load(self) -> None:
-        """Load HEF into Hailo device. Call once before transcribe()."""
-        hef = HEF(str(self._hef_path))
-        self._device = VDevice()
-        configure_params = self._device.create_configure_params(hef)
-        network_groups = self._device.configure(hef, configure_params)
-        self._network_group = network_groups[0]
-        logger.info("Hailo Whisper loaded: %s", self._hef_path.name)
-
-    def encode(self, audio_f32: Any) -> Any:
-        """Run mel-spectrogram + Whisper encoder on Hailo NPU.
-
-        audio_f32: float32 numpy array, shape (N,), 16 kHz mono, range [-1, 1]
-        Returns encoder features (numpy array, shape matches Whisper enc output).
-
-        Note: actual Hailo stream API call not yet wired — see
-        https://github.com/hailo-ai/hailo-whisper for reference implementation.
-        """
-        if self._network_group is None:
-            raise RuntimeError("Call load() before encode()")
-        raise NotImplementedError("Hailo Whisper encoder not wired — see hailo-ai/hailo-whisper")
-
-    def decode(self, features: Any, language: str | None = None) -> str:
-        """Run Whisper decoder on CPU given encoder features.
-
-        features: numpy array from encode()
-        Returns transcription string.
-        """
-        raise NotImplementedError(
-            "Hailo Whisper decoder not wired — needs transformers or whisper-cpp"
-        )
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
 
     async def transcribe(self, audio_bytes: bytes) -> str:
-        """Transcribe audio. Uses Hailo NPU with timeout, falls back to CPU."""
-        try:
-            return await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(None, self._transcribe_hailo, audio_bytes),
-                timeout=self._npu_timeout_sec,
-            )
-        except (TimeoutError, NotImplementedError, RuntimeError) as exc:
-            logger.warning(
-                "Hailo Whisper unavailable (%s) — falling back to CPU", type(exc).__name__
-            )
-            if self._cpu_fallback is not None:
-                return await self._cpu_fallback.transcribe(audio_bytes)
-            raise RuntimeError("No STT fallback available") from exc
-
-    def _transcribe_hailo(self, audio_bytes: bytes) -> str:
-        import io
-
-        try:
-            # import numpy as np
-            import soundfile
-        except ImportError as e:
-            raise RuntimeError("Install numpy + soundfile for Hailo Whisper") from e
-
-        audio_f32, sr = soundfile.read(io.BytesIO(audio_bytes))
-        if sr != 16000:
-            raise RuntimeError(f"Expected 16 kHz audio, got {sr} Hz")
-        features = self.encode(audio_f32.astype("float32"))
-        return self.decode(features, language=self._language)
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._transcribe_sync, audio_bytes)
 
     def close(self) -> None:
-        if self._device is not None:
-            self._device.release()
-            self._device = None
+        self._stop.set()
+        self._req_q.put(None)
+        self._thread.join(timeout=5)
+
+    # ------------------------------------------------------------------ #
+    # Sync entry — preprocess + RPC to worker thread
+    # ------------------------------------------------------------------ #
+
+    def _transcribe_sync(self, audio_bytes: bytes) -> str:
+        from hub.edge.voice.audio_io import is_raw_pcm
+
+        if is_raw_pcm(audio_bytes):
+            audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        else:
+            # Browser PTT (WebM/OGG/MP4) — decode via ffmpeg to 16 kHz mono.
+            import subprocess
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as f:
+                f.write(audio_bytes)
+                src = f.name
+            try:
+                out = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        src,
+                        "-ar",
+                        "16000",
+                        "-ac",
+                        "1",
+                        "-f",
+                        "s16le",
+                        "-",
+                    ],
+                    capture_output=True,
+                    check=True,
+                )
+            finally:
+                os.unlink(src)
+            audio = np.frombuffer(out.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
+        mel = audio_to_mel(audio, self._assets.chunk_seconds, str(self._assets.mel_filters_npz))
+
+        # Issue request; block on the matching reply (queue is ordered per-thread)
+        self._counter += 1
+        req_id = self._counter
+        self._req_q.put((req_id, mel))
+        while True:
+            reply_id, payload = self._res_q.get()
+            if reply_id != req_id:
+                # Out-of-order completion (shouldn't happen with FIFO worker, but be safe)
+                self._res_q.put((reply_id, payload))
+                continue
+            if isinstance(payload, BaseException):
+                raise payload
+            return payload
+
+    # ------------------------------------------------------------------ #
+    # Worker thread — owns the Hailo VDevice for its entire lifetime
+    # ------------------------------------------------------------------ #
+
+    def _worker_loop(self) -> None:
+        try:
+            self._run_inference()
+        except BaseException as exc:  # noqa: BLE001 — surface to all pending callers
+            logger.exception("Hailo Whisper worker died")
+            # Drain any pending requests with the failure
+            while True:
+                try:
+                    item = self._req_q.get_nowait()
+                except queue.Empty:
+                    break
+                if item is None:
+                    continue
+                self._res_q.put((item[0], exc))
+
+    def _run_inference(self) -> None:
+        params = VDevice.create_params()
+        # Cross-process scheduler so we coexist with the CV container on the
+        # same Hailo-8 (group_id="SHARED" is the convention used by all Hailo
+        # apps that share the NPU).
+        params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
+        params.group_id = "SHARED"
+
+        decoder_hef = HEF(str(self._assets.decoder_hef))
+        decoder_model_name = decoder_hef.get_network_group_names()[0]
+        sorted_outputs = decoder_hef.get_sorted_output_names()
+        useful_outputs = [n for n in sorted_outputs if "conv" in n]
+        seq_len = decoder_hef.get_output_vstream_infos()[0].shape[1]
+
+        with VDevice(params) as vdevice:
+            enc_model = vdevice.create_infer_model(str(self._assets.encoder_hef))
+            dec_model = vdevice.create_infer_model(str(self._assets.decoder_hef))
+
+            enc_model.input().set_format_type(FormatType.FLOAT32)
+            enc_model.output().set_format_type(FormatType.FLOAT32)
+            dec_model.input(f"{decoder_model_name}/input_layer1").set_format_type(
+                FormatType.FLOAT32
+            )
+            dec_model.input(f"{decoder_model_name}/input_layer2").set_format_type(
+                FormatType.FLOAT32
+            )
+            for name in sorted_outputs:
+                dec_model.output(name).set_format_type(FormatType.FLOAT32)
+
+            with enc_model.configure() as enc_cfg, dec_model.configure() as dec_cfg:
+                enc_bindings = enc_cfg.create_bindings()
+                dec_bindings = dec_cfg.create_bindings()
+                timeout_ms = 30_000
+
+                while not self._stop.is_set():
+                    item = self._req_q.get()
+                    if item is None:
+                        return
+                    req_id, mel = item
+                    try:
+                        text = self._infer_one(
+                            mel,
+                            enc_cfg,
+                            enc_bindings,
+                            enc_model,
+                            dec_cfg,
+                            dec_bindings,
+                            dec_model,
+                            decoder_model_name,
+                            sorted_outputs,
+                            useful_outputs,
+                            seq_len,
+                            timeout_ms,
+                        )
+                        self._res_q.put((req_id, text))
+                    except BaseException as exc:  # noqa: BLE001
+                        logger.exception("Hailo Whisper inference failed for req=%d", req_id)
+                        self._res_q.put((req_id, exc))
+
+    def _infer_one(
+        self,
+        mel: np.ndarray,
+        enc_cfg: Any,
+        enc_bindings: Any,
+        enc_model: Any,
+        dec_cfg: Any,
+        dec_bindings: Any,
+        dec_model: Any,
+        decoder_model_name: str,
+        sorted_outputs: list[str],
+        useful_outputs: list[str],
+        seq_len: int,
+        timeout_ms: int,
+    ) -> str:
+        # ---- Encoder ---------------------------------------------------
+        enc_bindings.input().set_buffer(np.ascontiguousarray(mel))
+        enc_buf = np.zeros(enc_model.output().shape, dtype=np.float32)
+        enc_bindings.output().set_buffer(enc_buf)
+        enc_cfg.run([enc_bindings], timeout_ms)
+        encoded = enc_bindings.output().get_buffer()
+
+        # ---- Decoder (autoregressive) ----------------------------------
+        dec_ids = np.zeros((1, seq_len), dtype=np.int64)
+        for k, tok in enumerate(self._forced_decoder_ids):
+            if k >= seq_len:
+                break
+            dec_ids[0][k] = tok
+        free_start = len(self._forced_decoder_ids) - 1
+        generated: list[int] = []
+
+        for i in range(free_start, seq_len - 1):
+            tok_embed = self._tokenize_host(dec_ids)
+
+            dec_bindings.input(f"{decoder_model_name}/input_layer1").set_buffer(
+                np.ascontiguousarray(encoded)
+            )
+            dec_bindings.input(f"{decoder_model_name}/input_layer2").set_buffer(
+                np.ascontiguousarray(tok_embed)
+            )
+            for name in sorted_outputs:
+                buf = np.zeros(dec_model.output(name).shape, dtype=np.float32)
+                dec_bindings.output(name).set_buffer(buf)
+
+            dec_cfg.run([dec_bindings], timeout_ms)
+
+            outputs = np.concatenate(
+                [dec_bindings.output(n).get_buffer() for n in useful_outputs],
+                axis=2,
+            )
+            logits = _apply_repetition_penalty(outputs[:, i], generated)
+            next_tok = int(np.argmax(logits))
+            generated.append(next_tok)
+            dec_ids[0][i + 1] = next_tok
+
+            if next_tok == self._eos_id:
+                break
+
+        text: str = self._tokenizer.decode(generated, skip_special_tokens=True).strip()
+        return text
+
+    def _tokenize_host(self, dec_ids: np.ndarray) -> np.ndarray:
+        """Gather + Add + Unsqueeze + Transpose — these ops were stripped from
+        the Hailo-8 decoder HEF during compile and must run on host."""
+        gather = self._tok_embed[dec_ids]  # (1, seq_len, d_model)
+        added = gather + self._add_input
+        return np.transpose(np.expand_dims(added, axis=0), (0, 3, 2, 1))
 
 
 class FasterWhisperBackend:
     """CPU STT using faster-whisper (int8).
 
-    Default model: "small" (~244 MB, ~300 ms on RPi 5 ARM Cortex-A76, WER ~8% uk).
-    Override via FASTER_WHISPER_MODEL env var (e.g. "medium", "large-v3-turbo").
+    Default model: "base" (~145 MB, ~150-400 ms on RPi 5 ARM Cortex-A76).
+    Override via FASTER_WHISPER_MODEL env var (e.g. "small", "tiny").
     """
 
     def __init__(
         self,
-        model_size: str = "small",
+        model_size: str = "base",
         language: str = DEFAULT_LANGUAGE,
     ) -> None:
         if not FASTER_WHISPER_AVAILABLE:
@@ -176,19 +388,13 @@ class FasterWhisperBackend:
         )
 
     def _transcribe_sync(self, audio_bytes: bytes) -> str:
-        import os
         import subprocess
         import tempfile
-
-        import numpy as np
 
         from hub.edge.voice.audio_io import is_raw_pcm
 
         logger.debug("transcribe: %d bytes, header=%s", len(audio_bytes), audio_bytes[:16].hex())
 
-        # Mic / RTSP paths deliver headerless int16 PCM at 16 kHz; ffmpeg can't
-        # autodetect that, so decode directly. Container blobs (browser PTT
-        # WebM/OGG) still go through ffmpeg for robust demuxing.
         if is_raw_pcm(audio_bytes):
             pcm = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         else:
@@ -222,6 +428,7 @@ class FasterWhisperBackend:
             finally:
                 os.unlink(src)
             pcm = np.frombuffer(result.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+
         segments, _ = self._model.transcribe(
             pcm,
             language=self._language,
@@ -235,23 +442,34 @@ class FasterWhisperBackend:
 
 
 def get_backend(
-    hef_path: Path | None = None,
+    hef_path: Path | None = None,  # accepted for back-compat; ignored
     force_cpu: bool = False,
     language: str = DEFAULT_LANGUAGE,
-    npu_timeout_sec: float = DEFAULT_NPU_TIMEOUT_SEC,
+    npu_timeout_sec: float = 5.0,  # back-compat — unused
     moonshine_model: str | None = None,
+    variant: str | None = None,
+    assets_cache_dir: Path | None = None,
 ) -> STTBackend:
     """Return best available STT backend.
 
-    Priority: Moonshine ONNX (explicit model only) → Hailo NPU → faster-whisper CPU.
+    Priority on RPi5:
+        Hailo Whisper (variant=tiny/base, multilingual) → Moonshine (English only)
+        → faster-whisper CPU (fallback).
 
-    Moonshine is only attempted when moonshine_model is explicitly set.
-    Note: UsefulSensors/moonshine-tiny-uk has no ONNX export — use faster-whisper
-    with language="uk" for Ukrainian STT (set MOONSHINE_MODEL="" to skip moonshine).
+    On dev machines without hailo_platform, the order is: Moonshine (if explicitly
+    requested) → faster-whisper.
     """
-    import os
-
     from hub.edge.voice.moonshine_stt import MOONSHINE_AVAILABLE, MoonshineBackend
+
+    target_variant = (variant or os.environ.get("WHISPER_VARIANT") or DEFAULT_VARIANT).lower()
+    cache_dir = assets_cache_dir or DEFAULT_CACHE_DIR
+
+    if not force_cpu and HAILO_AVAILABLE and TRANSFORMERS_AVAILABLE:
+        try:
+            assets = ensure_assets(target_variant, cache_dir)
+            return HailoWhisperBackend(assets, language=language)
+        except Exception as exc:
+            logger.warning("Hailo Whisper init failed (%s) — falling through", exc)
 
     if MOONSHINE_AVAILABLE and moonshine_model:
         try:
@@ -260,18 +478,15 @@ def get_backend(
         except Exception as exc:
             logger.warning("Moonshine backend failed (%s) — falling through", exc)
 
-    if not force_cpu and HAILO_AVAILABLE and hef_path is not None and hef_path.exists():
-        logger.info("Hailo Whisper backend: %s", hef_path.name)
-        backend = HailoWhisperBackend(hef_path, language=language, npu_timeout_sec=npu_timeout_sec)
-        backend.load()
-        return backend
-
     if FASTER_WHISPER_AVAILABLE:
-        model_size = os.environ.get("FASTER_WHISPER_MODEL", "small")
+        model_size = os.environ.get("FASTER_WHISPER_MODEL", "base")
         logger.info("faster-whisper %s (int8, language=%s)", model_size, language)
         return FasterWhisperBackend(model_size=model_size, language=language)
 
-    raise RuntimeError("No STT backend available — install useful-moonshine-onnx or faster-whisper")
+    raise RuntimeError(
+        "No STT backend available — install hailo_platform+transformers, "
+        "useful-moonshine-onnx, or faster-whisper"
+    )
 
 
 async def transcribe_file(
@@ -279,40 +494,50 @@ async def transcribe_file(
     hef_path: Path | None = None,
     force_cpu: bool = False,
     language: str = DEFAULT_LANGUAGE,
+    variant: str | None = None,
 ) -> str:
-    backend = get_backend(hef_path=hef_path, force_cpu=force_cpu, language=language)
+    backend = get_backend(
+        hef_path=hef_path, force_cpu=force_cpu, language=language, variant=variant
+    )
     return await backend.transcribe(audio_path.read_bytes())
 
 
 if __name__ == "__main__":
     import argparse
+    import time
 
     parser = argparse.ArgumentParser(description="Transcribe a WAV file")
     parser.add_argument("--record", type=pathlib.Path, required=True)
-    parser.add_argument("--hef", type=pathlib.Path, default=None)
     parser.add_argument("--force-cpu", action="store_true")
     parser.add_argument("--language", default=DEFAULT_LANGUAGE)
-    parser.add_argument("--bench", action="store_true", help="Print latency stats")
+    parser.add_argument("--variant", default=None, help="tiny | base (Hailo path only)")
+    parser.add_argument("--bench", action="store_true")
     args = parser.parse_args()
-
-    import time
 
     if args.bench:
         times = []
         for _ in range(3):
             t0 = time.monotonic()
             result = asyncio.run(
-                transcribe_file(args.record, hef_path=args.hef, force_cpu=args.force_cpu)
+                transcribe_file(
+                    args.record,
+                    force_cpu=args.force_cpu,
+                    language=args.language,
+                    variant=args.variant,
+                )
             )
             times.append((time.monotonic() - t0) * 1000)
         print(f"Result: {result}")
         print(
-            f"Latency: {min(times):.0f}/{sum(times)/len(times):.0f}/{max(times):.0f} ms (min/avg/max)"
+            f"Latency: {min(times):.0f}/{sum(times) / len(times):.0f}/{max(times):.0f} ms (min/avg/max)"
         )
     else:
         result = asyncio.run(
             transcribe_file(
-                args.record, hef_path=args.hef, force_cpu=args.force_cpu, language=args.language
+                args.record,
+                force_cpu=args.force_cpu,
+                language=args.language,
+                variant=args.variant,
             )
         )
         print(result)
