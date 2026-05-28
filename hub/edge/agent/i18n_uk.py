@@ -189,3 +189,35 @@ def known_kinds_ua(kinds: list[str]) -> str:
     """Format a list of device kind strings as comma-separated Ukrainian."""
     parts = [KIND_UA.get(k, k) for k in kinds]
     return ", ".join(parts) if parts else "пристрої"
+
+
+# ---------------------------------------------------------------------------
+# Policy DENY reason → user-facing Ukrainian
+# ---------------------------------------------------------------------------
+
+DENY_REASON_TEMPLATES: dict[str, str] = {
+    "default_policy": "Команда заблокована політикою безпеки.",
+    "prompt_injection_attempt": "Команда виглядає підозріло. Спробуйте перефразувати.",
+    "mqtt_publish_no_topic": "Не вдалося визначити, до якого пристрою застосувати команду.",
+    "mqtt_topic_no_match": "Цей пристрій не дозволено керувати голосом.",
+    "schema_validation_failed": "Невірний формат команди.",
+}
+
+DENY_REASON_PREFIX_TEMPLATES: dict[str, str] = {
+    "identity_blocked": "Вам не дозволено керувати цим пристроєм.",
+    "tool_rule": "Цей інструмент зараз недоступний.",
+    "mqtt_topic_rule": "Цей пристрій недоступний за поточними правилами.",
+    "schedule": "Заборонено розкладом.",
+}
+
+
+def render_deny(reason: str | None) -> str:
+    """Translate a technical PolicyEngine reason into a user-facing UA sentence."""
+    if not reason:
+        return "Команда заблокована політикою безпеки."
+    if reason in DENY_REASON_TEMPLATES:
+        return DENY_REASON_TEMPLATES[reason]
+    prefix = reason.split(":", 1)[0]
+    if prefix in DENY_REASON_PREFIX_TEMPLATES:
+        return DENY_REASON_PREFIX_TEMPLATES[prefix]
+    return "Команда заблокована політикою безпеки."

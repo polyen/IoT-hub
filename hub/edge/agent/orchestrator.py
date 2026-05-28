@@ -44,6 +44,11 @@ from hub.edge.agent.router import IntentClass, IntentRouter
 # How long to wait for user confirmation before auto-denying
 _CONFIRM_DEFAULT_TIMEOUT_SEC = 60
 
+# After this many seconds the cached ArcFace identity is considered stale and
+# is no longer used as the "speaker room" fallback in TextResolver.  A guest
+# spotted by the camera 10 minutes ago is not the current speaker.
+_IDENTITY_TTL_SEC = 60.0
+
 logger = logging.getLogger(__name__)
 
 # System prompt for CREATIVE branch — tells the LLM which tools it can call
@@ -179,6 +184,7 @@ class AgentOrchestrator:
         # ArcFace identity state (updated by identity MQTT subscription in run())
         self._last_identity: str = "default"
         self._last_identity_room: str | None = None
+        self._last_identity_ts: float = 0.0
 
         # Recent command history for LLM context (last 10 turns)
         self._command_history: list[Any] = []
@@ -190,6 +196,19 @@ class AgentOrchestrator:
             self._text_resolver: Any | None = TextResolver(device_registry)
         else:
             self._text_resolver = None
+
+    def _fresh_speaker_room(self) -> str | None:
+        """Return last ArcFace room if seen within ``_IDENTITY_TTL_SEC``, else None.
+
+        Without this, a guest spotted by the camera 10 min ago would still be
+        treated as the current speaker by TextResolver, causing the resolver to
+        fall back to the wrong room when the command omits one.
+        """
+        if self._last_identity_ts == 0.0:
+            return None
+        if (time.monotonic() - self._last_identity_ts) > _IDENTITY_TTL_SEC:
+            return None
+        return self._last_identity_room
 
     @asynccontextmanager
     async def _get_session(self) -> AsyncGenerator[AsyncSession | None, None]:
@@ -269,7 +288,7 @@ class AgentOrchestrator:
             await self._execute_decision(decision, tool_call, text, identity)
             return
 
-        speaker_room: str | None = self._last_identity_room
+        speaker_room: str | None = self._fresh_speaker_room()
         resolution = await self._text_resolver.resolve(
             text, intent.prototype, speaker_room, forced_device_id
         )
@@ -345,6 +364,9 @@ class AgentOrchestrator:
 
         For AMBIGUOUS failures, also publishes a ``confirm:request`` event so the
         UI can render a device-picker instead of requiring spoken disambiguation.
+
+        Always writes an AgentAudit row with action_class=INFO, executed=False so
+        failures are observable in the audit log and evaluation suite.
         """
         from hub.edge.agent.i18n_uk import render_failure  # noqa: PLC0415
         from hub.edge.agent.text_resolver import ResolutionFailureKind  # noqa: PLC0415
@@ -404,6 +426,19 @@ class AgentOrchestrator:
                 )
             except Exception:
                 logger.warning("Failed to publish ambiguity confirm:request")
+
+        # Persist an audit row so failures are visible in /api/agent/audit + eval reports
+        try:
+            await write_audit(
+                Decision(action_class=ActionClass.INFO, reason=msg),
+                ToolCall(tool="(none)", topic=None, payload={}),
+                text,
+                identity,
+                latency_ms=0,
+                executed=False,
+            )
+        except Exception:
+            logger.exception("Failed to write audit row for explainable failure")
 
     @staticmethod
     def _build_mqtt_payload(resolution: Any, device: Any) -> dict[str, Any]:
@@ -540,14 +575,32 @@ class AgentOrchestrator:
             )
             return
 
-        # Convert ReasonedAction into a ToolCall and route through policy
-        topic = f"home/{identity}/{result.device_id}/set"
+        # Look up the actual MQTT command topic from the registry instead of
+        # synthesizing one — the registry is the only place that knows the real
+        # topic (it may be overridden in DevicePlacement.config["mqtt_topic"]).
+        device = None
+        if self._text_resolver is not None:
+            all_devices = await self._text_resolver._registry.all()
+            device = next((d for d in all_devices if d.device_id == result.device_id), None)
+        if device is None:
+            await self._pub(
+                "agent:result",
+                {
+                    "type": "result",
+                    "action_class": "INFO",
+                    "text": f"Пристрій «{result.device_id}» не знайдено у реєстрі.",
+                    "failure_kind": "device_not_found",
+                    "reasoning": result.reasoning,
+                },
+            )
+            return
+
         payload: dict[str, Any] = {}
         action = result.action or "on"
         if action == "on":
-            payload = {"state": "ON"}
+            payload = dict(device.payload_on) if device.payload_on else {"state": "ON"}
         elif action == "off":
-            payload = {"state": "OFF"}
+            payload = dict(device.payload_off) if device.payload_off else {"state": "OFF"}
         elif action == "toggle":
             payload = {"state": "TOGGLE"}
         elif action == "brightness_set":
@@ -559,7 +612,7 @@ class AgentOrchestrator:
 
         tool_call = ToolCall(
             tool="mqtt_publish",
-            topic=topic,
+            topic=device.mqtt_command_topic,
             payload=payload,
         )
         decision = self._policy.evaluate(tool_call, text, identity)
@@ -577,18 +630,27 @@ class AgentOrchestrator:
         intent_text: str,
         identity: str,
     ) -> None:
-        """Execute tool or send confirmation push based on decision."""
+        """Execute tool or send confirmation push based on decision.
+
+        Tracks ``executed`` so the AgentAudit row reflects whether the tool
+        actually ran (AUTO success or CONFIRM-approved success) instead of
+        always being False.
+        """
         t0 = time.monotonic()
+        executed = False
 
         if decision.action_class == ActionClass.DENY:
             logger.warning("DENY: %s — %s", tool_call.tool, decision.reason)
+            from hub.edge.agent.i18n_uk import render_deny  # noqa: PLC0415
+
             await self._pub(
                 "agent:result",
                 {
                     "type": "result",
                     "action_class": "DENY",
                     "tool": tool_call.tool,
-                    "text": decision.reason or "Заблоковано політикою",
+                    "text": render_deny(decision.reason),
+                    "reasoning": decision.reason,
                 },
             )
 
@@ -605,6 +667,7 @@ class AgentOrchestrator:
             )
             try:
                 result = await self._run_tool(tool_call)
+                executed = True
                 raw = (
                     json.dumps(result, ensure_ascii=False, default=str)
                     if isinstance(result, dict | list)
@@ -621,6 +684,7 @@ class AgentOrchestrator:
                     },
                 )
             except Exception as exc:
+                executed = False
                 await self._pub(
                     "agent:result",
                     {
@@ -643,10 +707,10 @@ class AgentOrchestrator:
                     "payload": tool_call.payload,
                 },
             )
-            await self._handle_confirm(decision, tool_call, intent_text, identity)
+            executed = await self._handle_confirm(decision, tool_call, intent_text, identity)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
-        await write_audit(decision, tool_call, intent_text, identity, latency_ms)
+        await write_audit(decision, tool_call, intent_text, identity, latency_ms, executed=executed)
 
     async def _handle_confirm(
         self,
@@ -654,8 +718,12 @@ class AgentOrchestrator:
         tool_call: ToolCall,
         intent_text: str,
         identity: str,
-    ) -> None:
-        """Persist ConfirmRequest, push ntfy, wait for Redis confirm:result."""
+    ) -> bool:
+        """Persist ConfirmRequest, push ntfy, wait for Redis confirm:result.
+
+        Returns True if the user approved AND the tool ran without error;
+        False on rejection, timeout, or tool exception.
+        """
         import asyncio
 
         timeout_sec = decision.confirm_timeout_sec or _CONFIRM_DEFAULT_TIMEOUT_SEC
@@ -730,10 +798,12 @@ class AgentOrchestrator:
             await pubsub.unsubscribe("confirm:result")
             await pubsub.aclose()
 
+        executed = False
         if approved:
             logger.info("CONFIRM approved for %s — executing tool", confirm_id)
             try:
                 result = await self._run_tool(tool_call)
+                executed = True
                 raw = (
                     json.dumps(result, ensure_ascii=False, default=str)
                     if isinstance(result, dict | list)
@@ -750,6 +820,7 @@ class AgentOrchestrator:
                     },
                 )
             except Exception as exc:
+                executed = False
                 await self._pub(
                     "agent:result",
                     {
@@ -783,6 +854,8 @@ class AgentOrchestrator:
                         await session.commit()
                 except Exception:
                     logger.exception("Failed to update ConfirmRequest %s state", confirm_id)
+
+        return executed
 
     async def _run_tool(self, tool_call: ToolCall) -> Any:
         """Dispatch tool_call to the correct tool function."""
@@ -847,6 +920,7 @@ class AgentOrchestrator:
                         # Update speaker-room context from ArcFace face recognition
                         self._last_identity = str(data.get("identity", "default"))
                         self._last_identity_room = data.get("room") or None
+                        self._last_identity_ts = time.monotonic()
                         logger.debug(
                             "Identity update: %r in room %r",
                             self._last_identity,

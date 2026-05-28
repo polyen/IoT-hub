@@ -203,8 +203,9 @@ async def run_tts_responder(
                 data = json.loads(msg["data"])
             except Exception:
                 continue
-            # Skip DENY/ERROR results — these contain internal policy names, not user text
-            if data.get("action_class") in ("DENY", "ERROR"):
+            # Skip only ERROR — those carry exception messages not user text.
+            # DENY now carries a UA-rendered text (see orchestrator + i18n_uk.render_deny).
+            if data.get("action_class") == "ERROR":
                 continue
             text: str = data.get("text", "").strip()
             if not text:

@@ -84,8 +84,10 @@ class DeviceRegistry:
             cmd_topic: str = cfg.get("mqtt_topic", f"home/{slug}/{kind}/cmd")
             state_topic: str | None = cfg.get("mqtt_state_topic") or None
 
-            payload_on: dict[str, Any] | None = cfg.get("payload_on") or {"state": "on"}
-            payload_off: dict[str, Any] | None = cfg.get("payload_off") or {"state": "off"}
+            # ESPHome command topics expect uppercase ON/OFF by default; keep
+            # this in sync with orchestrator._build_mqtt_payload fallback.
+            payload_on: dict[str, Any] | None = cfg.get("payload_on") or {"state": "ON"}
+            payload_off: dict[str, Any] | None = cfg.get("payload_off") or {"state": "OFF"}
 
             devices.append(
                 ResolvedDevice(

@@ -31,6 +31,11 @@ class ActionClass(StrEnum):
     AUTO = "AUTO"
     CONFIRM = "CONFIRM"
     DENY = "DENY"
+    # Non-policy values produced by the orchestrator for audit + UI; the
+    # PolicyEngine itself never returns these from evaluate().
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
 
 
 @dataclass
@@ -244,6 +249,7 @@ async def write_audit(
     identity: str,
     latency_ms: int,
     llm_version: str | None = None,
+    executed: bool = False,
 ) -> None:
     from hub.backend.db import AsyncSessionLocal
     from hub.backend.models import AgentAudit
@@ -254,7 +260,7 @@ async def write_audit(
             intent_text=intent_text,
             tool=tool_call.tool,
             action_class=decision.action_class.value,
-            executed=False,
+            executed=executed,
             llm_version=llm_version,
             latency_ms=latency_ms,
         )

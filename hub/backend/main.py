@@ -7,6 +7,7 @@ import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import redis.asyncio as aioredis
 from fastapi import FastAPI
@@ -106,7 +107,10 @@ async def _t0_cleanup_loop(interval_s: int = 86_400) -> None:
         await asyncio.sleep(interval_s)
 
 
-async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
+async def _orchestrator_loop(
+    redis_client: aioredis.Redis,
+    device_registry: Any,
+) -> None:
     """Run agent orchestrator — subscribes to voice/command MQTT and processes intents."""
     while True:
         try:
@@ -114,9 +118,11 @@ async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
 
             from hub.backend.db import AsyncSessionLocal
             from hub.edge.agent.llm_local import LocalLLMClient
+            from hub.edge.agent.llm_reasoning import LLMReasoner
             from hub.edge.agent.orchestrator import AgentOrchestrator
             from hub.edge.agent.policy import PolicyEngine
             from hub.edge.agent.router import IntentRouter
+            from hub.edge.agent.state_verifier import StateVerifier
 
             policy = PolicyEngine()
             policy.load()
@@ -124,6 +130,12 @@ async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
             router.load()
             llm = LocalLLMClient(base_url=settings.llm_url)
             mqtt_client = aiomqtt.Client(settings.mqtt_host, settings.mqtt_port)
+
+            state_verifier = StateVerifier(redis_client)
+            llm_reasoner: LLMReasoner | None = None
+            if os.environ.get("LLM_REASONING_ENABLED", "true").lower() == "true":
+                llm_reasoner = LLMReasoner(llm=llm, registry=device_registry)
+
             orchestrator = AgentOrchestrator(
                 policy=policy,
                 router=router,
@@ -131,8 +143,15 @@ async def _orchestrator_loop(redis_client: aioredis.Redis) -> None:
                 redis_client=redis_client,
                 mqtt_client=mqtt_client,
                 session_factory=AsyncSessionLocal,
+                device_registry=device_registry,
+                state_verifier=state_verifier,
+                llm_reasoner=llm_reasoner,
             )
-            logger.info("Orchestrator starting")
+            logger.info(
+                "Orchestrator starting (registry=%s, verifier=on, reasoner=%s)",
+                "on" if device_registry is not None else "off",
+                "on" if llm_reasoner is not None else "off",
+            )
             await orchestrator.run()
         except Exception as exc:
             logger.error("Orchestrator crashed: %s — restarting in 5s", exc, exc_info=True)
@@ -222,7 +241,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if os.environ.get("ENABLE_ORCHESTRATOR", "true").lower() == "true":
         tasks.append(
             asyncio.create_task(
-                _orchestrator_loop(app.state.redis),
+                _orchestrator_loop(app.state.redis, device_registry),
                 name="orchestrator",
             )
         )

@@ -34,12 +34,11 @@ def make_orchestrator(
             "tool": "ask_user",
             "question": "unclear",
         }
-    if llm_generate_result is not None:
-        llm.generate.return_value = llm_generate_result
-    else:
-        llm.generate.return_value = json.dumps(
-            {"tool": "summarize_period", "payload": {"period": "today"}}
-        )
+    default_generate = json.dumps({"tool": "summarize_period", "payload": {"period": "today"}})
+    response = llm_generate_result if llm_generate_result is not None else default_generate
+    # _handle_creative uses generate_chat; some callers also patch generate directly
+    llm.generate.return_value = response
+    llm.generate_chat.return_value = response
 
     redis_client = AsyncMock()
     mqtt_client = AsyncMock()
@@ -103,6 +102,7 @@ async def test_deny_decision_no_tool_execution() -> None:
     mock_audit.assert_called_once()
     audit_decision: Decision = mock_audit.call_args[0][0]
     assert audit_decision.action_class == ActionClass.DENY
+    assert mock_audit.call_args.kwargs.get("executed") is False
     mock_ask.assert_not_called()
     mock_pub.assert_not_called()
 
@@ -130,6 +130,8 @@ async def test_auto_decision_executes_tool() -> None:
     mock_audit.assert_called_once()
     audit_decision: Decision = mock_audit.call_args[0][0]
     assert audit_decision.action_class == ActionClass.AUTO
+    # executed=True now reflects that the tool actually ran
+    assert mock_audit.call_args.kwargs.get("executed") is True
 
 
 # ── 4: STRUCTURED intent → llm.generate_constrained called ───────────────────
@@ -203,11 +205,11 @@ async def test_creative_intent_calls_generate() -> None:
         orch._session_factory = None
         await orch.handle_command("що цікавого сталось вчора?")
 
-    llm.generate.assert_called_once()
-    call_kwargs = llm.generate.call_args
-    # Prompt must reference tool schemas and the command text
-    prompt = call_kwargs[0][0] if call_kwargs[0] else call_kwargs[1].get("prompt", "")
-    assert "tool" in prompt.lower() or "summarize" in prompt.lower()
+    llm.generate_chat.assert_called_once()
+    kwargs = llm.generate_chat.call_args.kwargs
+    # System prompt must reference tool schemas and the user message is the command
+    assert "tool" in kwargs["system"].lower() or "summarize" in kwargs["system"].lower()
+    assert "вчора" in kwargs["user"]
 
 
 @pytest.mark.asyncio
@@ -329,6 +331,29 @@ async def test_deterministic_with_resolver_success_publishes_mqtt() -> None:
     assert tool_call.topic == "home/living-room/light/cmd"
 
 
+def test_speaker_room_returns_none_when_never_set() -> None:
+    orch, *_ = make_orchestrator()
+    assert orch._fresh_speaker_room() is None
+
+
+def test_speaker_room_expires_after_ttl(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    orch, *_ = make_orchestrator()
+    # Fresh: ts now, room set
+    import time as _time
+
+    from hub.edge.agent import orchestrator as orch_mod
+
+    orch._last_identity_room = "vitalnya"
+    orch._last_identity_ts = _time.monotonic()
+    assert orch._fresh_speaker_room() == "vitalnya"
+
+    # Simulate time advance beyond TTL
+    monkeypatch.setattr(
+        orch_mod.time, "monotonic", lambda: orch._last_identity_ts + orch_mod._IDENTITY_TTL_SEC + 1
+    )
+    assert orch._fresh_speaker_room() is None
+
+
 @pytest.mark.asyncio
 async def test_deterministic_resolver_failure_emits_info() -> None:
     """TextResolver returning failure → INFO result published, no mqtt_publish."""
@@ -349,7 +374,7 @@ async def test_deterministic_resolver_failure_emits_info() -> None:
     )
     orch._text_resolver = mock_resolver
 
-    with patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock):
+    with patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock) as mock_audit:
         await orch.handle_command("увімкни світло у вітальні")
 
     # policy.evaluate should NOT be called (failure path skips execution)
@@ -357,6 +382,11 @@ async def test_deterministic_resolver_failure_emits_info() -> None:
     # Redis publish called with INFO result
     calls = [c for c in redis.publish.call_args_list if "agent:result" in str(c)]
     assert any("INFO" in str(c) for c in calls)
+    # Audit row written so failure is observable in /api/agent/audit
+    mock_audit.assert_awaited_once()
+    audit_decision = mock_audit.await_args.args[0]
+    assert audit_decision.action_class == ActionClass.INFO
+    assert mock_audit.await_args.kwargs.get("executed") is False
 
 
 # ── 8: CONFIRM decision → ntfy push sent, redis pubsub used ──────────────────
