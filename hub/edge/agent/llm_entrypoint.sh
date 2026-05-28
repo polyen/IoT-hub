@@ -1,28 +1,42 @@
 #!/usr/bin/env bash
 # Entrypoint for the llm container.
 #
-# 1. Ensure MODEL_PATH and MODEL_URL refer to the same GGUF file (no name drift
-#    between Dockerfile and runtime).
-# 2. Download the model into MODEL_PATH on first start.
-# 3. If MODEL_SHA256 is set, verify the downloaded file matches; on mismatch,
+# 1. If MODEL_PATH is unset/empty, derive it from MODEL_URL basename so the
+#    two values are guaranteed aligned (defends against .env drift where the
+#    operator overrode LLM_MODEL_URL but forgot LLM_MODEL_PATH).
+# 2. If MODEL_PATH IS set, ensure its basename matches MODEL_URL (no name
+#    drift between Dockerfile / compose / .env).
+# 3. Download the model into MODEL_PATH on first start.
+# 4. If MODEL_SHA256 is set, verify the downloaded file matches; on mismatch,
 #    delete the bad blob and refuse to start so the operator notices.
-# 4. exec llama-cpp-python server.
+# 5. exec llama-cpp-python server.
 set -euo pipefail
 
 : "${MODEL_URL:?MODEL_URL is required}"
-: "${MODEL_PATH:?MODEL_PATH is required}"
+
+# Default models directory — used for auto-derived MODEL_PATH.
+MODEL_DIR_DEFAULT="/app/models"
+
+# Auto-derive MODEL_PATH from URL when not set explicitly.  This is the
+# safest default: if you only set LLM_MODEL_URL, the path follows.
+if [[ -z "${MODEL_PATH:-}" ]]; then
+    url_basename_raw="$(basename "${MODEL_URL%%\?*}")"
+    MODEL_PATH="${MODEL_DIR_DEFAULT}/${url_basename_raw}"
+    echo "[INFO] MODEL_PATH not set — derived from URL: ${MODEL_PATH}"
+fi
 
 MODEL_DIR="$(dirname "${MODEL_PATH}")"
 mkdir -p "${MODEL_DIR}"
 
-# Sanity check: MODEL_PATH should look like it matches MODEL_URL by basename.
-# This catches the historical bug where the Dockerfile said qwen3.5-4b but the
-# URL pointed at qwen2.5-3b → operator silently got the wrong model.
+# Sanity check: when MODEL_PATH is set explicitly, its basename must match
+# MODEL_URL.  Catches the historical bug where the Dockerfile said qwen3.5-4b
+# but the URL pointed at qwen2.5-3b → operator silently got the wrong model.
 url_basename="$(basename "${MODEL_URL%%\?*}" | tr '[:upper:]' '[:lower:]')"
 path_basename="$(basename "${MODEL_PATH}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${url_basename}" != "${path_basename}" ]]; then
     echo "[ERROR] MODEL_URL basename ($(basename "${MODEL_URL%%\?*}")) does not match MODEL_PATH basename ($(basename "${MODEL_PATH}"))." >&2
     echo "[ERROR] Refusing to download — the file would be misnamed and downstream code would load the wrong model." >&2
+    echo "[HINT]  Either unset LLM_MODEL_PATH in .env to auto-derive, or align both LLM_MODEL_URL and LLM_MODEL_PATH." >&2
     exit 2
 fi
 
