@@ -54,14 +54,20 @@ EnvironmentFile=-/etc/iot-hub-voice.env
 #   sudo apt install libportaudio2 libsndfile1 ffmpeg espeak-ng
 #   python3 -m venv --system-site-packages /mnt/ssd/iot-hub/repo/.venv-voice
 #   .venv-voice/bin/pip install -e /mnt/ssd/iot-hub/repo[voice] --no-deps
-#   .venv-voice/bin/pip install aiomqtt redis prometheus-client transformers scipy \
-#                               openwakeword faster-whisper soundfile sounddevice
+#   .venv-voice/bin/pip install \
+#       aiomqtt redis[hiredis] prometheus-client \
+#       transformers scipy soundfile sounddevice \
+#       openwakeword faster-whisper \
+#       "sqlalchemy[asyncio]" asyncpg \
+#       pydantic pydantic-settings
 # The apt packages are mandatory:
 #   - libportaudio2 → sounddevice (microphone capture); without it the mic loop
 #     fails with "PortAudio library not found" and only PTT path works.
 #   - libsndfile1   → soundfile (audio file I/O).
 #   - ffmpeg        → RTSP audio decoding (rtsp_mic_stream) and PTT WebM/OGG decode.
 #   - espeak-ng     → optional, fallback voice for piper.
+# The pip extras (sqlalchemy, asyncpg, pydantic*) are mandatory too — voice
+# imports hub.backend.db / hub.backend.models to resolve camera RTSP URLs.
 ExecStart=/mnt/ssd/iot-hub/repo/.venv-voice/bin/python -m hub.edge.voice.pipeline
 
 Restart=on-failure

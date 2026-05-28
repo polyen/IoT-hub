@@ -375,11 +375,14 @@ class CVPipeline:
             except Exception:
                 logger.warning("Failed to release Hailo VDevice during reload")
             self._hailo_device = None
-        # One shared VDevice with ROUND_ROBIN scheduler — allows detector, pose,
-        # and face to be activated simultaneously; HailoRT time-slices between them.
+        # One shared VDevice with ROUND_ROBIN scheduler + cross-process group_id
+        # so that the voice systemd service (Hailo Whisper) can attach to the
+        # same Hailo-8. Without group_id="SHARED" each process gets its own
+        # implicit group and the second VDevice() raises HAILO_OUT_OF_PHYSICAL_DEVICES.
         if HAILO_AVAILABLE and HailoVDevice is not None and HailoSchedulingAlgorithm is not None:
             params = HailoVDevice.create_params()
             params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
+            params.group_id = "SHARED"
             self._hailo_device = HailoVDevice(params)
 
         resolved = self.hef_path.resolve() if self.hef_path.is_symlink() else self.hef_path
