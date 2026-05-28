@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 WAKE_WORD_THRESHOLD = 0.5
 SAMPLE_RATE = 16000
-CHUNK_SAMPLES = 1280
+CHUNK_SAMPLES = 1280  # openWakeWord predict window: 80 ms @ 16 kHz
+CHUNK_BYTES = CHUNK_SAMPLES * 2  # int16
 
 
 class WakeWordDetector:
@@ -35,6 +36,9 @@ class WakeWordDetector:
             raise ImportError("openwakeword not installed")
         self._model_path = model_path
         self._model: OWWModel | None = None
+        # Producer feeds 32 ms (1024 B) chunks for Silero-VAD; openWakeWord needs
+        # 80 ms (2560 B) windows — buffer here so predict() always sees its native size.
+        self._buf = bytearray()
 
     def load(self) -> None:
         if not self._model_path:
@@ -43,15 +47,29 @@ class WakeWordDetector:
         self._model = OWWModel(wakeword_models=[self._model_path], inference_framework="onnx")
 
     def detect(self, audio_chunk: bytes) -> bool:
-        """Returns True if wake word detected in chunk. Always False in PTT-only mode."""
+        """Returns True if wake word detected. Buffers small chunks to the 1280-sample
+        window openWakeWord was trained on. Always False in PTT-only mode."""
         if self._model is None:
             return False
         import numpy as np  # type: ignore[import]
 
-        audio = np.frombuffer(audio_chunk, dtype=np.int16)
-        prediction = self._model.predict(audio)
-        scores = list(prediction.values())
-        return any(s > WAKE_WORD_THRESHOLD for s in scores)
+        self._buf.extend(audio_chunk)
+        fired = False
+        while len(self._buf) >= CHUNK_BYTES:
+            window = bytes(self._buf[:CHUNK_BYTES])
+            del self._buf[:CHUNK_BYTES]
+            audio = np.frombuffer(window, dtype=np.int16)
+            prediction = self._model.predict(audio)
+            if any(s > WAKE_WORD_THRESHOLD for s in prediction.values()):
+                fired = True
+                # Drain any remaining buffer so post-wake collect starts clean
+                self._buf.clear()
+                break
+        return fired
+
+    def reset(self) -> None:
+        """Clear the internal accumulator. Call after collecting an utterance."""
+        self._buf.clear()
 
     async def listen(self, audio_stream: AsyncGenerator[bytes, None]) -> AsyncGenerator[None, None]:
         """Yield once each time wake word is detected in stream."""

@@ -11,6 +11,7 @@ Set FORCE_CPU_STT=true to bypass Hailo entirely and fall back to faster-whisper.
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ from typing import Any
 
 import aiomqtt
 
+from hub.edge.voice.audio_io import CHUNK_MS
 from hub.edge.voice.hailo_whisper import STTBackend, get_backend
 from hub.edge.voice.scheduler import NPUScheduler, NPUStrategy
 from hub.edge.voice.vad import SileroVAD
@@ -29,31 +31,38 @@ logger = logging.getLogger(__name__)
 
 SILENCE_TIMEOUT_SEC = 0.8
 MAX_RECORD_SEC = 8.0
+# Pre-roll captured before wake-word fires so the first ~500 ms of the command
+# (which overlaps with / immediately follows the wake-word) is not lost.
+PREROLL_MS = 500
+PREROLL_CHUNKS = max(1, PREROLL_MS // CHUNK_MS)
 MQTT_TOPIC = "voice/command"
 
+# Width of one producer chunk in bytes (int16 mono @ 16 kHz, CHUNK_MS).
+_CHUNK_BYTES = 16000 * CHUNK_MS // 1000 * 2
 
-async def _collect_speech(
-    vad: SileroVAD,
-    audio_source: AsyncGenerator[bytes, None],
-) -> bytes:
-    """Collect audio chunks until silence or max duration."""
-    chunks: list[bytes] = []
-    start = asyncio.get_event_loop().time()
-    last_speech = start
 
-    async for chunk in audio_source:
-        chunks.append(chunk)
-        now = asyncio.get_event_loop().time()
+def _trim_trailing_silence(audio: bytes, vad: SileroVAD) -> bytes:
+    """Drop the silence tail so Whisper doesn't spend tokens hallucinating on it.
 
-        if vad.is_speech(chunk):
-            last_speech = now
-
-        if now - last_speech > SILENCE_TIMEOUT_SEC:
-            break
-        if now - start > MAX_RECORD_SEC:
-            break
-
-    return b"".join(chunks)
+    Walks back chunk-by-chunk from the end and stops at the last speech-positive
+    chunk. Keeps one chunk of breathing room. No-op if everything is silence.
+    """
+    if len(audio) <= _CHUNK_BYTES:
+        return audio
+    # Snapshot then restore VAD LSTM state so trimming doesn't poison live state.
+    h_save, c_save = vad._h, vad._c
+    try:
+        last_speech_end = 0
+        for offset in range(0, len(audio) - _CHUNK_BYTES + 1, _CHUNK_BYTES):
+            if vad.is_speech(audio[offset : offset + _CHUNK_BYTES]):
+                last_speech_end = offset + _CHUNK_BYTES
+    finally:
+        vad._h, vad._c = h_save, c_save
+    if last_speech_end == 0:
+        return audio
+    # Keep one extra chunk of trailing silence so words aren't clipped mid-phoneme.
+    keep = min(len(audio), last_speech_end + _CHUNK_BYTES)
+    return audio[:keep]
 
 
 async def run_pipeline(
@@ -394,21 +403,61 @@ async def _listen_with_device(
     mqtt: aiomqtt.Client,
     redis_url: str,
 ) -> None:
-    stream = _audio_stream_for_device(device_id, redis_url)
-    async for _ in wwd.listen(vad.filter_stream(stream)):
-        logger.info("Wake word detected — recording command")
+    """Single-stream listen loop.
+
+    One audio source is opened once; both wake-word detection and post-wake
+    collection consume from it. A circular pre-roll buffer keeps the last
+    PREROLL_MS of audio so the command head (which overlaps with the wake-word)
+    is not clipped. After STT, the loop returns to wake-word mode on the same
+    stream — no second ffmpeg/sounddevice open.
+    """
+    preroll: collections.deque[bytes] = collections.deque(maxlen=PREROLL_CHUNKS)
+    loop = asyncio.get_event_loop()
+
+    # State machine: "listen" → wake-word watch; "collect" → record until silence
+    state = "listen"
+    collected: list[bytes] = []
+    collect_start = 0.0
+    last_speech = 0.0
+
+    async for chunk in _audio_stream_for_device(device_id, redis_url):
+        if state == "listen":
+            preroll.append(chunk)
+            if not wwd.detect(chunk):
+                continue
+            logger.info("Wake word detected — recording command")
+            collected = list(preroll)
+            preroll.clear()
+            collect_start = loop.time()
+            last_speech = collect_start
+            state = "collect"
+            continue
+
+        # state == "collect"
+        collected.append(chunk)
+        now = loop.time()
+        if vad.is_speech(chunk):
+            last_speech = now
+
+        done = (now - last_speech > SILENCE_TIMEOUT_SEC) or (now - collect_start > MAX_RECORD_SEC)
+        if not done:
+            continue
+
+        audio = _trim_trailing_silence(b"".join(collected), vad)
         try:
-            audio = await asyncio.wait_for(
-                _collect_speech(vad, _audio_stream_for_device(device_id, redis_url)),
-                timeout=MAX_RECORD_SEC + 2,
-            )
             async with scheduler.whisper_inference():
                 text = await stt.transcribe(audio)
-            logger.info("Transcribed: %s", text)
-            payload = {"text": text, "tier": 1}
-            await mqtt.publish(MQTT_TOPIC, json.dumps(payload))
+            logger.info("Transcribed (%d B): %s", len(audio), text)
+            if text:
+                payload = {"text": text, "tier": 1}
+                await mqtt.publish(MQTT_TOPIC, json.dumps(payload))
         except Exception:
-            logger.exception("Pipeline error — continuing")
+            logger.exception("STT/publish error — continuing")
+        finally:
+            wwd.reset()
+            vad._reset_states()
+            collected = []
+            state = "listen"
 
 
 if __name__ == "__main__":
