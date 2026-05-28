@@ -377,12 +377,17 @@ class CVPipeline:
             self._hailo_device = None
         # One shared VDevice with ROUND_ROBIN scheduler + cross-process group_id
         # so that the voice systemd service (Hailo Whisper) can attach to the
-        # same Hailo-8. Without group_id="SHARED" each process gets its own
-        # implicit group and the second VDevice() raises HAILO_OUT_OF_PHYSICAL_DEVICES.
+        # same Hailo-8. Requires three things together — any missing piece and
+        # the second VDevice() raises HAILO_OUT_OF_PHYSICAL_DEVICES:
+        #   1. hailort.service daemon running (sudo systemctl enable --now hailort.service)
+        #   2. params.multi_process_service = True  (opts in to the daemon)
+        #   3. params.group_id = "SHARED"           (puts both processes in one group)
         if HAILO_AVAILABLE and HailoVDevice is not None and HailoSchedulingAlgorithm is not None:
             params = HailoVDevice.create_params()
             params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
             params.group_id = "SHARED"
+            if hasattr(params, "multi_process_service"):
+                params.multi_process_service = True
             self._hailo_device = HailoVDevice(params)
 
         resolved = self.hef_path.resolve() if self.hef_path.is_symlink() else self.hef_path

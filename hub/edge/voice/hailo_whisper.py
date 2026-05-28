@@ -225,7 +225,16 @@ class HailoWhisperBackend:
         try:
             self._run_inference()
         except BaseException as exc:  # noqa: BLE001 — surface to all pending callers
-            logger.exception("Hailo Whisper worker died")
+            if "PHYSICAL_DEVICES" in str(exc):
+                logger.error(
+                    "Hailo Whisper worker died: NPU is exclusively held by another "
+                    "process. Enable HailoRT multi-process sharing:\n"
+                    "  sudo systemctl enable --now hailort.service\n"
+                    "and confirm CV pipeline.py was restarted with group_id='SHARED' + "
+                    "multi_process_service=True."
+                )
+            else:
+                logger.exception("Hailo Whisper worker died")
             # Drain any pending requests with the failure
             while True:
                 try:
@@ -238,11 +247,16 @@ class HailoWhisperBackend:
 
     def _run_inference(self) -> None:
         params = VDevice.create_params()
-        # Cross-process scheduler so we coexist with the CV container on the
-        # same Hailo-8 (group_id="SHARED" is the convention used by all Hailo
-        # apps that share the NPU).
+        # Cross-process Hailo-8 sharing with the CV systemd service. Requires
+        # all three of:
+        #   - hailort.service daemon running
+        #   - multi_process_service = True (opt-in to the daemon from Python)
+        #   - group_id = "SHARED" (matches what CV pipeline.py sets)
+        # Any one missing → HAILO_OUT_OF_PHYSICAL_DEVICES on the second VDevice().
         params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
         params.group_id = "SHARED"
+        if hasattr(params, "multi_process_service"):
+            params.multi_process_service = True
 
         decoder_hef = HEF(str(self._assets.decoder_hef))
         decoder_model_name = decoder_hef.get_network_group_names()[0]
