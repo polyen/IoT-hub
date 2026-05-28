@@ -374,7 +374,11 @@ services:
       - iot-internal
 
   # ---------------------------------------------------------------------------
-  # Local LLM (Qwen 2.5 3B Instruct Q4_K_M via llama-cpp-python)
+  # Local LLM (Qwen 2.5 1.5B Instruct Q4_K_M via llama-cpp-python)
+  #
+  # See materials/llm_optimization_research.md §3 (Variant B): downsized from
+  # 3B to 1.5B because the edge TextResolver already handles 95%+ of voice
+  # commands; LLM is only a fallback for creative / unknown intents.
   # ---------------------------------------------------------------------------
   llm:
     build:
@@ -387,14 +391,14 @@ services:
       # backups and the auto-updater treat them uniformly.
       - ${MODELS_HOST_DIR:-/opt/iot-hub/models}/llm:/app/models
     environment:
-      MODEL_URL: ${LLM_MODEL_URL:-https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf}
-      MODEL_PATH: /app/models/qwen2.5-3b-instruct-q4_k_m.gguf
+      MODEL_URL: ${LLM_MODEL_URL:-https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf}
+      MODEL_PATH: ${LLM_MODEL_PATH:-/app/models/qwen2.5-1.5b-instruct-q4_k_m.gguf}
       MODEL_SHA256: ${LLM_MODEL_SHA256:-}
-      N_CTX: ${LLM_N_CTX:-8192}
-      N_THREADS: ${LLM_N_THREADS:-6}
+      N_CTX: ${LLM_N_CTX:-4096}
+      N_THREADS: ${LLM_N_THREADS:-4}
     ports:
       - "8001:8001"
-    mem_limit: 6g
+    mem_limit: 4g
     networks:
       - iot-internal
     healthcheck:

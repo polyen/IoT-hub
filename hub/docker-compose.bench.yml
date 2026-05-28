@@ -1,9 +1,12 @@
-# Regression bench override — load PREVIOUS baseline Qwen 2.5 3B Instruct.
+# Regression bench override — pin LLM to PREVIOUS baseline (Qwen 2.5 3B).
 #
-# Phase 0 (May 2026) validated Qwen 3.5 4B as new production primary, so this
-# override is now inverted: it pins the LLM container BACK to the qwen2.5-3b
-# baseline for regression re-runs / comparative benchmarks against the new
-# default.
+# Migration trail (2026-05):
+#   Qwen 3.5 4B (initial)  →  Qwen 2.5 3B (revert)  →  Qwen 2.5 1.5B (downsize)
+#
+# Current default in docker-compose.edge.yml = Qwen 2.5 1.5B (the speed win).
+# This override pins it back to 3B for A/B regression of accuracy / quality
+# claims when we want to confirm the smaller model isn't worse on a given
+# eval set.  See materials/llm_optimization_research.md §3 Variant B.
 #
 # Usage (on RPi 5):
 #   docker compose -f hub/docker-compose.edge.yml \
@@ -12,7 +15,7 @@
 #
 # This overrides only the llm service; all other services stay as-is.
 # Both GGUF files coexist in the llm-models volume — switching back to the
-# Qwen 3.5 4B default (no override) does NOT redownload.
+# default 1.5B (no override) does NOT redownload.
 
 name: iot-hub-edge
 

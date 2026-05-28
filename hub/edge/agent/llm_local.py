@@ -1,7 +1,8 @@
 """Local LLM client — connects to llama-cpp-python HTTP server.
 
-The server runs Qwen 3.5 4B Q4_K_M GGUF in a separate container.
-This module is a thin async HTTP client with structured output support.
+The server runs Qwen 2.5 1.5B-Instruct Q4_K_M GGUF in a separate container
+(see hub/edge/agent/Dockerfile.llm and docker-compose.edge.yml).  This module
+is a thin async HTTP client with structured output support (GBNF grammar).
 """
 
 from __future__ import annotations
@@ -17,10 +18,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_LLM_URL = "http://localhost:8001"
 DEFAULT_MAX_TOKENS = 256
 DEFAULT_TEMPERATURE = 0.0  # deterministic for tool calls
+# Qwen 3 4B on RPi5 CPU runs at ~1.5 tok/s; at 200 max_tokens a single turn can
+# take well over 120s. 90s was clipping reasoning prompts even with no devices.
+DEFAULT_TIMEOUT_SEC = 240.0
 
 
 class LocalLLMClient:
-    def __init__(self, base_url: str = DEFAULT_LLM_URL, timeout: float = 90.0) -> None:
+    def __init__(
+        self, base_url: str = DEFAULT_LLM_URL, timeout: float = DEFAULT_TIMEOUT_SEC
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
 

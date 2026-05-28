@@ -485,3 +485,60 @@ async def test_confirm_approved_executes_tool() -> None:
 
     # Tool was executed after approval
     mock_ask.assert_called_once()
+
+
+# ── Routing-branch telemetry ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_routing_metric_counts_unknown_branch() -> None:
+    """UNKNOWN intent should increment iot_hub_agent_routing_branch_total{branch=\"unknown\"}."""
+    from hub.edge.agent.orchestrator import AGENT_ROUTING
+
+    orch, _, _, _ = make_orchestrator(
+        intent_class=IntentClass.UNKNOWN, action_class=ActionClass.AUTO
+    )
+    before = AGENT_ROUTING.labels(branch="unknown")._value.get()
+
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch(
+            "hub.edge.agent.orchestrator.agent_tools.ask_user", new_callable=AsyncMock
+        ) as mock_ask,
+    ):
+        mock_ask.return_value = {"status": "sent"}
+        await orch.handle_command("якась незрозуміла команда")
+
+    after = AGENT_ROUTING.labels(branch="unknown")._value.get()
+    assert after == before + 1, f"unknown branch counter did not increment ({before}->{after})"
+
+
+@pytest.mark.asyncio
+async def test_routing_metric_counts_deterministic_resolved() -> None:
+    """Successful TextResolver path increments deterministic_resolved."""
+    from hub.edge.agent.orchestrator import AGENT_ROUTING
+    from hub.edge.agent.text_resolver import Resolution
+
+    orch, _, _, _ = make_orchestrator(
+        intent_class=IntentClass.DETERMINISTIC, action_class=ActionClass.AUTO, prototype="light_on"
+    )
+    mock_device = MagicMock()
+    mock_device.mqtt_command_topic = "home/x/light/cmd"
+    mock_device.payload_on = {"state": "ON"}
+    mock_device.payload_off = None
+    mock_device.mqtt_state_topic = None
+    mock_device.actions = ["on", "off"]
+    mock_resolver = AsyncMock()
+    mock_resolver.resolve.return_value = Resolution(
+        success=True, action="on", device=mock_device, params={}
+    )
+    orch._text_resolver = mock_resolver
+
+    before = AGENT_ROUTING.labels(branch="deterministic_resolved")._value.get()
+    with (
+        patch("hub.edge.agent.orchestrator.write_audit", new_callable=AsyncMock),
+        patch("hub.edge.agent.orchestrator.agent_tools.mqtt_publish", new_callable=AsyncMock),
+    ):
+        await orch.handle_command("увімкни світло")
+    after = AGENT_ROUTING.labels(branch="deterministic_resolved")._value.get()
+    assert after == before + 1

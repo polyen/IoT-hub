@@ -28,8 +28,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_MAX_HISTORY = 5
-_MAX_DEVICES = 50
+_MAX_HISTORY = 3
+# Prompt-eval on RPi5 is ~350 ms/token; 50 devices × ~25 tokens = 30s just on
+# the prompt.  Cap aggressively — most homes have <15 controllable devices.
+_MAX_DEVICES = 15
+
+# Reasoning is meant to be a single short sentence ("Вмикаю світло у вітальні").
+# At ~1.5 tok/s on CPU, 200 tokens = 130s. 60 is enough for two short phrases.
+_REASONING_MAX_TOKENS = 60
+# Tool-call JSON is tiny: {"device_id":"...","action":"on"} fits in ~30 tokens.
+_TOOL_MAX_TOKENS = 60
 
 # Reasoning prompt template
 _REASONING_TMPL = """\
@@ -122,7 +130,7 @@ class LLMReasoner:
         try:
             reasoning = await self._llm.generate(
                 reasoning_prompt,
-                max_tokens=200,
+                max_tokens=_REASONING_MAX_TOKENS,
                 temperature=0.3,
                 stop=["\n\n", "JSON:", "На основі"],
             )
@@ -151,7 +159,7 @@ class LLMReasoner:
             raw = await self._llm.generate_constrained(
                 tool_prompt,
                 grammar,
-                max_tokens=150,
+                max_tokens=_TOOL_MAX_TOKENS,
             )
         except Exception as exc:
             logger.warning(
@@ -213,15 +221,15 @@ class LLMReasoner:
 
     @staticmethod
     def _format_devices(devices: list[Any]) -> str:
+        """Compact device-list format — ~10 tokens per device instead of ~25.
+
+        On RPi5 (350 ms/token prompt eval) this cuts the LLM's input phase by
+        ~60% which is the dominant cost.  Drops label and per-device actions:
+        the model only needs ``device_id``, ``kind``, ``room`` to route a command.
+        """
         if not devices:
-            return "  (список порожній)"
-        lines: list[str] = []
-        for d in devices:
-            label = d.label or d.device_id
-            lines.append(
-                f"  • id={d.device_id!r} label={label!r} kind={d.kind!r} room={d.room_name_ua!r} actions={d.actions!r}"
-            )
-        return "\n".join(lines)
+            return "  (немає)"
+        return "\n".join(f"  - {d.device_id} ({d.kind}, {d.room_name_ua})" for d in devices)
 
     @staticmethod
     def _format_history(turns: list[Turn]) -> str:

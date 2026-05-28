@@ -26,6 +26,7 @@ from typing import Any
 
 import aiomqtt
 import redis.asyncio as aioredis
+from prometheus_client import Counter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from hub.backend.config import settings
@@ -40,6 +41,16 @@ from hub.edge.agent.policy import (
     write_audit,
 )
 from hub.edge.agent.router import IntentClass, IntentRouter
+
+# Routing-branch telemetry — drives the LLM-optimization decision in
+# materials/llm_optimization_research.md.  Label values:
+#   deterministic_resolved | deterministic_failed | structured | creative |
+#   unknown | reasoner_success | reasoner_failure
+AGENT_ROUTING = Counter(
+    "iot_hub_agent_routing_branch_total",
+    "Voice/text commands grouped by which orchestrator branch handled them",
+    ["branch"],
+)
 
 # How long to wait for user confirmation before auto-denying
 _CONFIRM_DEFAULT_TIMEOUT_SEC = 60
@@ -260,12 +271,16 @@ class AgentOrchestrator:
 
         try:
             if intent.class_ == IntentClass.DETERMINISTIC:
+                # Sub-branch (resolved/failed) counted inside _handle_deterministic
                 await self._handle_deterministic(text, identity, intent, forced_device_id)
             elif intent.class_ == IntentClass.STRUCTURED:
+                AGENT_ROUTING.labels(branch="structured").inc()
                 await self._handle_structured(text, identity, intent)
             elif intent.class_ == IntentClass.CREATIVE:
+                AGENT_ROUTING.labels(branch="creative").inc()
                 await self._handle_creative(text, identity)
             else:
+                AGENT_ROUTING.labels(branch="unknown").inc()
                 await self._handle_unknown(text, identity)
         except Exception:
             logger.exception("Orchestrator error handling command: %r", text)
@@ -283,6 +298,7 @@ class AgentOrchestrator:
         """Resolve device command via TextResolver, then route through PolicyEngine."""
         if self._text_resolver is None:
             # No registry available — cannot resolve; fall back to ask_user
+            AGENT_ROUTING.labels(branch="deterministic_no_registry").inc()
             tool_call = ToolCall(tool="ask_user", topic=None, payload={"question": text})
             decision = self._policy.evaluate(tool_call, text, identity)
             await self._execute_decision(decision, tool_call, text, identity)
@@ -294,12 +310,15 @@ class AgentOrchestrator:
         )
 
         if not resolution.success:
+            AGENT_ROUTING.labels(branch="deterministic_failed").inc()
             # Before emitting failure, try LLM reasoner as fallback (when not forced)
             if forced_device_id is None and self._llm_reasoner is not None:
                 await self._handle_with_reasoner(text, identity)
                 return
             await self._emit_explainable_failure(resolution, text, identity)
             return
+
+        AGENT_ROUTING.labels(branch="deterministic_resolved").inc()
 
         # Broadcast: publish to every matched device
         targets = (
@@ -564,6 +583,7 @@ class AgentOrchestrator:
         )
 
         if not result.success:
+            AGENT_ROUTING.labels(branch="reasoner_failure").inc()
             await self._pub(
                 "agent:result",
                 {
@@ -574,6 +594,8 @@ class AgentOrchestrator:
                 },
             )
             return
+
+        AGENT_ROUTING.labels(branch="reasoner_success").inc()
 
         # Look up the actual MQTT command topic from the registry instead of
         # synthesizing one — the registry is the only place that knows the real
