@@ -25,7 +25,7 @@ def upgrade() -> None:
             "aliases",
             postgresql.JSONB(),
             nullable=False,
-            server_default="'[]'::jsonb",
+            server_default=sa.text("'[]'::jsonb"),
         ),
     )
     op.create_index(
@@ -42,7 +42,7 @@ def upgrade() -> None:
             "aliases",
             postgresql.JSONB(),
             nullable=False,
-            server_default="'[]'::jsonb",
+            server_default=sa.text("'[]'::jsonb"),
         ),
     )
     op.add_column(
@@ -51,7 +51,7 @@ def upgrade() -> None:
             "controllable",
             sa.Boolean(),
             nullable=False,
-            server_default="false",
+            server_default=sa.text("false"),
         ),
     )
     op.add_column(
@@ -60,7 +60,7 @@ def upgrade() -> None:
             "actions",
             postgresql.JSONB(),
             nullable=False,
-            server_default="'[]'::jsonb",
+            server_default=sa.text("'[]'::jsonb"),
         ),
     )
     op.create_index(
