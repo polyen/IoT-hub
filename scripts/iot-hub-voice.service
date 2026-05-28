@@ -26,14 +26,20 @@ Environment=REDIS_URL=redis://127.0.0.1:6379/0
 # Fill in the real POSTGRES_PASSWORD from your .env when installing this unit.
 Environment=DATABASE_URL=postgresql+asyncpg://iothub:CHANGE_ME@127.0.0.1:5432/iothub?ssl=disable
 
-# Hailo Whisper config — tiny is multilingual (uk supported), 10 s window.
-Environment=WHISPER_VARIANT=base
+# Hailo Whisper config — tiny is multilingual (uk supported), 10 s window;
+# base has 5 s window and needs ~2x more NPU SRAM (conflicts with CV models
+# under VDMA pressure on Hailo-8). Whisper-tiny WER on Ukrainian is ~30% on
+# short commands — for daily use prefer FORCE_CPU_STT=true + faster-whisper
+# base (~8-10% WER at 1.5 s latency); enable Hailo only for the thesis demo.
+Environment=WHISPER_VARIANT=tiny
 Environment=WHISPER_LANGUAGE=uk
 Environment=WHISPER_ASSETS_DIR=/mnt/ssd/iot-hub/whisper-cache
 
-# CPU fallback (only used if hailo_platform import fails)
+# CPU STT path (faster-whisper int8 on RPi5 Cortex-A76). Default ON for daily
+# use because Hailo Whisper-tiny accuracy on UA is impractical; switch to
+# FORCE_CPU_STT=false to demo the NPU path.
 Environment=FASTER_WHISPER_MODEL=base
-Environment=FORCE_CPU_STT=false
+Environment=FORCE_CPU_STT=true
 
 # NPU contention strategy with the CV systemd service (which uses the same NPU).
 # whisper_waits = zero CV FPS impact; whisper_inference yields between CV frames.
