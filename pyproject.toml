@@ -34,6 +34,12 @@ training = [
     "mlflow>=3.0.0",
     "opencv-python>=4.10.0",
     "pycocotools>=2.0.7",
+    # Intent classifier (T6.x) — see materials/ml_intent_classifier_plan.md
+    "setfit>=1.1.0",
+    "datasets>=3.0.0",
+    "transformers>=4.40.0",
+    "optimum[onnxruntime]>=1.20.0",
+    "scikit-learn>=1.5.0",
 ]
 voice = [
     "useful-moonshine-onnx>=20251121",
@@ -115,6 +121,9 @@ exclude = [
     "training/mining\\.py",
     "training/convert_to_hef\\.py",
     "training/datasets/",
+    # intent_classifier uses setfit/datasets/optimum which have no usable stubs;
+    # strict mode would force annotations on third-party return values we don't own
+    "training/intent_classifier/",
 ]
 
 [[tool.mypy.overrides]]

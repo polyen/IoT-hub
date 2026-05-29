@@ -73,6 +73,71 @@ stages:
   # ---------------------------------------------------------------------------
   # Evaluation (T5.1) — wraps `make evaluate`.
   # ---------------------------------------------------------------------------
+  # Intent classifier (T6.x) — SetFit on multilingual-e5-small.
+  # Produces ONNX INT8 used by hub/edge/agent/intent_classifier.py.
+  # See materials/ml_intent_classifier_plan.md.
+  # ---------------------------------------------------------------------------
+  prepare_intent_dataset:
+    cmd: >
+      uv run python -m training.intent_classifier.prepare_dataset
+      --out-dir data/intent_classifier
+      --massive-locale ${intent_classifier.dataset.massive_locale}
+      --synthetic-per-class ${intent_classifier.dataset.synthetic_per_class}
+      --val-size ${intent_classifier.dataset.val_size}
+      --test-size ${intent_classifier.dataset.test_size}
+      --seed ${intent_classifier.dataset.seed}
+    deps:
+      - training/intent_classifier/prepare_dataset.py
+      - training/intent_classifier/intents.py
+      - training/intent_classifier/templates.py
+    params:
+      - intent_classifier.dataset
+    outs:
+      - data/intent_classifier/train.jsonl
+      - data/intent_classifier/val.jsonl
+      - data/intent_classifier/test.jsonl
+      - data/intent_classifier/stats.json
+
+  train_intent_classifier:
+    cmd: >
+      uv run python -m training.intent_classifier.train
+      --data-dir data/intent_classifier
+      --out-dir models/intent_classifier
+      --base-model ${intent_classifier.train.base_model}
+      --num-iterations ${intent_classifier.train.num_iterations}
+      --num-epochs ${intent_classifier.train.num_epochs}
+      --batch-size ${intent_classifier.train.batch_size}
+      --learning-rate ${intent_classifier.train.learning_rate}
+      --mlflow-uri ${intent_classifier.train.mlflow_uri}
+    deps:
+      - data/intent_classifier/train.jsonl
+      - data/intent_classifier/val.jsonl
+      - data/intent_classifier/test.jsonl
+      - training/intent_classifier/train.py
+      - training/intent_classifier/intents.py
+    params:
+      - intent_classifier.train
+    outs:
+      - models/intent_classifier/checkpoint:
+          persist: true
+      - models/intent_classifier/metadata.json
+    metrics:
+      - reports/intent_classifier_metrics.json
+
+  export_intent_onnx:
+    cmd: >
+      uv run python -m training.intent_classifier.convert_to_onnx
+      --checkpoint models/intent_classifier/checkpoint
+      --out-dir models/intent_classifier
+    deps:
+      - models/intent_classifier/checkpoint
+      - training/intent_classifier/convert_to_onnx.py
+    outs:
+      - models/intent_classifier/model.int8.onnx
+      - models/intent_classifier/tokenizer
+      - models/intent_classifier/classifier_head.npz
+
+  # ---------------------------------------------------------------------------
   evaluate:
     cmd: make evaluate
     deps:

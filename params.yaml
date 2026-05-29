@@ -23,3 +23,25 @@ mining:
   # events, 2=T2 aggregated, 3=T3 operational). Default 1 keeps the training
   # loop conservative: T0 raw frames are excluded unless explicitly overridden.
   max_tier: 1
+
+# Intent classifier (T6.x) — see materials/ml_intent_classifier_plan.md
+intent_classifier:
+  dataset:
+    # MASSIVE locale (Amazon, arXiv 2204.08582).  uk-UA = Ukrainian.
+    massive_locale: uk-UA
+    # Cap synthetic examples per class so the model doesn't overfit on the
+    # Cartesian product (one verb × room × device can blow up to thousands).
+    synthetic_per_class: 200
+    val_size: 0.1
+    test_size: 0.1
+    seed: 42
+  train:
+    # multilingual-e5-small (118M params) — good UA support, ~120 MB INT8.
+    # Alternatives: intfloat/multilingual-e5-base (270M, +1-2 pp accuracy);
+    # google/embeddinggemma-300m (already in repo via router.py, ONNX-ready).
+    base_model: intfloat/multilingual-e5-small
+    num_iterations: 20
+    num_epochs: 1
+    batch_size: 16
+    learning_rate: 2.0e-5
+    mlflow_uri: http://localhost:5001
