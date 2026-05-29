@@ -1,0 +1,81 @@
+# Smart-home scene definitions.
+#
+# Each scene has:
+#   aliases — Ukrainian/English phrases that trigger it (substring match)
+#   description — human-readable label shown in the UI and spoken feedback
+#   actions — ordered list of device commands
+#
+# Action fields:
+#   kind    — device kind to target: light | relay | thermostat (required)
+#   action  — on | off | brightness_set (required)
+#   value   — brightness 0-100 % (required for brightness_set)
+#   room    — optional room slug; if absent and speaker_room known → use it;
+#             otherwise applies to ALL devices of that kind in the house
+#
+# Note: scenes are executed device-by-device through the PolicyEngine, so
+# DENY-listed devices are silently skipped.
+
+scenes:
+  кіно:
+    aliases:
+      - кіноперегляд
+      - фільм
+      - режим кіно
+      - cinema
+      - movie
+      - перегляд
+    description: Приглушити освітлення для перегляду фільму
+    actions:
+      - {kind: light, action: brightness_set, value: 15}
+
+  ніч:
+    aliases:
+      - спати
+      - час спати
+      - нічний режим
+      - відбій
+      - night
+      - сон
+      - лягати
+    description: Вимкнути все освітлення та розетки перед сном
+    actions:
+      - {kind: light, action: "off"}
+      - {kind: relay, action: "off"}
+
+  ранок:
+    aliases:
+      - ранковий режим
+      - прокидатись
+      - прокинувся
+      - добрий ранок
+      - morning
+      - підйом
+      - прокинулась
+    description: Плавне освітлення 60 % для комфортного підйому
+    actions:
+      - {kind: light, action: brightness_set, value: 60}
+
+  вечір:
+    aliases:
+      - вечірній режим
+      - вечеря
+      - романтика
+      - evening
+      - відпочинок
+      - релакс
+    description: Тепле приглушене освітлення 35 % на вечір
+    actions:
+      - {kind: light, action: brightness_set, value: 35}
+
+  прибирання:
+    aliases:
+      - прибирати
+      - прибрати
+      - cleaning
+      - яскраво
+      - генеральне прибирання
+      - прибирання
+    description: Максимальне освітлення та увімкнути розетки для прибирання
+    actions:
+      - {kind: light, action: brightness_set, value: 100}
+      - {kind: relay, action: on}

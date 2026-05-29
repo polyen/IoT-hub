@@ -208,6 +208,22 @@ class AgentOrchestrator:
         else:
             self._text_resolver = None
 
+        # SceneEngine — loaded only when device registry is available
+        self._scene_engine: Any | None = None
+        if device_registry is not None:
+            try:
+                from hub.edge.agent.scene_engine import SceneEngine  # noqa: PLC0415
+
+                engine = SceneEngine()
+                engine.load()
+                if engine.is_loaded:
+                    self._scene_engine = engine
+            except Exception as exc:
+                logger.warning("SceneEngine unavailable: %s", exc)
+
+        # Keep registry reference for SceneEngine.plan() calls
+        self._device_registry = device_registry
+
     def _fresh_speaker_room(self) -> str | None:
         """Return last ArcFace room if seen within ``_IDENTITY_TTL_SEC``, else None.
 
@@ -554,11 +570,40 @@ class AgentOrchestrator:
             return
 
         if prototype == "scene_generic":
-            # Phase 4 will add SceneEngine; for now ask the user to be more specific
+            if self._scene_engine is not None and self._device_registry is not None:
+                scene_name = self._scene_engine.match(text)
+                if scene_name:
+                    AGENT_ROUTING.labels(branch="scene_engine").inc()
+                    tool_calls = await self._scene_engine.plan(
+                        scene_name,
+                        registry=self._device_registry,
+                        speaker_room=self._fresh_speaker_room(),
+                    )
+                    if tool_calls:
+                        desc = self._scene_engine.description(scene_name)
+                        await self._pub(
+                            "agent:turn",
+                            {"type": "scene", "name": scene_name, "description": desc},
+                        )
+                        for tc in tool_calls:
+                            decision = self._policy.evaluate(tc, text, identity)
+                            await self._execute_decision(decision, tc, text, identity)
+                        return
+                    # Scene found but no devices matched
+                    logger.info(
+                        "SceneEngine: scene %r matched but no devices available", scene_name
+                    )
+
+            # No scene matched or no registry — ask which scene to activate
+            available = (
+                ", ".join(self._scene_engine.scene_names)
+                if self._scene_engine and self._scene_engine.is_loaded
+                else "кіно, ніч, ранок"
+            )
             tool_call = ToolCall(
                 tool="ask_user",
                 topic=None,
-                payload={"question": "Яку саме сцену активувати?"},
+                payload={"question": f"Яку сцену активувати? Доступні: {available}"},
             )
             decision = self._policy.evaluate(tool_call, text, identity)
             await self._execute_decision(decision, tool_call, text, identity)

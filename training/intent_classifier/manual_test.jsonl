@@ -1,0 +1,19 @@
+{"text": "світлов дитячий", "intent": "light_on", "source": "manual"}
+{"text": "гореть світло у вітальні", "intent": "light_on", "source": "manual"}
+{"text": "погаси бра у спальні", "intent": "light_off", "source": "manual"}
+{"text": "хай кухня горить", "intent": "light_on", "source": "manual"}
+{"text": "вимкни усе", "intent": "light_off", "source": "manual"}
+{"text": "зроби тепліше", "intent": "thermostat_set", "source": "manual"}
+{"text": "скільки вологість зараз", "intent": "query_humidity", "source": "manual"}
+{"text": "скажи яка температура", "intent": "query_temperature", "source": "manual"}
+{"text": "що зараз у будинку", "intent": "query_state", "source": "manual"}
+{"text": "що відбувалось вчора", "intent": "summarize_events", "source": "manual"}
+{"text": "розкажи події за тиждень", "intent": "summarize_events", "source": "manual"}
+{"text": "відчини гараж", "intent": "door_open", "source": "manual"}
+{"text": "закрий ворота", "intent": "door_close", "source": "manual"}
+{"text": "вмикай реле першого поверху", "intent": "relay_on", "source": "manual"}
+{"text": "активуй люстру в залі", "intent": "light_on", "source": "manual"}
+{"text": "дай яскравість 30 відсотків", "intent": "light_brightness_set", "source": "manual"}
+{"text": "режим кіно", "intent": "scene_generic", "source": "manual"}
+{"text": "кіноперегляд", "intent": "scene_generic", "source": "manual"}
+{"text": "стан системи", "intent": "query_state", "source": "manual"}

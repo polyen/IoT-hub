@@ -23,6 +23,13 @@ VERBS_ON: list[str] = [
     "запусти",
     "запали-но",
     "будь ласка увімкни",
+    # imperative of "горіти" (to be on/burning) — common colloquial form
+    "гори",
+    # Russism: "гореть" = горіти — heard frequently in STT output
+    "гореть",
+    # full imperatives
+    "засвіти",
+    "освіти",
 ]
 
 VERBS_OFF: list[str] = [
@@ -35,6 +42,11 @@ VERBS_OFF: list[str] = [
     "деактивуй",
     "припини",
     "будь ласка вимкни",
+    # common Ukrainian off-verbs not in the original list
+    "гаси",
+    "заглуши",
+    "відключи",
+    "знеструмуй",
 ]
 
 VERBS_TOGGLE: list[str] = ["перемкни", "переключи", "перевімкни"]
@@ -65,6 +77,12 @@ LIGHT_NOUNS: list[str] = [
     "освітлення",
     "ліхтар",
     "торшер",
+    # additional light types seen in prod logs
+    "бра",
+    "нічник",
+    "підсвітку",
+    "прожектор",
+    "світильник",
 ]
 
 RELAY_NOUNS: list[str] = [
@@ -105,11 +123,36 @@ QUERY_STATE_TEMPLATES: list[str] = [
 ]
 
 SUMMARY_TEMPLATES: list[str] = [
-    "що сталось вчора",
+    # today
+    "що сталось сьогодні",
     "розкажи події дня",
-    "підсумок тижня",
+    "підсумок дня",
     "звіт за сьогодні",
+    "що відбулось за сьогодні",
+    # yesterday
+    "що сталось вчора",
+    "розкажи що було вчора",
+    "підсумок вчорашнього дня",
+    "що відбувалось вчора",
+    "події вчора",
+    "вчорашній звіт",
+    # this week / last week
+    "підсумок тижня",
+    "розкажи події за тиждень",
+    "що сталось цього тижня",
+    "тижневий звіт",
+    "що відбувалось за тиждень",
+    # night
     "що відбувалось вночі",
+    "нічний звіт",
+    "що сталось вночі",
+    # general summary keywords
+    "дай підсумок",
+    "зроби звіт",
+    "розкажи що сталось",
+    "що взагалі відбувалось",
+    "які події за останні години",
+    "розкажи події за останній час",
 ]
 
 # Scene phrases — these are open-ended and matched by both intent classifier
@@ -123,6 +166,24 @@ SCENE_TEMPLATES: list[str] = [
     "вмикай вечір",
     "час спати",
     "ранковий режим",
+    # single-word scene triggers (common in prod)
+    "кіноперегляд",
+    "кіно",
+    "фільм",
+    "романтика",
+    "дискотека",
+    "вечірка",
+    "прибирання",
+    "сон",
+    "відпочинок",
+    # verb + scene
+    "активуй кіно",
+    "ввімкни вечірній режим",
+    "режим роботи",
+    "ранковий підйом",
+    "нічний режим",
+    "вмикай кіно",
+    "запусти режим релаксу",
 ]
 
 
@@ -132,12 +193,37 @@ def expand_template(template: str, **substitutions: str) -> str:
     return " ".join(text.split())
 
 
+# Standalone "let it be on" phrases — different syntactic structure than verb+noun+room
+_HAI_GORYT_ROOMS: list[str] = [
+    "вітальня",
+    "кухня",
+    "спальня",
+    "дитяча",
+    "коридор",
+    "ванна",
+    "балкон",
+    "кабінет",
+    "зал",
+]
+
+
 def generate_light_on() -> list[str]:
     out: list[str] = []
     for verb in VERBS_ON:
         for noun in LIGHT_NOUNS:
             for room in ROOMS_LOCATIVE:
                 out.append(expand_template("{verb} {noun} {room}", verb=verb, noun=noun, room=room))
+    # "хай горить {room_nominative}" / "нехай горить {noun} {room}"
+    for room in _HAI_GORYT_ROOMS:
+        out.append(f"хай горить {room}")
+        out.append(f"нехай горить {room}")
+        out.append(f"хай горить світло {room}")
+    # Russism "гореть" as standalone: "гореть у вітальні"
+    for room in ROOMS_LOCATIVE:
+        if room:
+            out.append(f"гореть {room}")
+            out.append(f"горить {room}")
+            out.append(f"хай {room} горить")
     return out
 
 
@@ -213,6 +299,30 @@ def generate_door_close() -> list[str]:
     ]
 
 
+THERMOSTAT_COLLOQUIAL: list[str] = [
+    # direction without numeric value — the model should still predict thermostat_set
+    "зроби тепліше",
+    "зроби прохолодніше",
+    "зроби холодніше",
+    "трохи тепліше",
+    "трохи холодніше",
+    "підвищ температуру",
+    "знижи температуру",
+    "збільш нагрів",
+    "зменш нагрів",
+    "тепліше",
+    "холодніше",
+    "прохолодніше",
+    # room-qualified
+    "зроби тепліше у вітальні",
+    "зроби прохолодніше у спальні",
+    "підвищ температуру на кухні",
+    "знижи температуру у дитячій",
+    "натопи кімнату",
+    "охолоди кімнату",
+]
+
+
 def generate_thermostat_set() -> list[str]:
     out: list[str] = []
     for v in TEMP_VALUES:
@@ -225,6 +335,9 @@ def generate_thermostat_set() -> list[str]:
             out.append(
                 expand_template("нагрій {room} до {value} градусів", value=str(v), room=room)
             )
+            out.append(expand_template("поставь {value} градусів {room}", value=str(v), room=room))
+    # Include colloquial direction phrases
+    out.extend(THERMOSTAT_COLLOQUIAL)
     return out
 
 
