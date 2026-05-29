@@ -26,6 +26,9 @@ dependencies = [
     "onnx>=1.21.0",
     "onnxslim>=0.1.71",
     "onnxruntime>=1.26.0",
+    # Lightweight Rust tokenizer for IntentClassifier edge inference.
+    # No torch dependency — only the fast HuggingFace tokenizer bindings.
+    "tokenizers>=0.20.0",
 ]
 
 [project.optional-dependencies]
