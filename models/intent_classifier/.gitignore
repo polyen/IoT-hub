@@ -1,5 +1,6 @@
 /checkpoint
 /metadata.json
-/model.int8.onnx
+/*.onnx
+/model.onnx
 /tokenizer
 /classifier_head.npz

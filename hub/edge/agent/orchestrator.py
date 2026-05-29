@@ -277,8 +277,19 @@ class AgentOrchestrator:
                 AGENT_ROUTING.labels(branch="structured").inc()
                 await self._handle_structured(text, identity, intent)
             elif intent.class_ == IntentClass.CREATIVE:
-                AGENT_ROUTING.labels(branch="creative").inc()
-                await self._handle_creative(text, identity)
+                # When the ML classifier set a known query/scene prototype, route
+                # directly without LLM — count as intent_classifier branch.
+                if intent.prototype in (
+                    "query_temperature",
+                    "query_humidity",
+                    "query_state",
+                    "summarize_events",
+                    "scene_generic",
+                ):
+                    AGENT_ROUTING.labels(branch="intent_classifier").inc()
+                else:
+                    AGENT_ROUTING.labels(branch="creative").inc()
+                await self._handle_creative(text, identity, intent)
             else:
                 AGENT_ROUTING.labels(branch="unknown").inc()
                 await self._handle_unknown(text, identity)
@@ -487,10 +498,16 @@ class AgentOrchestrator:
 
         prototype = getattr(intent, "prototype", None) if intent else None
         lower = text.lower()
-        # Inline grammar selection (GRAMMAR_MAP removed — use prototype + text keywords)
-        if prototype == "temp_set" or any(kw in lower for kw in ("температур", "градус", "°")):
+        # Grammar selection: handle both legacy prototype names and new ML label names
+        if prototype in ("temp_set", "thermostat_set") or any(
+            kw in lower for kw in ("температур", "градус", "°")
+        ):
             grammar_name = "thermostat"
-        elif prototype == "brightness_set" or any(kw in lower for kw in ("яскравість", "відсоток")):
+        elif prototype in (
+            "brightness_set",
+            "light_brightness_set",
+            "light_color_set",
+        ) or any(kw in lower for kw in ("яскравість", "відсоток")):
             grammar_name = "light"
         elif any(kw in lower for kw in ("таймер", "нагадай", "timer", "remind")):
             grammar_name = "timer"
@@ -514,11 +531,40 @@ class AgentOrchestrator:
         decision = self._policy.evaluate(tool_call, text, identity)
         await self._execute_decision(decision, tool_call, text, identity)
 
-    async def _handle_creative(self, text: str, identity: str) -> None:
-        """Use LLM chat to select and parameterize a tool.
+    async def _handle_creative(self, text: str, identity: str, intent: Any = None) -> None:
+        """Route query/scene intents directly to tools (no LLM).
 
-        When LLMReasoner is available it handles this via structured reasoning.
+        Falls back to LLMReasoner when available, then to LLM chat for any
+        prototype not covered by direct routing.
         """
+        prototype = getattr(intent, "prototype", None) if intent else None
+
+        # Direct routing for ML-classified query/scene intents (no LLM needed)
+        if prototype in ("query_temperature", "query_humidity", "query_state"):
+            room: str | None = None  # TextResolver room hint not available here; let tool scan all
+            tool_call = ToolCall(tool="get_home_state", topic=None, payload={"room": room})
+            decision = self._policy.evaluate(tool_call, text, identity)
+            await self._execute_decision(decision, tool_call, text, identity)
+            return
+
+        if prototype == "summarize_events":
+            tool_call = ToolCall(tool="summarize_period", topic=None, payload={"period": "today"})
+            decision = self._policy.evaluate(tool_call, text, identity)
+            await self._execute_decision(decision, tool_call, text, identity)
+            return
+
+        if prototype == "scene_generic":
+            # Phase 4 will add SceneEngine; for now ask the user to be more specific
+            tool_call = ToolCall(
+                tool="ask_user",
+                topic=None,
+                payload={"question": "Яку саме сцену активувати?"},
+            )
+            decision = self._policy.evaluate(tool_call, text, identity)
+            await self._execute_decision(decision, tool_call, text, identity)
+            return
+
+        # LLM-based reasoning (optional; disabled by default after Phase 2)
         if self._llm_reasoner is not None:
             await self._handle_with_reasoner(text, identity)
             return

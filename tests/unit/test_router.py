@@ -8,7 +8,8 @@ PROTOTYPES_PATH = Path(__file__).parents[2] / "hub" / "edge" / "agent" / "protot
 
 
 def make_router() -> IntentRouter:
-    router = IntentRouter(prototypes_path=PROTOTYPES_PATH, model_path=None)
+    # classifier_dir=None disables ML classifier so tests exercise keyword fallback
+    router = IntentRouter(prototypes_path=PROTOTYPES_PATH, model_path=None, classifier_dir=None)
     router.load()
     return router
 

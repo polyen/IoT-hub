@@ -133,7 +133,7 @@ async def _orchestrator_loop(
 
             state_verifier = StateVerifier(redis_client)
             llm_reasoner: LLMReasoner | None = None
-            if os.environ.get("LLM_REASONING_ENABLED", "true").lower() == "true":
+            if os.environ.get("LLM_REASONING_ENABLED", "false").lower() == "true":
                 llm_reasoner = LLMReasoner(llm=llm, registry=device_registry)
 
             orchestrator = AgentOrchestrator(
