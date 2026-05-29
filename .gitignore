@@ -119,3 +119,5 @@ mlruns/
 # committed; raw *.onnx weights are excluded by the DVC-managed
 # models/onnx/.gitignore. HEFs live only in GHCR — keep the whole dir ignored.
 models/hef/
+
+checkpoints

@@ -31,3 +31,121 @@ stages:
       md5: f81edc4af66c0cca46cdff189feb267d.dir
       size: 26295312
       nfiles: 25
+  prepare_intent_dataset:
+    cmd: "uv run python -m training.intent_classifier.prepare_dataset --out-dir datasets/intent_classifier
+      --massive-locale uk-UA --synthetic-per-class 200 --val-size 0.1 --test-size
+      0.1 --seed 42\n"
+    deps:
+    - path: training/intent_classifier/intents.py
+      hash: md5
+      md5: a84db0c53fc52399aa6214cd18eb3bdb
+      size: 2495
+    - path: training/intent_classifier/prepare_dataset.py
+      hash: md5
+      md5: e0aa418a19c1ed2e98fdb3d61c4e4f6f
+      size: 7838
+    - path: training/intent_classifier/templates.py
+      hash: md5
+      md5: 417589901de00364229130dbcbae7f71
+      size: 8160
+    params:
+      params.yaml:
+        intent_classifier.dataset:
+          massive_locale: uk-UA
+          synthetic_per_class: 200
+          val_size: 0.1
+          test_size: 0.1
+          seed: 42
+    outs:
+    - path: datasets/intent_classifier/stats.json
+      hash: md5
+      md5: 6e628de1c0750312b07bb33491be0dc7
+      size: 481
+    - path: datasets/intent_classifier/test.jsonl
+      hash: md5
+      md5: c28ab646d03cfcc3c2bc420401513116
+      size: 21350
+    - path: datasets/intent_classifier/train.jsonl
+      hash: md5
+      md5: eb69ebdeecb66d1375bd7cad3f27de31
+      size: 168530
+    - path: datasets/intent_classifier/val.jsonl
+      hash: md5
+      md5: 82680ea5548ddcf3ad597fdcb8aecda0
+      size: 21145
+  train_intent_classifier:
+    cmd: "uv run python -m training.intent_classifier.train --data-dir datasets/intent_classifier
+      --out-dir models/intent_classifier --base-model intfloat/multilingual-e5-small
+      --num-iterations 20 --num-epochs 1 --batch-size 16 --learning-rate 2e-05 --mlflow-uri
+      http://localhost:5001\n"
+    deps:
+    - path: datasets/intent_classifier/test.jsonl
+      hash: md5
+      md5: c28ab646d03cfcc3c2bc420401513116
+      size: 21350
+    - path: datasets/intent_classifier/train.jsonl
+      hash: md5
+      md5: eb69ebdeecb66d1375bd7cad3f27de31
+      size: 168530
+    - path: datasets/intent_classifier/val.jsonl
+      hash: md5
+      md5: 82680ea5548ddcf3ad597fdcb8aecda0
+      size: 21145
+    - path: training/intent_classifier/intents.py
+      hash: md5
+      md5: a84db0c53fc52399aa6214cd18eb3bdb
+      size: 2495
+    - path: training/intent_classifier/train.py
+      hash: md5
+      md5: 262bbc1e09d43ef2bca89ecae38b6e1e
+      size: 7423
+    params:
+      params.yaml:
+        intent_classifier.train:
+          base_model: intfloat/multilingual-e5-small
+          num_iterations: 20
+          num_epochs: 1
+          batch_size: 16
+          learning_rate: 2e-05
+          mlflow_uri: http://localhost:5001
+    outs:
+    - path: models/intent_classifier/checkpoint
+      hash: md5
+      md5: ed5085f9b7f7de82dbf0c52215ec27d4.dir
+      size: 487786327
+      nfiles: 12
+    - path: models/intent_classifier/metadata.json
+      hash: md5
+      md5: 6844418a031ff7ace3a45e071cb8cb49
+      size: 641
+    - path: reports/intent_classifier_metrics.json
+      hash: md5
+      md5: e2e3495a5cf3779561477b6252e0bf86
+      size: 174
+  export_intent_onnx:
+    cmd: "uv run python -m training.intent_classifier.convert_to_onnx --checkpoint
+      models/intent_classifier/checkpoint --out-dir models/intent_classifier\n"
+    deps:
+    - path: models/intent_classifier/checkpoint
+      hash: md5
+      md5: 291af98e32a21b1f5dfd3dca9e49519b.dir
+      size: 487786327
+      nfiles: 12
+    - path: training/intent_classifier/convert_to_onnx.py
+      hash: md5
+      md5: d4e34d88aebea3a40c8e4ac6e2fed909
+      size: 5204
+    outs:
+    - path: models/intent_classifier/classifier_head.npz
+      hash: md5
+      md5: 464594fc11ddbc6b82122f30a0fec99d
+      size: 23612
+    - path: models/intent_classifier/model.int8.onnx
+      hash: md5
+      md5: 4478190235748091d58a5ad48f6bcfa1
+      size: 118086323
+    - path: models/intent_classifier/tokenizer
+      hash: md5
+      md5: 7cecbba3a55a3c59f2b513f4dcb79d8d.dir
+      size: 17085416
+      nfiles: 3

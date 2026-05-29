@@ -80,7 +80,7 @@ stages:
   prepare_intent_dataset:
     cmd: >
       uv run python -m training.intent_classifier.prepare_dataset
-      --out-dir data/intent_classifier
+      --out-dir datasets/intent_classifier
       --massive-locale ${intent_classifier.dataset.massive_locale}
       --synthetic-per-class ${intent_classifier.dataset.synthetic_per_class}
       --val-size ${intent_classifier.dataset.val_size}
@@ -93,15 +93,15 @@ stages:
     params:
       - intent_classifier.dataset
     outs:
-      - data/intent_classifier/train.jsonl
-      - data/intent_classifier/val.jsonl
-      - data/intent_classifier/test.jsonl
-      - data/intent_classifier/stats.json
+      - datasets/intent_classifier/train.jsonl
+      - datasets/intent_classifier/val.jsonl
+      - datasets/intent_classifier/test.jsonl
+      - datasets/intent_classifier/stats.json
 
   train_intent_classifier:
     cmd: >
       uv run python -m training.intent_classifier.train
-      --data-dir data/intent_classifier
+      --data-dir datasets/intent_classifier
       --out-dir models/intent_classifier
       --base-model ${intent_classifier.train.base_model}
       --num-iterations ${intent_classifier.train.num_iterations}
@@ -110,9 +110,9 @@ stages:
       --learning-rate ${intent_classifier.train.learning_rate}
       --mlflow-uri ${intent_classifier.train.mlflow_uri}
     deps:
-      - data/intent_classifier/train.jsonl
-      - data/intent_classifier/val.jsonl
-      - data/intent_classifier/test.jsonl
+      - datasets/intent_classifier/train.jsonl
+      - datasets/intent_classifier/val.jsonl
+      - datasets/intent_classifier/test.jsonl
       - training/intent_classifier/train.py
       - training/intent_classifier/intents.py
     params:

@@ -133,7 +133,7 @@ def train(
     train_duration_sec = time.monotonic() - t0
 
     val_metrics = trainer.evaluate()
-    test_pred = model.predict(test_texts).tolist()
+    test_pred = list(model.predict(test_texts))
     # SetFit returns label-string predictions; convert back to indices
     test_pred_idx = [INTENT_LABELS.index(p) if isinstance(p, str) else p for p in test_pred]
     test_acc = sum(int(p == g) for p, g in zip(test_pred_idx, test_labels, strict=True)) / max(
@@ -148,17 +148,21 @@ def train(
         "num_classes": len(INTENT_LABELS),
     }
 
-    if mlflow is not None and mlflow_run is not None:
-        try:
-            mlflow.log_metrics(metrics)
-            mlflow.end_run()
-        except Exception:  # noqa: BLE001
-            pass
-
     # Persist checkpoint + metadata
     ckpt_dir = out_dir / "checkpoint"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(str(ckpt_dir))
+
+    if mlflow is not None and mlflow_run is not None:
+        try:
+            mlflow.log_metrics(metrics)
+            mlflow.log_artifacts(str(ckpt_dir), artifact_path="checkpoint")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            mlflow.end_run()
+        except Exception:  # noqa: BLE001
+            pass
 
     metadata = {
         "labels": INTENT_LABELS,
