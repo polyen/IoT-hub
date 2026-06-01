@@ -47,7 +47,7 @@ class ToolCall:
 
 @dataclass
 class EvaluationContext:
-    now: datetime = field(default_factory=lambda: datetime.now())
+    now: datetime = field(default_factory=lambda: datetime.now(UTC))
     timezone: str = "Europe/Kyiv"
 
 
@@ -127,6 +127,8 @@ class PolicyEngine:
 
     def _check_schedules(self, tool_call: ToolCall, ctx: EvaluationContext) -> Decision | None:
         schedules: list[dict[str, Any]] = self._policy.get("schedules", [])
+        tz = ZoneInfo(ctx.timezone)
+        local_now = ctx.now.astimezone(tz) if ctx.now.tzinfo else ctx.now.replace(tzinfo=tz)
         for schedule in schedules:
             if not self._schedule_active(schedule, ctx):
                 continue
@@ -139,17 +141,74 @@ class PolicyEngine:
                         continue
                 elif pattern and not tool_call.topic:
                     continue
+                # when_payload: simple "key op value" guard (e.g. "brightness > 50")
+                when = override.get("when_payload")
+                if when and not self._eval_when_payload(when, tool_call.payload):
+                    continue
                 class_override = override.get("class_override")
                 if class_override:
+                    raw_msg: str | None = override.get("confirm_message")
+                    msg = self._render_confirm_message(raw_msg, tool_call, local_now)
                     return Decision(
                         action_class=ActionClass(class_override),
                         reason=f"schedule:{schedule['name']}",
-                        confirm_message=override.get("confirm_message"),
+                        confirm_message=msg,
                         confirm_timeout_sec=self._policy.get("confirmation", {}).get(
                             "default_timeout_sec", 60
                         ),
                     )
         return None
+
+    @staticmethod
+    def _eval_when_payload(when: str, payload: dict[str, Any]) -> bool:
+        """Evaluate a simple "key op value" guard string against the payload.
+
+        Supports: ==, !=, >, >=, <, <=
+        Example: "brightness > 50"
+        Returns True (guard passes → override applies) or False (skip override).
+        Unknown keys or unparseable expressions → True (safe default: apply override).
+        """
+        m = re.match(r"^\s*(\w+)\s*(==|!=|>=|<=|>|<)\s*(.+?)\s*$", when)
+        if not m:
+            return True
+        key, op, raw_val = m.group(1), m.group(2), m.group(3)
+        if key not in payload:
+            return False
+        try:
+            pv: Any = float(payload[key]) if isinstance(payload[key], int | float) else payload[key]
+            rv: Any = (
+                float(raw_val) if re.match(r"^-?\d+(\.\d+)?$", raw_val) else raw_val.strip("'\"")
+            )
+        except (ValueError, TypeError):
+            return True
+        if op == "==":
+            return pv == rv
+        if op == "!=":
+            return pv != rv
+        if op == ">":
+            return pv > rv
+        if op == ">=":
+            return pv >= rv
+        if op == "<":
+            return pv < rv
+        if op == "<=":
+            return pv <= rv
+        return True
+
+    @staticmethod
+    def _render_confirm_message(
+        template: str | None,
+        tool_call: ToolCall,
+        local_now: datetime,
+    ) -> str | None:
+        if not template:
+            return template
+        now_time = local_now.strftime("%H:%M")
+        result = template.replace("{now_time}", now_time)
+        # Replace {payload.key} references
+        for key, val in tool_call.payload.items():
+            result = result.replace(f"{{payload.{key}}}", str(val))
+        return result
 
     def _schedule_active(self, schedule: dict[str, Any], ctx: EvaluationContext) -> bool:
         active_hours: str | None = schedule.get("active_hours")
