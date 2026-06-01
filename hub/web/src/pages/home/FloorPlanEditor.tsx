@@ -253,7 +253,7 @@ export function FloorPlanEditor() {
   async function handleSave() {
     if (!draft) return;
     try {
-      await api.put("/api/floorplan", draft);
+      await api.put("/api/floorplan", draft, false, 30_000);
       await qc.invalidateQueries({ queryKey: ["floorplan"] });
       toast.success("Збережено");
       setDraft(draft); // reset dirty + history

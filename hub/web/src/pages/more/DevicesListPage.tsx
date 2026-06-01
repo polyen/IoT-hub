@@ -339,7 +339,7 @@ export default function DevicesListPage() {
   const [search, setSearch] = useState("");
 
   const saveMutation = useMutation({
-    mutationFn: (updated: FloorPlanData) => api.put<FloorPlanData>("/api/floorplan", updated),
+    mutationFn: (updated: FloorPlanData) => api.put<FloorPlanData>("/api/floorplan", updated, false, 30_000),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["floorplan"] });
       toast.success("Збережено");

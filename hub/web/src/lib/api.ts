@@ -8,9 +8,10 @@ async function apiFetch<T>(
   url: string,
   options?: RequestInit,
   silent = false,
+  timeoutMs = 10_000,
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(url, {
@@ -51,8 +52,8 @@ export const api = {
   post: <T>(url: string, body?: unknown, silent?: boolean) =>
     apiFetch<T>(url, { method: "POST", body: JSON.stringify(body) }, silent),
 
-  put: <T>(url: string, body?: unknown, silent?: boolean) =>
-    apiFetch<T>(url, { method: "PUT", body: JSON.stringify(body) }, silent),
+  put: <T>(url: string, body?: unknown, silent?: boolean, timeoutMs?: number) =>
+    apiFetch<T>(url, { method: "PUT", body: JSON.stringify(body) }, silent, timeoutMs),
 
   patch: <T>(url: string, body?: unknown, silent?: boolean) =>
     apiFetch<T>(url, { method: "PATCH", body: JSON.stringify(body) }, silent),
