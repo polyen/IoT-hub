@@ -93,13 +93,24 @@ mqtt_topics:
 
   # ── AUTO ────────────────────────────────────────────────────────────────
 
+  - pattern: "home/+/light/cmd"
+    class: AUTO
+    schema:
+      type: object
+      additionalProperties: false
+      properties:
+        state: { type: string, enum: [on, off, toggle, ON, OFF, TOGGLE] }
+        brightness: { type: integer, minimum: 0, maximum: 100 }
+      required: [state]
+
+  # Legacy topic without /cmd suffix (manually configured devices)
   - pattern: "home/+/light"
     class: AUTO
     schema:
       type: object
       additionalProperties: false
       properties:
-        state: { type: string, enum: [on, off, toggle] }
+        state: { type: string, enum: [on, off, toggle, ON, OFF, TOGGLE] }
         brightness: { type: integer, minimum: 0, maximum: 100 }
       required: [state]
 
@@ -204,7 +215,7 @@ schedules:
         confirm_message: "Нічний режим — точно увімкнути музику?"
 
       - tool: mqtt_publish
-        topic_pattern: "home/+/light"
+        topic_pattern: "home/+/light/cmd"
         # Перевести яскравість >50% у CONFIRM (різке світло вночі)
         when_payload: "brightness > 50"
         class_override: CONFIRM

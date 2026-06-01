@@ -71,6 +71,16 @@ DEFAULT_CACHE_DIR = Path(os.environ.get("WHISPER_ASSETS_DIR", "/app/.whisper_cac
 _TOK_SOT = "<|startoftranscript|>"
 _TOK_TRANSCRIBE = "<|transcribe|>"
 _TOK_NOTIMESTAMPS = "<|notimestamps|>"
+_TOK_SOT_PREV = "<|startofprev|>"
+
+# Domain-specific initial_prompt that biases the decoder toward smart-home
+# Ukrainian vocabulary.  Keep short — every token here reduces available
+# generation space (whisper-tiny seq_len = 448).
+_INITIAL_PROMPT = (
+    "Розумний дім. Увімкни лампу. Вимкни лампу. Лампа, реле, замок, термостат. "
+    "Вітальня, кухня, спальня, коридор, ванна. Відкрий, закрий, перемкни. "
+    "Встанови таймер. Яскравість, температура, гучність."
+)
 
 # Punctuation token ids exempt from repetition penalty (commas, periods)
 _PUNCT_TOKENS = {11, 13}
@@ -123,7 +133,23 @@ class HailoWhisperBackend:
             )
         task_id = self._tokenizer.convert_tokens_to_ids(_TOK_TRANSCRIBE)
         nots_id = self._tokenizer.convert_tokens_to_ids(_TOK_NOTIMESTAMPS)
-        self._forced_decoder_ids = [int(sot_id), int(lang_id), int(task_id), int(nots_id)]
+
+        # Prepend initial_prompt via <|startofprev|> + prompt tokens so the
+        # decoder is biased toward smart-home Ukrainian vocabulary.
+        # Layout: [SOT_PREV, *prompt_ids, SOT, lang, task, notimestamps]
+        sot_prev_id = self._tokenizer.convert_tokens_to_ids(_TOK_SOT_PREV)
+        prompt_ids: list[int] = []
+        if sot_prev_id and sot_prev_id != self._tokenizer.unk_token_id:
+            encoded = self._tokenizer.encode(_INITIAL_PROMPT, add_special_tokens=False)
+            # Cap at 224 tokens (half of whisper-tiny seq_len) to leave room for generation
+            prompt_ids = [int(sot_prev_id)] + [int(t) for t in encoded[:224]]
+
+        self._forced_decoder_ids = prompt_ids + [
+            int(sot_id),
+            int(lang_id),
+            int(task_id),
+            int(nots_id),
+        ]
         self._eos_id = int(self._tokenizer.eos_token_id)
 
         # Decoder embedding (operator stripped from HEF — runs on host)
@@ -456,10 +482,7 @@ class FasterWhisperBackend:
         segments, _ = self._model.transcribe(
             pcm,
             language=self._language,
-            initial_prompt=(
-                "Розумний дім. Увімкни, вимкни, відкрий, закрий, перемкни. "
-                "Встанови таймер. Збільш, зменш гучність. Що сталось. Звіт."
-            ),
+            initial_prompt=_INITIAL_PROMPT,
             condition_on_previous_text=False,
         )
         return " ".join(seg.text.strip() for seg in segments)
