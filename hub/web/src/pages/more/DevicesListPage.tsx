@@ -29,11 +29,33 @@ const DEVICE_KINDS: DeviceKind[] = [
   "sensor_pir", "sensor_door", "sensor_dht", "sensor_mq2", "sensor_power", "speaker",
 ];
 
+const ACTIONS_BY_KIND: Record<string, string[]> = {
+  light: ["on", "off", "toggle", "brightness_set"],
+  relay: ["on", "off", "toggle"],
+  lock: ["open", "close"],
+  thermostat: ["set", "temp_set", "inc", "dec"],
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  on: "Увімкнути",
+  off: "Вимкнути",
+  toggle: "Перемкнути",
+  open: "Відкрити",
+  close: "Закрити",
+  set: "Встановити",
+  inc: "Збільшити",
+  dec: "Зменшити",
+  brightness_set: "Яскравість",
+  temp_set: "Температура",
+};
+
 interface EditForm {
   label: string;
   device_id: string;
   kind: DeviceKind;
   mqtt_topic: string;
+  controllable: boolean;
+  actions: string[];
 }
 
 /* Inline confirm card shown when a device command returns confirm_required */
@@ -105,6 +127,8 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
       device_id: placement.device_id,
       kind: placement.kind as DeviceKind,
       mqtt_topic: (placement.config.mqtt_topic as string) ?? "",
+      controllable: placement.controllable ?? false,
+      actions: placement.actions ?? [],
     },
   });
 
@@ -130,7 +154,15 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
       const config = { ...placement.config };
       if (data.mqtt_topic) config.mqtt_topic = data.mqtt_topic;
       else delete config.mqtt_topic;
-      await onSave({ ...placement, label: data.label || null, device_id: data.device_id, kind: data.kind, config });
+      await onSave({
+        ...placement,
+        label: data.label || null,
+        device_id: data.device_id,
+        kind: data.kind,
+        config,
+        controllable: data.controllable,
+        actions: data.controllable ? data.actions : [],
+      });
       setExpanded(false);
     } finally {
       setSaving(false);
@@ -243,6 +275,43 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
               />
             </label>
           </div>
+
+          {/* Voice control */}
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              {...form.register("controllable")}
+              className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500"
+            />
+            <span className="text-sm text-slate-300">Керується голосом</span>
+          </label>
+
+          {form.watch("controllable") && ACTIONS_BY_KIND[form.watch("kind")] && (
+            <div className="space-y-1">
+              <span className="block text-xs text-slate-400">Доступні дії</span>
+              <div className="flex flex-wrap gap-2">
+                {ACTIONS_BY_KIND[form.watch("kind")].map((action) => (
+                  <label key={action} className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      value={action}
+                      checked={form.watch("actions").includes(action)}
+                      onChange={(e) => {
+                        const prev = form.getValues("actions");
+                        form.setValue(
+                          "actions",
+                          e.target.checked ? [...prev, action] : prev.filter((a) => a !== action),
+                        );
+                      }}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-blue-500 focus:ring-blue-500"
+                    />
+                    <span className="text-xs text-slate-300">{ACTION_LABELS[action] ?? action}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 pt-1">
             <Button type="submit" size="sm" variant="primary" disabled={saving}>
               {saving ? "Зберігаємо…" : "Зберегти"}
