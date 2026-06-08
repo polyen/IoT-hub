@@ -67,7 +67,7 @@ def _resample(audio: Any, src_sr: int) -> Any:
         return _scipy_resample(audio, n)
 
 
-def run(manifest_path: Path, *, warmup: int = 3) -> dict[str, Any]:
+def run(manifest_path: Path, *, warmup: int = 3, onnx_dir: str | None = None) -> dict[str, Any]:
     if not manifest_path.exists():
         return _not_measured(f"corpus manifest not found at {manifest_path}")
     entries = _load_manifest(manifest_path)
@@ -77,16 +77,33 @@ def run(manifest_path: Path, *, warmup: int = 3) -> dict[str, Any]:
     try:
         import soundfile as sf
         import torch
-        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+        from transformers import AutoProcessor
     except ImportError as exc:
         return _not_measured(
             f"missing dependency ({exc.name}); install: "
             "pip install torch transformers soundfile soxr"
         )
 
-    logger.info("Loading %s via transformers …", MODEL_ID)
-    processor = AutoProcessor.from_pretrained(MODEL_ID)  # type: ignore[no-untyped-call]
-    model = AutoModelForSpeechSeq2Seq.from_pretrained(MODEL_ID).eval()
+    # Two runtimes: optimised onnxruntime (--onnx-dir, the production target) or
+    # the plain PyTorch reference. Same generate() API for both.
+    if onnx_dir:
+        try:
+            from optimum.onnxruntime import ORTModelForSpeechSeq2Seq
+        except ImportError:
+            return _not_measured("--onnx-dir set but optimum is missing; pip install optimum")
+        logger.info("Loading ONNX model from %s via onnxruntime …", onnx_dir)
+        processor = AutoProcessor.from_pretrained(onnx_dir)  # type: ignore[no-untyped-call]
+        model = ORTModelForSpeechSeq2Seq.from_pretrained(onnx_dir)
+        runtime = "onnxruntime"
+        model_label = onnx_dir
+    else:
+        from transformers import AutoModelForSpeechSeq2Seq
+
+        logger.info("Loading %s via transformers …", MODEL_ID)
+        processor = AutoProcessor.from_pretrained(MODEL_ID)  # type: ignore[no-untyped-call]
+        model = AutoModelForSpeechSeq2Seq.from_pretrained(MODEL_ID).eval()
+        runtime = "transformers/pytorch-cpu"
+        model_label = MODEL_ID
 
     base_dir = manifest_path.parent
     pairs: list[tuple[str, str]] = []
@@ -142,8 +159,8 @@ def run(manifest_path: Path, *, warmup: int = 3) -> dict[str, Any]:
 
     return {
         "measured": True,
-        "model": MODEL_ID,
-        "runtime": "transformers/pytorch-cpu",
+        "model": model_label,
+        "runtime": runtime,
         "n_measured": len(latencies),
         "warmup_skipped": warmup,
         "wer": round(agg.wer, 4),
@@ -164,10 +181,16 @@ def main() -> None:
     )
     parser.add_argument("--manifest", default="training/evaluation/stt_corpus/manifest.jsonl")
     parser.add_argument("--warmup", type=int, default=3, help="Clips to skip from latency stats")
+    parser.add_argument(
+        "--onnx-dir",
+        default=None,
+        help="Run the optimised onnxruntime path from this exported ONNX dir "
+        "(omit to use the plain PyTorch reference)",
+    )
     parser.add_argument("--output", default="materials/evaluation_results")
     args = parser.parse_args()
 
-    result = run(Path(args.manifest), warmup=args.warmup)
+    result = run(Path(args.manifest), warmup=args.warmup, onnx_dir=args.onnx_dir)
 
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
