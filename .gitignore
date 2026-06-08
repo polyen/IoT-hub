@@ -108,6 +108,7 @@ yolo11n.pt
 .dvc/tmp/rwlock.lock
 runs
 yolo26n.pt
+yolov8n-pose.pt
 
 CLAUDE.md
 

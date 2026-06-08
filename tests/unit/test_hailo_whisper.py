@@ -80,9 +80,11 @@ def test_get_backend_falls_back_when_transformers_missing(monkeypatch: pytest.Mo
     assert isinstance(backend, hw.FasterWhisperBackend)
 
 
-def test_get_backend_uses_hailo_when_assets_resolve(
+def test_get_backend_uses_hailo_when_opted_in(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """STT_BACKEND=hailo opts into the NPU path when assets resolve."""
+    monkeypatch.setenv("STT_BACKEND", "hailo")
     monkeypatch.setattr(hw, "WhisperModel", MagicMock())
     monkeypatch.setattr(hw, "FASTER_WHISPER_AVAILABLE", True)
     monkeypatch.setattr(hw, "HAILO_AVAILABLE", True)
@@ -99,9 +101,25 @@ def test_get_backend_uses_hailo_when_assets_resolve(
     ctor.assert_called_once_with("ASSETS", language="uk")
 
 
-def test_get_backend_falls_through_when_hailo_init_fails(
+def test_get_backend_default_avoids_hailo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Default (auto) keeps STT on CPU even when Hailo is fully available."""
+    monkeypatch.delenv("STT_BACKEND", raising=False)
+    monkeypatch.setattr(hw, "WhisperModel", MagicMock())
+    monkeypatch.setattr(hw, "FASTER_WHISPER_AVAILABLE", True)
+    monkeypatch.setattr(hw, "HAILO_AVAILABLE", True)
+    monkeypatch.setattr(hw, "TRANSFORMERS_AVAILABLE", True)
+
+    with patch.object(hw, "ensure_assets", return_value="ASSETS") as ensure:
+        backend = hw.get_backend(assets_cache_dir=tmp_path, variant="tiny")
+
+    assert isinstance(backend, hw.FasterWhisperBackend)
+    ensure.assert_not_called()  # NPU path never touched by default
+
+
+def test_get_backend_hailo_opt_in_falls_through_when_init_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setenv("STT_BACKEND", "hailo")
     monkeypatch.setattr(hw, "WhisperModel", MagicMock())
     monkeypatch.setattr(hw, "FASTER_WHISPER_AVAILABLE", True)
     monkeypatch.setattr(hw, "HAILO_AVAILABLE", True)

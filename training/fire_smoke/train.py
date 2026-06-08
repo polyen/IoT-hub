@@ -106,9 +106,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="MLflow experiment name",
     )
     parser.add_argument(
+        "--name",
+        default="train",
+        help=(
+            "Output sub-directory under runs/fire_smoke/ (default 'train'). "
+            "Set a distinct name per architecture (e.g. yolo26n / yolov11n) so "
+            "training both does not overwrite the same runs/fire_smoke/train dir."
+        ),
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
-        help="Resume from last checkpoint (runs/fire_smoke/train/weights/last.pt)",
+        help="Resume from last checkpoint (runs/fire_smoke/<name>/weights/last.pt)",
     )
     return parser
 
@@ -138,7 +147,7 @@ def main(argv: list[str] | None = None) -> None:
     mlflow.set_tracking_uri(args.mlflow_uri)
     mlflow.set_experiment(args.experiment)
 
-    with mlflow.start_run():
+    with mlflow.start_run(run_name=args.name):
         mlflow.log_params(
             {
                 "epochs": args.epochs,
@@ -147,13 +156,14 @@ def main(argv: list[str] | None = None) -> None:
                 "lr": args.lr,
                 "base_model": args.base_model,
                 "data": str(args.data),
+                "name": args.name,
             }
         )
 
         # Use absolute project path so YOLO doesn't prepend its default
         # "runs/detect/" base directory to the project name.
         project_dir = Path("runs/fire_smoke").resolve()
-        run_dir = project_dir / "train"
+        run_dir = project_dir / args.name
 
         last_pt = run_dir / "weights" / "last.pt"
         resuming = args.resume and last_pt.exists()
@@ -176,7 +186,7 @@ def main(argv: list[str] | None = None) -> None:
                 lr0=args.lr,
                 device=args.device,
                 project=str(project_dir),
-                name="train",
+                name=args.name,
                 exist_ok=True,
             )
 

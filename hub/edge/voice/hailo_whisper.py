@@ -54,6 +54,7 @@ try:
 
     FASTER_WHISPER_AVAILABLE = True
 except ImportError:
+    WhisperModel = None  # type: ignore[assignment,misc]
     FASTER_WHISPER_AVAILABLE = False
 
 try:
@@ -489,7 +490,6 @@ class FasterWhisperBackend:
 
 
 def get_backend(
-    hef_path: Path | None = None,  # accepted for back-compat; ignored
     force_cpu: bool = False,
     language: str = DEFAULT_LANGUAGE,
     npu_timeout_sec: float = 5.0,  # back-compat — unused
@@ -497,55 +497,83 @@ def get_backend(
     variant: str | None = None,
     assets_cache_dir: Path | None = None,
 ) -> STTBackend:
-    """Return best available STT backend.
+    """Return the best available STT backend.
 
-    Priority on RPi5:
-        Hailo Whisper (variant=tiny/base, multilingual) → Moonshine (English only)
-        → faster-whisper CPU (fallback).
+    **Design decision of record:** STT runs on the CPU so the Hailo-8 NPU stays
+    dedicated to the CV cascade (no NPU contention). Hailo Whisper is therefore
+    *opt-in*, never the default.
 
-    On dev machines without hailo_platform, the order is: Moonshine (if explicitly
-    requested) → faster-whisper.
+    Selection is controlled by the ``STT_BACKEND`` env var (default ``auto``):
+
+      ``auto`` / ``moonshine`` / ``faster_whisper``
+          CPU backends. Priority: Moonshine ONNX (only when ``moonshine_model``
+          is set *and* loads) → faster-whisper int8.
+      ``hailo``
+          Opt-in Hailo Whisper (encoder+decoder HEFs on the NPU); shares the NPU
+          with CV via ``NPUScheduler``. Ignored when ``force_cpu=True``.
+
+    Ukrainian note: the bundled ``moonshine_onnx`` models are English-only.
+    ``moonshine-tiny-uk`` ships as safetensors (no ONNX); Ukrainian Moonshine
+    ONNX exists only at *base* size (``moonshine-base-uk``) via the
+    ``moonshine-voice`` package or sherpa-onnx. Until that is wired the working
+    Ukrainian CPU engine is faster-whisper (``language="uk"``).
     """
     from hub.edge.voice.moonshine_stt import MOONSHINE_AVAILABLE, MoonshineBackend
 
+    selector = os.environ.get("STT_BACKEND", "auto").strip().lower()
     target_variant = (variant or os.environ.get("WHISPER_VARIANT") or DEFAULT_VARIANT).lower()
     cache_dir = assets_cache_dir or DEFAULT_CACHE_DIR
 
-    if not force_cpu and HAILO_AVAILABLE and TRANSFORMERS_AVAILABLE:
+    def _hailo() -> STTBackend | None:
+        if force_cpu or not (HAILO_AVAILABLE and TRANSFORMERS_AVAILABLE):
+            return None
         try:
             assets = ensure_assets(target_variant, cache_dir)
+            logger.info("STT backend: Hailo Whisper (variant=%s, NPU)", target_variant)
             return HailoWhisperBackend(assets, language=language)
         except Exception as exc:
             logger.warning("Hailo Whisper init failed (%s) — falling through", exc)
+            return None
 
-    if MOONSHINE_AVAILABLE and moonshine_model:
+    def _moonshine() -> STTBackend | None:
+        if not (MOONSHINE_AVAILABLE and moonshine_model):
+            return None
         try:
-            logger.info("Moonshine ONNX backend: %s", moonshine_model)
+            logger.info("STT backend: Moonshine ONNX (%s, CPU)", moonshine_model)
             return MoonshineBackend(model_name=moonshine_model)
         except Exception as exc:
             logger.warning("Moonshine backend failed (%s) — falling through", exc)
+            return None
 
-    if FASTER_WHISPER_AVAILABLE:
+    def _faster() -> STTBackend | None:
+        if not FASTER_WHISPER_AVAILABLE:
+            return None
         model_size = os.environ.get("FASTER_WHISPER_MODEL", "base")
-        logger.info("faster-whisper %s (int8, language=%s)", model_size, language)
+        logger.info("STT backend: faster-whisper %s (int8, CPU, language=%s)", model_size, language)
         return FasterWhisperBackend(model_size=model_size, language=language)
 
-    raise RuntimeError(
-        "No STT backend available — install hailo_platform+transformers, "
-        "useful-moonshine-onnx, or faster-whisper"
-    )
+    if selector == "hailo":
+        # Opt-in NPU path (falls back to CPU if Hailo is unavailable / force_cpu).
+        backend = _hailo() or _moonshine() or _faster()
+    else:
+        # Default: CPU-first. _hailo() is a last resort only if no CPU engine exists.
+        backend = _moonshine() or _faster() or _hailo()
+
+    if backend is None:
+        raise RuntimeError(
+            "No STT backend available — install useful-moonshine-onnx or "
+            "faster-whisper (CPU), or hailo_platform+transformers (NPU)"
+        )
+    return backend
 
 
 async def transcribe_file(
     audio_path: Path,
-    hef_path: Path | None = None,
     force_cpu: bool = False,
     language: str = DEFAULT_LANGUAGE,
     variant: str | None = None,
 ) -> str:
-    backend = get_backend(
-        hef_path=hef_path, force_cpu=force_cpu, language=language, variant=variant
-    )
+    backend = get_backend(force_cpu=force_cpu, language=language, variant=variant)
     return await backend.transcribe(audio_path.read_bytes())
 
 

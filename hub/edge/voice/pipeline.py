@@ -1,11 +1,13 @@
 """Full voice command pipeline.
 
-Chain: SileroVAD -> WakeWordDetector -> collect speech -> Moonshine/Hailo/CPU STT -> MQTT publish.
+Chain: SileroVAD -> WakeWordDetector -> collect speech -> CPU STT -> MQTT publish.
 
-Primary STT: Moonshine ONNX (UsefulSensors/moonshine-tiny-uk) — set MOONSHINE_MODEL to override.
-NPU scheduling: when WHISPER_HEF_PATH is set and Moonshine is unavailable, Whisper encoder
-shares the Hailo NPU with the CV cascade.  NPU_STRATEGY controls the contention policy.
-Set FORCE_CPU_STT=true to bypass Hailo entirely and fall back to faster-whisper.
+STT runs on the CPU by default (faster-whisper int8, language="uk"), keeping the
+Hailo-8 NPU dedicated to the CV cascade. Set MOONSHINE_MODEL to use a Moonshine
+ONNX model instead (English-only in the bundled package — see moonshine_stt.py).
+Hailo Whisper on the NPU is opt-in via STT_BACKEND=hailo; then NPU_STRATEGY and the
+NPUScheduler coordinate contention with the CV cascade. FORCE_CPU_STT=true forces
+CPU even when STT_BACKEND=hailo. Backend selection lives in hailo_whisper.get_backend.
 """
 
 from __future__ import annotations
@@ -16,13 +18,13 @@ import json
 import logging
 import os
 from collections.abc import AsyncGenerator
-from pathlib import Path
+from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any
 
 import aiomqtt
 
 from hub.edge.voice.audio_io import CHUNK_MS
-from hub.edge.voice.hailo_whisper import STTBackend, get_backend
+from hub.edge.voice.hailo_whisper import HailoWhisperBackend, STTBackend, get_backend
 from hub.edge.voice.scheduler import NPUScheduler, NPUStrategy
 from hub.edge.voice.vad import SileroVAD
 from hub.edge.voice.wake_word import WakeWordDetector
@@ -39,6 +41,19 @@ MQTT_TOPIC = "voice/command"
 
 # Width of one producer chunk in bytes (int16 mono @ 16 kHz, CHUNK_MS).
 _CHUNK_BYTES = 16000 * CHUNK_MS // 1000 * 2
+
+
+def _stt_npu_guard(stt: STTBackend, scheduler: NPUScheduler) -> AbstractAsyncContextManager[None]:
+    """Coordinate NPU access only when STT actually runs on the Hailo NPU.
+
+    CPU backends (faster-whisper / Moonshine) don't touch the NPU, so they must
+    not wait on the CV scheduler — under WHISPER_WAITS that would needlessly
+    delay transcription until a CV inter-frame gap. Only the Hailo backend
+    contends with the CV cascade.
+    """
+    if isinstance(stt, HailoWhisperBackend):
+        return scheduler.whisper_inference()
+    return nullcontext()
 
 
 def _trim_trailing_silence(audio: bytes, vad: SileroVAD) -> bytes:
@@ -70,7 +85,6 @@ async def run_pipeline(
     mqtt_port: int = 1883,
     wake_word_model: str | None = None,
     force_cpu: bool = False,
-    hef_path: Path | None = None,
     npu_strategy: NPUStrategy = NPUStrategy.WHISPER_WAITS,
     moonshine_model: str | None = None,
 ) -> None:
@@ -79,7 +93,7 @@ async def run_pipeline(
     vad.load()
     wwd = WakeWordDetector(model_path=wake_word_model)
     wwd.load()
-    stt = get_backend(hef_path=hef_path, force_cpu=force_cpu, moonshine_model=moonshine_model)
+    stt = get_backend(force_cpu=force_cpu, moonshine_model=moonshine_model)
     scheduler = NPUScheduler(strategy=npu_strategy)
     logger.info(
         "Voice pipeline ready — backend=%s strategy=%s", type(stt).__name__, npu_strategy.value
@@ -159,7 +173,7 @@ async def run_ptt_consumer(
                             logger.warning("PTT blob expired or missing: %s", blob_key)
                             # blob gone — still ack so it doesn't stay in PEL
                         else:
-                            async with scheduler.whisper_inference():
+                            async with _stt_npu_guard(stt, scheduler):
                                 text = await stt.transcribe(audio_bytes)
                             logger.info("PTT transcribed: %s", text)
                             payload = {"text": text, "tier": 1, "source": "ptt"}
@@ -279,7 +293,6 @@ async def run_pipeline_with_ptt(
     mqtt_port: int = 1883,
     wake_word_model: str | None = None,
     force_cpu: bool = False,
-    hef_path: Path | None = None,
     npu_strategy: NPUStrategy = NPUStrategy.WHISPER_WAITS,
     moonshine_model: str | None = None,
     redis_url: str = "redis://redis:6379",
@@ -295,7 +308,7 @@ async def run_pipeline_with_ptt(
     vad.load()
     wwd = WakeWordDetector(model_path=wake_word_model)
     wwd.load()
-    stt = get_backend(hef_path=hef_path, force_cpu=force_cpu, moonshine_model=moonshine_model)
+    stt = get_backend(force_cpu=force_cpu, moonshine_model=moonshine_model)
     scheduler = NPUScheduler(strategy=npu_strategy)
 
     logger.info("Voice pipeline (mic+PTT+TTS) ready — backend=%s", type(stt).__name__)
@@ -523,7 +536,7 @@ async def _listen_with_device(
 
         audio = _trim_trailing_silence(b"".join(collected), vad)
         try:
-            async with scheduler.whisper_inference():
+            async with _stt_npu_guard(stt, scheduler):
                 text = await stt.transcribe(audio)
             logger.info("Transcribed (%d B): %s", len(audio), text)
             if text:
@@ -554,7 +567,6 @@ if __name__ == "__main__":
     )
 
     _strategy_map = {s.value: s for s in NPUStrategy}
-    _hef_env = os.environ.get("WHISPER_HEF_PATH")
 
     asyncio.run(
         run_pipeline_with_ptt(
@@ -562,7 +574,6 @@ if __name__ == "__main__":
             mqtt_port=int(os.environ.get("MQTT_PORT", "1883")),
             wake_word_model=os.environ.get("WAKE_WORD_MODEL_PATH") or None,
             force_cpu=os.environ.get("FORCE_CPU_STT", "false").lower() == "true",
-            hef_path=Path(_hef_env) if _hef_env else None,
             npu_strategy=_strategy_map.get(
                 os.environ.get("NPU_STRATEGY", "whisper_waits"), NPUStrategy.WHISPER_WAITS
             ),

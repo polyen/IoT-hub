@@ -35,9 +35,10 @@ Environment=WHISPER_VARIANT=tiny
 Environment=WHISPER_LANGUAGE=uk
 Environment=WHISPER_ASSETS_DIR=/mnt/ssd/iot-hub/whisper-cache
 
-# CPU STT path (faster-whisper int8 on RPi5 Cortex-A76). Default ON for daily
-# use because Hailo Whisper-tiny accuracy on UA is impractical; switch to
-# FORCE_CPU_STT=false to demo the NPU path.
+# CPU STT path (faster-whisper int8 on RPi5 Cortex-A76) is the working engine
+# for daily use — Hailo Whisper-tiny accuracy on UA is impractical (~30% WER).
+# get_backend() is CPU-first by default; set STT_BACKEND=hailo to demo the NPU
+# path. FORCE_CPU_STT=true additionally hard-blocks the NPU regardless.
 Environment=FASTER_WHISPER_MODEL=base
 Environment=FORCE_CPU_STT=true
 

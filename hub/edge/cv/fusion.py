@@ -20,6 +20,12 @@ FUSION_WINDOW_SEC = 30
 # Minimum seconds between two published fused events of the same type in the
 # same room.  Prevents 15-FPS camera frames from flooding the events feed.
 FUSED_COOLDOWN_SEC: float = 60.0
+# The cooldown is bypassed when confidence rises by at least this much since the
+# last emission — i.e. an escalation (a second modality corroborating the event,
+# or a stronger detection) must not be silently dropped.  Without this, a fire
+# confirmed by a smoke sensor seconds after the camera-only detection would be
+# suppressed for a full minute.
+FUSED_ESCALATION_DELTA: float = 0.05
 # Confidence multiplier applied to person events when the camera sees a person
 # but no PIR trigger exists for that room in the fusion window.  A PIR-less
 # person detection is a possible glare / false-positive (see §7.2).
@@ -35,9 +41,10 @@ class RoomBuffer:
 class FusionEngine:
     def __init__(self) -> None:
         self._buffers: dict[str, RoomBuffer] = {}
-        # {room: {event_type: last_published_monotonic}} — suppresses re-publishing
-        # the same fused event type within FUSED_COOLDOWN_SEC.
-        self._last_fused: dict[str, dict[str, float]] = {}
+        # {room: {event_type: (last_published_monotonic, last_confidence)}} —
+        # suppresses re-publishing the same fused event type within
+        # FUSED_COOLDOWN_SEC unless confidence escalates (see _maybe_fuse).
+        self._last_fused: dict[str, dict[str, tuple[float, float]]] = {}
 
     def _prune(self, room: str) -> None:
         buf = self._buffers.get(room)
@@ -169,12 +176,17 @@ class FusionEngine:
         if confidence == 0.0:
             return None
         # Rate-limit: skip if we already emitted the same event type for this
-        # room within the cooldown window (avoids per-frame flooding).
+        # room within the cooldown window (avoids per-frame flooding) — unless
+        # confidence has escalated since the last emission (a corroborating
+        # second source / stronger detection must still get through).
         now = time.monotonic()
         room_last = self._last_fused.setdefault(room, {})
-        if now - room_last.get(event_type, 0.0) < FUSED_COOLDOWN_SEC:
+        last_ts, last_conf = room_last.get(event_type, (0.0, 0.0))
+        within_cooldown = now - last_ts < FUSED_COOLDOWN_SEC
+        escalated = confidence >= last_conf + FUSED_ESCALATION_DELTA
+        if within_cooldown and not escalated:
             return None
-        room_last[event_type] = now
+        room_last[event_type] = (now, confidence)
 
         buf = self._buffers[room]
         sources: list[str] = []

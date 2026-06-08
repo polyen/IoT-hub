@@ -333,13 +333,17 @@ services:
       MQTT_PORT: "1883"
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-iothub}?ssl=disable
-      # UsefulSensors/moonshine-tiny-uk has no ONNX export; leave empty to use
-      # Hailo Whisper (multilingual) on RPi or faster-whisper on dev machines.
+      # STT backend selection: auto (CPU-first) | moonshine | faster_whisper | hailo.
+      # Default keeps the NPU free for CV; set STT_BACKEND=hailo to opt into the
+      # Hailo Whisper NPU path (then NPU_STRATEGY governs CV contention).
+      STT_BACKEND: ${STT_BACKEND:-auto}
+      # MOONSHINE_MODEL: bundled moonshine_onnx is English-only. Leave empty for
+      # Ukrainian — STT then uses faster-whisper (language=uk) on the CPU.
       MOONSHINE_MODEL: ${MOONSHINE_MODEL:-}
       FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-base}
       WAKE_WORD_MODEL_PATH: ${WAKE_WORD_MODEL_PATH:-}
       FORCE_CPU_STT: ${FORCE_CPU_STT:-false}
-      # Hailo Whisper (preferred on RPi5+Hailo-8): tiny (10s window) or base (5s).
+      # Hailo Whisper variant (only used when STT_BACKEND=hailo): tiny (10s) / base (5s).
       WHISPER_VARIANT: ${WHISPER_VARIANT:-base}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-uk}
       WHISPER_ASSETS_DIR: /app/.whisper_cache

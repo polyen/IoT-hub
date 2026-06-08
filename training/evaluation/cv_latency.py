@@ -20,7 +20,7 @@ except ImportError:
     CV2_AVAILABLE = False
 
 try:
-    from ultralytics import YOLO
+    from ultralytics import YOLO  # type: ignore[attr-defined]
 
     ULTRALYTICS_AVAILABLE = True
 except ImportError:
@@ -32,6 +32,10 @@ try:
     HAILO_AVAILABLE = True
 except ImportError:
     HAILO_AVAILABLE = False
+
+
+def _not_measured(note: str) -> dict[str, Any]:
+    return {"measured": False, "fps_mean": None, "pass": None, "note": note}
 
 
 class LatencyProfiler:
@@ -60,14 +64,14 @@ class LatencyProfiler:
     def profile_cpu_only(self, model_path: str) -> dict[str, Any]:
         """Profile CPU-only inference: frame decode + YOLO predict."""
         if not ULTRALYTICS_AVAILABLE or not CV2_AVAILABLE:
-            logger.warning("ultralytics or cv2 not available — returning stub CPU profile")
-            return self._stub_cpu_profile()
+            return _not_measured("ultralytics or cv2 not installed")
+        if not model_path:
+            return _not_measured("--model is required for CPU profiling")
 
         model = YOLO(model_path)
         cap = self._open_capture()
         if cap is None:
-            logger.warning("RTSP stream unavailable — returning stub CPU profile")
-            return self._stub_cpu_profile()
+            return _not_measured(f"RTSP stream unavailable: {self.rtsp_url!r}")
 
         frame_times: list[float] = []
         inference_times: list[float] = []
@@ -90,10 +94,11 @@ class LatencyProfiler:
         cap.release()
 
         if not frame_times:
-            return self._stub_cpu_profile()
+            return _not_measured("no frames decoded from the stream")
 
         fps_list = [1.0 / t for t in frame_times]
         return {
+            "measured": True,
             "fps_mean": round(statistics.mean(fps_list), 2),
             "fps_p5": round(sorted(fps_list)[max(0, int(len(fps_list) * 0.05))], 2),
             "inference_ms_mean": round(statistics.mean(inference_times), 2),
@@ -102,91 +107,17 @@ class LatencyProfiler:
             "n_frames": len(frame_times),
         }
 
-    def _stub_cpu_profile(self) -> dict[str, Any]:
-        return {
-            "fps_mean": 5.2,
-            "fps_p5": 4.1,
-            "inference_ms_mean": 192.0,
-            "inference_ms_p95": 240.0,
-            "device": "cpu",
-            "note": "CPU stub — run on actual hardware with RTSP stream",
-        }
-
     def profile_hailo(self, model_path: str) -> dict[str, Any]:
-        """Profile Hailo-accelerated inference; stub when hardware not present."""
-        if not HAILO_AVAILABLE:
-            logger.info("Hailo not available — returning stub Hailo profile")
-            return {
-                "fps_mean": 18.5,
-                "fps_p5": 16.2,
-                "inference_ms_mean": 22.0,
-                "inference_ms_p95": 28.0,
-                "device": "hailo",
-                "note": "Hailo stub — run on edge hardware with HailoRT",
-            }
+        """On-NPU FPS is measured by ``cv_detector_compare`` (real ``detect()``).
 
-        # Real Hailo path (requires hailo_platform + HEF model)
-        try:
-            from hailo_platform import HEF, VDevice
-
-            target = VDevice()
-            hef = HEF(model_path)
-            network_groups = target.configure(hef)
-            network_group = network_groups[0]
-
-            cap = self._open_capture()
-            if cap is None:
-                return self._stub_hailo_profile()
-
-            frame_times: list[float] = []
-            inference_times: list[float] = []
-            total = self.n_frames + self.warm_up
-            collected = 0
-
-            with network_group.activate():
-                while collected < total:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    t0 = time.perf_counter()
-                    # Simplified: feed frame through Hailo pipeline
-                    _ = network_group  # placeholder for actual send/recv
-                    t1 = time.perf_counter()
-                    if collected >= self.warm_up:
-                        elapsed = t1 - t0
-                        frame_times.append(elapsed)
-                        inference_times.append(elapsed * 1000)
-                    collected += 1
-
-            cap.release()
-
-            if not frame_times:
-                return self._stub_hailo_profile()
-
-            fps_list = [1.0 / t for t in frame_times]
-            return {
-                "fps_mean": round(statistics.mean(fps_list), 2),
-                "fps_p5": round(sorted(fps_list)[max(0, int(len(fps_list) * 0.05))], 2),
-                "inference_ms_mean": round(statistics.mean(inference_times), 2),
-                "inference_ms_p95": round(
-                    sorted(inference_times)[int(len(inference_times) * 0.95)], 2
-                ),
-                "device": "hailo",
-                "n_frames": len(frame_times),
-            }
-        except Exception as exc:
-            logger.warning("Hailo profiling failed: %s — returning stub", exc)
-            return self._stub_hailo_profile()
-
-    def _stub_hailo_profile(self) -> dict[str, Any]:
-        return {
-            "fps_mean": 18.5,
-            "fps_p5": 16.2,
-            "inference_ms_mean": 22.0,
-            "inference_ms_p95": 28.0,
-            "device": "hailo",
-            "note": "Hailo stub — run on edge hardware with HailoRT",
-        }
+        This profiler never had a real Hailo inference path — the previous
+        implementation timed an empty loop, so it is intentionally not provided
+        here rather than reporting a fabricated number.
+        """
+        return _not_measured(
+            "on-NPU FPS is measured by `make evaluate-cv-compare` "
+            "(training.evaluation.cv_detector_compare), which runs the real HailoDetector"
+        )
 
     def run(
         self,
@@ -203,11 +134,11 @@ class LatencyProfiler:
         else:
             result = self.profile_cpu_only(model_path)
 
-        fps_target = 15.0
-        fps_val = result.get("fps_mean", 0.0)
-        result["target_fps"] = fps_target
-        result["pass"] = fps_val > fps_target
-
+        result["target_fps"] = 15.0
+        if result.get("measured"):
+            result["pass"] = result.get("fps_mean", 0.0) > 15.0
+        else:
+            result["pass"] = None
         return result
 
 

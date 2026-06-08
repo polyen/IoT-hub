@@ -14,6 +14,10 @@ train:
     lr: 0.001
     device: mps
     mlflow_uri: http://localhost:5001
+    # Output sub-dir under runs/fire_smoke/ + MLflow run name. Override per
+    # architecture so an A/B comparison doesn't overwrite the same dir, e.g.:
+    #   dvc exp run -S train.fire_smoke.base_model=yolo26n.pt -S train.fire_smoke.name=yolo26n
+    name: train
 
 mining:
   db_url: postgresql+asyncpg://iothub:iothub@localhost:5432/iothub

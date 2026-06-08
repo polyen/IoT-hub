@@ -9,7 +9,7 @@ import pytest
 import hub.edge.storage.t0 as t0_mod
 from hub.edge.storage.t0 import (
     T0StorageError,
-    _is_mounted,
+    _is_on_external_device,
     assert_t0_available,
     cleanup_old_frames,
     write_frame,
@@ -19,16 +19,18 @@ from hub.edge.storage.t0 import (
 def test_assert_t0_available_raises_when_mount_missing(tmp_path: Path) -> None:
     missing = tmp_path / "nonexistent-mount"
     with patch.object(t0_mod, "T0_MOUNT", missing):
-        with pytest.raises(T0StorageError, match="does not exist"):
-            assert_t0_available()
+        with patch.object(t0_mod, "_t0_check_done", False):
+            with pytest.raises(T0StorageError, match="does not exist"):
+                assert_t0_available()
 
 
 def test_write_frame_raises_when_mount_missing(tmp_path: Path) -> None:
     missing = tmp_path / "nonexistent-mount"
     with patch.object(t0_mod, "T0_MOUNT", missing):
         with patch.object(t0_mod, "T0_FRAMES_DIR", missing / "frames"):
-            with pytest.raises(T0StorageError, match="does not exist"):
-                write_frame(b"\xff\xd8\xff", track_id=1)
+            with patch.object(t0_mod, "_t0_check_done", False):
+                with pytest.raises(T0StorageError, match="does not exist"):
+                    write_frame(b"\xff\xd8\xff", track_id=1)
 
 
 def test_cleanup_old_frames_returns_zero_when_dir_missing(tmp_path: Path) -> None:
@@ -62,6 +64,9 @@ def test_cleanup_old_frames_deletes_stale_files(tmp_path: Path) -> None:
     assert recent_file.exists()
 
 
-def test_is_mounted_returns_false_for_nonexistent_path(tmp_path: Path) -> None:
-    missing = tmp_path / "not-a-mount"
-    assert _is_mounted(missing) is False
+def test_is_on_external_device_false_for_root_path() -> None:
+    # A path whose nearest existing ancestor is the root filesystem is, by
+    # definition, not on a separate (external) block device. Using a child of
+    # "/" keeps this robust across platforms (tmpfs /tmp on Linux CI would
+    # otherwise report a different st_dev).
+    assert _is_on_external_device(Path("/nonexistent-root-child")) is False

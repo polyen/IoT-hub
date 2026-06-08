@@ -1,0 +1,5 @@
+# Voice recordings and generated manifest stay on the recording machine.
+*.wav
+*.flac
+*.mp3
+manifest.jsonl

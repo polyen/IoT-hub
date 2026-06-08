@@ -1,0 +1,81 @@
+# Ukrainian smart-home command corpus for STT WER benchmark.
+#
+# One reference transcript per line. `record.py` reads this file, prompts you to
+# speak each line, saves a clip, and writes manifest.jsonl alongside.
+#
+# Lines starting with '#' and blank lines are ignored. Keep transcripts in the
+# exact spelling you expect the STT to output (these are the WER references).
+#
+# Coverage mirrors the intent classes in datasets/intent_classifier/ plus a
+# block of "dirty" colloquial / русизм forms (the realistic input a Ukrainian
+# user actually produces) — those probe robustness, not just clean speech.
+
+# --- light on/off/toggle ---
+увімкни світло у вітальні
+вимкни світло на кухні
+запали лампу в спальні
+погаси торшер у залі
+перемкни підсвітку в коридорі
+засвіти бра в кабінеті
+вимкни люстру в дитячій
+переключи нічник у ванній
+
+# --- brightness / color ---
+встанови яскравість на сімдесят відсотків
+зроби світло тьмянішим у вітальні
+постав лампу на тридцять відсотків
+зроби підсвітку теплою
+зроби світло синім на кухні
+зроби торшер зеленим у спальні
+
+# --- relay / appliances ---
+увімкни вентилятор на балконі
+вимкни обігрівач у спальні
+запусти розетку в коридорі
+відключи пилосос у дитячій
+
+# --- thermostat ---
+встанови температуру двадцять два градуси
+нагрій спальню до двадцяти однієї
+зроби тепліше у вітальні
+
+# --- doors ---
+відчини двері в кабінеті
+зачини ворота
+закрий браму в гаражі
+
+# --- queries ---
+яка температура у ванній
+покажи стан будинку
+що зараз у спальні
+скільки градусів на кухні
+
+# --- scenes ---
+увімкни режим кіно
+активуй сценарій доброго ранку
+запусти романтичний вечір
+
+# --- polite / filler-prefixed ---
+будь ласка увімкни світло у вітальні
+агов хабе вимкни всі лампи
+слухай ну вимкни вже той вентилятор
+
+# --- dirty: colloquial / русизми / typos-as-spoken ---
+вруби світло в зале
+включи лампочку на кухні
+вимкни нахрін той обігрівач
+зроби потемніше будь ласка
+погаси свєт у дитячій
+дай більше світла у вітальні
+шо там по температурі в спальні
+відкрий двєрі в кабінеті
+
+# --- multi-clause / longer ---
+увімкни світло у вітальні і зроби його теплим
+вимкни всі лампи окрім спальні
+коли я зайду додому увімкни світло в коридорі
+
+# --- unknown / out-of-domain (expected to map to clarification) ---
+яка погода завтра в києві
+розкажи анекдот
+скільки буде двічі по два

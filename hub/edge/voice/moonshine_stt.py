@@ -1,11 +1,14 @@
 """Moonshine ONNX STT backend.
 
-Supported models (all English):
+Supported models (the bundled ``moonshine_onnx`` package is English-only):
   "moonshine/tiny"  — 27 M params, ~26 MB ONNX, ~100–150 ms on RPi 5
   "moonshine/base"  — 61 M params, ~61 MB ONNX, ~250 ms on RPi 5
 
-Note: UsefulSensors/moonshine-tiny-uk exists only as SafeTensors (no ONNX export).
-For Ukrainian STT use faster-whisper with language="uk" (set MOONSHINE_MODEL="").
+Ukrainian note: UsefulSensors/moonshine-tiny-uk ships only as SafeTensors (no
+ONNX export), so it cannot be loaded here. Ukrainian Moonshine is available as
+ONNX only at *base* size (moonshine-base-uk) via the ``moonshine-voice`` package
+or sherpa-onnx. Until that backend is wired, use faster-whisper with
+language="uk" (leave MOONSHINE_MODEL empty) for Ukrainian STT.
 
 Package: pip install useful-moonshine-onnx
 """
@@ -33,7 +36,12 @@ DEFAULT_MOONSHINE_MODEL = "moonshine/tiny"
 
 
 class MoonshineBackend:
-    """Primary STT backend using Moonshine ONNX (Ukrainian-specific tiny model)."""
+    """STT backend using Moonshine ONNX.
+
+    The bundled ``moonshine_onnx`` package ships English models only
+    ("moonshine/tiny", "moonshine/base"). Ukrainian requires moonshine-voice /
+    sherpa-onnx ``moonshine-base-uk`` (see module docstring).
+    """
 
     def __init__(self, model_name: str = DEFAULT_MOONSHINE_MODEL) -> None:
         if not MOONSHINE_AVAILABLE:

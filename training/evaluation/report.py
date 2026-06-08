@@ -73,7 +73,12 @@ class EvaluationReport:
         print(f"Markdown: {md_path}")
 
     def _to_markdown(self) -> str:
-        """Generate Markdown table with all collected metrics."""
+        """Generate Markdown table with all collected metrics.
+
+        Sub-results carrying ``measured: false`` render as *not measured* rather
+        than printing whatever placeholder value they hold — no fabricated
+        number ever reaches the report.
+        """
         lines = [
             "# IoT Hub Evaluation Report",
             "",
@@ -88,61 +93,84 @@ class EvaluationReport:
                 return "✗"
             return "—"
 
-        def _fmt(v: Any) -> str:
+        def _measured(sub: dict[str, Any]) -> bool:
+            # Absence of the flag = legacy result; treat as measured for back-compat.
+            return sub.get("measured", True) is not False
+
+        def _val(sub: dict[str, Any], key: str, unit: str = "") -> str:
+            if not _measured(sub):
+                return "_not measured_"
+            v = sub.get(key)
             if v is None:
                 return "—"
             if isinstance(v, float):
-                return f"{v:.4f}"
-            return str(v)
+                return f"{v:.4f}{unit}"
+            return f"{v}{unit}"
 
-        # Fire/smoke
+        def _row(label: str, sub: dict[str, Any], value: str, baseline: str, target: str) -> str:
+            p = _pass_str(sub.get("pass")) if _measured(sub) else "—"
+            return f"| {label} | {value} | {baseline} | {target} | {p} |"
+
+        # Fire/smoke mAP
         fs = self.results.get("cv_fire_smoke", {})
         if fs:
-            map50 = fs.get("mAP50")
-            lines.append(
-                f"| Fire/Smoke mAP@.5 | {_fmt(map50)} | 0.32 | >0.78 | {_pass_str(fs.get('pass'))} |"
-            )
+            lines.append(_row("Fire/Smoke mAP@.5", fs, _val(fs, "mAP50"), "0.32", ">0.78"))
+            if _measured(fs) and fs.get("mAP50_95") is not None:
+                lines.append(f"| └─ mAP@.5-.95 | {_val(fs, 'mAP50_95')} | — | — | — |")
 
-        # Fall detection
+        # Fall detection F1
         fall = self.results.get("cv_fall", {})
         if fall:
-            f1 = fall.get("F1")
-            lines.append(
-                f"| Fall Detection F1 | {_fmt(f1)} | rule baseline | >0.80 | {_pass_str(fall.get('pass'))} |"
-            )
+            lines.append(_row("Fall Detection F1", fall, _val(fall, "F1"), "rule", ">0.80"))
 
-        # Latency / FPS
+        # Cascade FPS (CPU profiler; on-NPU FPS lives in cv_detector_compare)
         lat = self.results.get("cv_latency", {})
         if lat:
-            fps = lat.get("fps_mean")
             lines.append(
-                f"| Cascade FPS (mean) | {_fmt(fps)} fps | ~5 (CPU) | >15 | {_pass_str(lat.get('pass'))} |"
+                _row("Cascade FPS (mean)", lat, _val(lat, "fps_mean", " fps"), "~5 CPU", ">15")
             )
 
-        # STT
+        # STT WER (primary STT quality metric — production CPU engine)
+        wer = self.results.get("stt_wer", {})
+        if wer:
+            lines.append(_row("STT WER (UA corpus)", wer, _val(wer, "wer"), "—", "≤0.12"))
+            if _measured(wer):
+                lines.append(f"| └─ STT CER | {_val(wer, 'cer')} | — | — | — |")
+                lines.append(
+                    f"| └─ STT latency p95 | {_val(wer, 'latency_p95_s', ' s')} | — | — | — |"
+                )
+
+        # STT latency micro-benchmark (synthetic audio — compute time only)
         stt = self.results.get("stt_latency", {})
         if stt:
-            hailo = stt.get("hailo_whisper", {})
             fw = stt.get("faster_whisper", {})
-            hailo_p95 = hailo.get("latency_p95_s")
-            fw_mean = fw.get("latency_mean_s")
             lines.append(
-                f"| Hailo Whisper p95 latency | {_fmt(hailo_p95)} s | ~2.5s (CPU) | <0.30s | {_pass_str(stt.get('pass'))} |"
+                f"| faster-whisper latency (mean) | {_val(fw, 'latency_mean_s', ' s')} | — | — | — |"
             )
-            lines.append(f"| faster-whisper (CPU) mean | {_fmt(fw_mean)} s | — | — | — |")
-            if stt.get("speedup"):
-                lines.append(f"| STT Speedup (Hailo/CPU) | {stt['speedup']}x | — | — | — |")
+
+        # End-to-end voice latency (NFR-2)
+        e2e = self.results.get("voice_e2e_latency", {})
+        if e2e:
+            total = e2e.get("stages", {}).get("total", {}) if _measured(e2e) else {}
+            val = "_not measured_" if not _measured(e2e) else f"{total.get('p95', '—')} s"
+            lines.append(_row("Voice e2e latency (p95)", e2e, val, "—", "≤5 s"))
+
+        # NPU contention (Contribution #3)
+        npu = self.results.get("npu_contention", {})
+        if npu:
+            val = "_not measured_" if not _measured(npu) else f"{npu.get('degradation_pct', '—')}%"
+            lines.append(f"| NPU contention (CV FPS drop w/ STT) | {val} | — | — | — |")
 
         # LLM accuracy
         agent = self.results.get("agent_accuracy", {})
         if agent:
-            acc = agent.get("accuracy")
             lines.append(
-                f"| LLM Tool Accuracy | {_fmt(acc)} | ~0.70 (vanilla ReAct) | >0.90 | {_pass_str(agent.get('pass'))} |"
+                _row("LLM Tool Accuracy", agent, _val(agent, "accuracy"), "~0.70", ">0.90")
             )
-            by_cat = agent.get("by_category", {})
-            for cat, cat_acc in by_cat.items():
-                lines.append(f"| └─ {cat} | {_fmt(cat_acc)} | — | — | — |")
+            if _measured(agent):
+                for cat, cat_acc in agent.get("by_category", {}).items():
+                    acc_str = f"{cat_acc:.4f}" if isinstance(cat_acc, float) else str(cat_acc)
+                    lines.append(f"| └─ {cat} | {acc_str} | — | — | — |")
 
         lines.append("")
 
@@ -185,7 +213,10 @@ def main() -> None:
         ("cv_fire_smoke", "cv_fire_smoke.json"),
         ("cv_fall", "cv_fall.json"),
         ("cv_latency", "cv_latency.json"),
+        ("stt_wer", "stt_wer.json"),
         ("stt_latency", "stt_latency.json"),
+        ("voice_e2e_latency", "voice_e2e_latency.json"),
+        ("npu_contention", "npu_contention.json"),
         ("agent_accuracy", "agent_accuracy.json"),
     ]:
         data = _load_json_if_exists(results_dir / filename)

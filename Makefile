@@ -1,5 +1,6 @@
 .PHONY: help up-edge down-edge up-cloud down-cloud logs ps compose-check \
-        evaluate evaluate-cv evaluate-stt evaluate-llm
+        evaluate evaluate-cv evaluate-cv-compare evaluate-stt evaluate-voice \
+        evaluate-llm evaluate-npu
 
 ENV_FILE ?= .env
 EDGE_COMPOSE = hub/docker-compose.edge.yml
@@ -85,11 +86,16 @@ test: ## Run unit tests
 EVAL_FLAGS ?=
 RESULTS_DIR ?= materials/evaluation_results
 
-evaluate: evaluate-cv evaluate-stt evaluate-llm ## Run full evaluation suite and aggregate report
+evaluate: evaluate-cv evaluate-stt evaluate-voice evaluate-llm ## Run full evaluation suite and aggregate report
 	uv run python -m training.evaluation.report $(EVAL_FLAGS)
 
-evaluate-cv: ## Run CV evaluation (fire/smoke mAP, fall F1, latency FPS)
-	uv run python -m training.evaluation.cv_fire_smoke --dataset datasets/fire_smoke/test --output $(RESULTS_DIR) $(EVAL_FLAGS)
+# CV_MODEL: fine-tuned detector .pt (enables mAP@.5-.95 via YOLO.val()).
+# CV_DATA_YAML: Ultralytics data.yaml for the val() split.
+CV_MODEL ?=
+CV_DATA_YAML ?= datasets/fire_smoke/data.yaml
+
+evaluate-cv: ## Run CV evaluation (fire/smoke mAP@.5-.95, fall F1, latency FPS)
+	uv run python -m training.evaluation.cv_fire_smoke --dataset datasets/fire_smoke/test --model "$(CV_MODEL)" --data-yaml "$(CV_DATA_YAML)" --output $(RESULTS_DIR) $(EVAL_FLAGS)
 	uv run python -m training.evaluation.cv_fall --dataset datasets/fall_validation --output $(RESULTS_DIR) $(EVAL_FLAGS)
 	uv run python -m training.evaluation.cv_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
 
@@ -99,8 +105,15 @@ evaluate-cv-compare: ## P1.1: Comparative YOLO26 vs YOLOv11 vs YOLOv8 on Hailo-8
 		--dataset datasets/fire_smoke_mixed/test \
 		--output materials/evaluation_results/cv_detector_compare $(EVAL_FLAGS)
 
-evaluate-stt: ## Run STT latency benchmark (Hailo Whisper vs faster-whisper)
+evaluate-stt: ## Run STT WER/CER on the UA corpus + latency benchmark
+	uv run python -m training.evaluation.stt_wer --output $(RESULTS_DIR) $(EVAL_FLAGS)
 	uv run python -m training.evaluation.stt_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
+
+evaluate-voice: ## End-to-end voice latency (STT → intent) against the 5s NFR-2 budget
+	uv run python -m training.evaluation.voice_e2e_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
+
+evaluate-npu: ## P1.2: NPU contention — CV FPS alone vs CV + STT-on-NPU (needs Hailo + HEF=...)
+	uv run python -m training.evaluation.npu_contention --hef $(HEF) --output $(RESULTS_DIR) $(EVAL_FLAGS)
 
 evaluate-llm: ## Run LLM tool call accuracy evaluation
 	uv run python -m training.evaluation.agent_accuracy --queries training/llm_eval/queries.yaml --output $(RESULTS_DIR) $(EVAL_FLAGS)

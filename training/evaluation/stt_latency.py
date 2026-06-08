@@ -92,12 +92,12 @@ class STTBenchmark:
     ) -> dict[str, Any]:
         """Time faster-whisper transcription over n_runs."""
         if not FASTER_WHISPER_AVAILABLE:
-            logger.warning("faster-whisper not available — returning stub")
             return {
-                "latency_mean_s": 2.5,
-                "latency_p95_s": 2.8,
+                "measured": False,
+                "latency_mean_s": None,
+                "latency_p95_s": None,
                 "model": model_size,
-                "note": "faster-whisper not installed — stub values",
+                "note": "faster-whisper not installed",
             }
 
         try:
@@ -122,6 +122,7 @@ class STTBenchmark:
             latencies_sorted = sorted(latencies)
             p95_idx = max(0, int(len(latencies) * 0.95) - 1)
             return {
+                "measured": True,
                 "latency_mean_s": round(statistics.mean(latencies), 3),
                 "latency_p95_s": round(latencies_sorted[p95_idx], 3),
                 "model": model_size,
@@ -129,8 +130,9 @@ class STTBenchmark:
         except Exception as exc:
             logger.warning("faster-whisper benchmark failed: %s", exc)
             return {
-                "latency_mean_s": 2.5,
-                "latency_p95_s": 2.8,
+                "measured": False,
+                "latency_mean_s": None,
+                "latency_p95_s": None,
                 "model": model_size,
                 "note": f"benchmark failed: {exc}",
             }
@@ -140,19 +142,35 @@ class STTBenchmark:
         audio_path: str,
         n_runs: int = 10,
     ) -> dict[str, Any]:
-        """Time Hailo Whisper transcription; stubs when hardware unavailable."""
+        """Time Hailo Whisper transcription; not-measured when hardware absent."""
         try:
+            import os
+
             from hub.edge.voice.hailo_whisper import (  # noqa: I001
                 HAILO_AVAILABLE,
                 HailoWhisperBackend,
+                get_backend,
             )
 
             if not HAILO_AVAILABLE:
-                raise ImportError("hailo_platform not available")
+                return {
+                    "measured": False,
+                    "latency_mean_s": None,
+                    "latency_p95_s": None,
+                    "note": "hailo_platform not available — run on RPi5 with Hailo-8",
+                }
 
             import asyncio
 
-            backend = HailoWhisperBackend(Path(audio_path))
+            os.environ["STT_BACKEND"] = "hailo"
+            backend = get_backend(force_cpu=False)
+            if not isinstance(backend, HailoWhisperBackend):
+                return {
+                    "measured": False,
+                    "latency_mean_s": None,
+                    "latency_p95_s": None,
+                    "note": "STT did not land on the NPU (Hailo Whisper assets missing)",
+                }
             audio_bytes = Path(audio_path).read_bytes()
             latencies: list[float] = []
 
@@ -165,15 +183,17 @@ class STTBenchmark:
             latencies_sorted = sorted(latencies)
             p95_idx = max(0, int(len(latencies) * 0.95) - 1)
             return {
+                "measured": True,
                 "latency_mean_s": round(statistics.mean(latencies), 3),
                 "latency_p95_s": round(latencies_sorted[p95_idx], 3),
             }
         except Exception as exc:
-            logger.info("Hailo Whisper not available (%s) — returning stub", exc)
+            logger.info("Hailo Whisper benchmark failed (%s)", exc)
             return {
-                "latency_mean_s": 0.25,
-                "latency_p95_s": 0.28,
-                "note": "Hailo stub — run on RPi5/Orange Pi 5 with Hailo-8",
+                "measured": False,
+                "latency_mean_s": None,
+                "latency_p95_s": None,
+                "note": f"Hailo Whisper unavailable: {exc}",
             }
 
     def run(self, audio_path: str | None = None) -> dict[str, Any]:
@@ -193,6 +213,7 @@ class STTBenchmark:
             tmp_file = tmp.name
             logger.info("Generated synthetic 5s sine wave audio: %s", wav_path)
 
+        synthetic_audio = tmp_file is not None
         try:
             fw_result = self.benchmark_faster_whisper(wav_path)
             hailo_result = self.benchmark_hailo_whisper(wav_path)
@@ -205,19 +226,26 @@ class STTBenchmark:
                 except OSError:
                     pass
 
-        fw_mean = fw_result.get("latency_mean_s", 2.5)
-        hailo_mean = hailo_result.get("latency_mean_s", 0.25)
-        speedup = round(fw_mean / hailo_mean, 2) if hailo_mean > 0 else 0.0
-
-        hailo_p95 = hailo_result.get("latency_p95_s", 0.28)
-        target_p95 = 0.30
+        # Speedup only when both engines actually measured a number.
+        fw_mean = fw_result.get("latency_mean_s")
+        hailo_mean = hailo_result.get("latency_mean_s")
+        speedup: float | None = None
+        if fw_mean and hailo_mean and hailo_mean > 0:
+            speedup = round(fw_mean / hailo_mean, 2)
 
         return {
             "faster_whisper": fw_result,
             "hailo_whisper": hailo_result,
             "speedup": speedup,
-            "target_hailo_p95_s": target_p95,
-            "pass": hailo_p95 < target_p95,
+            "synthetic_audio": synthetic_audio,
+            "note": (
+                (
+                    "latency on a synthetic sine wave — representative of compute time, "
+                    "not of real-speech decoding"
+                )
+                if synthetic_audio
+                else None
+            ),
         }
 
 
