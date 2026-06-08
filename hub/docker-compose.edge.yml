@@ -333,12 +333,17 @@ services:
       MQTT_PORT: "1883"
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iothub}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-iothub}?ssl=disable
-      # STT backend selection: auto (CPU-first) | moonshine | faster_whisper | hailo.
+      # STT backend selection: auto (CPU-first) | moonshine-uk | faster_whisper | hailo.
       # Default keeps the NPU free for CV; set STT_BACKEND=hailo to opt into the
       # Hailo Whisper NPU path (then NPU_STRATEGY governs CV contention).
       STT_BACKEND: ${STT_BACKEND:-auto}
-      # MOONSHINE_MODEL: bundled moonshine_onnx is English-only. Leave empty for
-      # Ukrainian — STT then uses faster-whisper (language=uk) on the CPU.
+      # Working Ukrainian engine: locally-exported Moonshine-base-uk ONNX (CPU,
+      # no torch). Export once with `python -m training.export_moonshine_onnx`
+      # into MODELS_HOST_DIR; the path below is its in-container view. Present →
+      # it is the auto default (faster + more accurate than faster-whisper on
+      # RPi5); absent → STT falls back to faster-whisper (language=uk).
+      MOONSHINE_ONNX_DIR: ${MOONSHINE_ONNX_DIR:-/app/models/moonshine-base-uk-onnx}
+      # MOONSHINE_MODEL: bundled moonshine_onnx is English-only; leave empty.
       MOONSHINE_MODEL: ${MOONSHINE_MODEL:-}
       FASTER_WHISPER_MODEL: ${FASTER_WHISPER_MODEL:-base}
       WAKE_WORD_MODEL_PATH: ${WAKE_WORD_MODEL_PATH:-}

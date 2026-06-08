@@ -46,6 +46,8 @@ training = [
 ]
 voice = [
     "useful-moonshine-onnx>=20251121",
+    "onnxruntime>=1.18.0",  # runtime for the Moonshine-uk ONNX backend (no torch)
+    "tokenizers>=0.20.0",  # Ukrainian Moonshine tokenizer.json loader
     "faster-whisper>=1.0.3",
     "openwakeword>=0.6.0",
     "sounddevice>=0.4.6",

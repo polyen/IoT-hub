@@ -518,11 +518,17 @@ def get_backend(
     ``moonshine-voice`` package or sherpa-onnx. Until that is wired the working
     Ukrainian CPU engine is faster-whisper (``language="uk"``).
     """
-    from hub.edge.voice.moonshine_stt import MOONSHINE_AVAILABLE, MoonshineBackend
+    from hub.edge.voice.moonshine_stt import (
+        MOONSHINE_AVAILABLE,
+        MoonshineBackend,
+        MoonshineUkBackend,
+        moonshine_uk_available,
+    )
 
     selector = os.environ.get("STT_BACKEND", "auto").strip().lower()
     target_variant = (variant or os.environ.get("WHISPER_VARIANT") or DEFAULT_VARIANT).lower()
     cache_dir = assets_cache_dir or DEFAULT_CACHE_DIR
+    moonshine_onnx_dir = os.environ.get("MOONSHINE_ONNX_DIR")
 
     def _hailo() -> STTBackend | None:
         if force_cpu or not (HAILO_AVAILABLE and TRANSFORMERS_AVAILABLE):
@@ -533,6 +539,18 @@ def get_backend(
             return HailoWhisperBackend(assets, language=language)
         except Exception as exc:
             logger.warning("Hailo Whisper init failed (%s) — falling through", exc)
+            return None
+
+    def _moonshine_uk() -> STTBackend | None:
+        # Working Ukrainian CPU engine: locally-exported Moonshine-base-uk ONNX
+        # (no torch/optimum at runtime). Preferred default when present.
+        if not moonshine_uk_available(moonshine_onnx_dir):
+            return None
+        try:
+            logger.info("STT backend: Moonshine-uk ONNX (%s, CPU)", moonshine_onnx_dir)
+            return MoonshineUkBackend(moonshine_onnx_dir)  # type: ignore[arg-type]
+        except Exception as exc:
+            logger.warning("Moonshine-uk backend failed (%s) — falling through", exc)
             return None
 
     def _moonshine() -> STTBackend | None:
@@ -554,15 +572,21 @@ def get_backend(
 
     if selector == "hailo":
         # Opt-in NPU path (falls back to CPU if Hailo is unavailable / force_cpu).
-        backend = _hailo() or _moonshine() or _faster()
+        backend = _hailo() or _moonshine_uk() or _moonshine() or _faster()
+    elif selector in ("moonshine-uk", "moonshine_uk"):
+        # Explicitly pin the Ukrainian Moonshine ONNX engine.
+        backend = _moonshine_uk() or _faster()
     else:
-        # Default: CPU-first. _hailo() is a last resort only if no CPU engine exists.
-        backend = _moonshine() or _faster() or _hailo()
+        # Default: CPU-first. Moonshine-uk ONNX is the working Ukrainian engine
+        # (faster + more accurate than faster-whisper-base on RPi 5); fall back to
+        # faster-whisper, then English Moonshine, then the NPU as a last resort.
+        backend = _moonshine_uk() or _faster() or _moonshine() or _hailo()
 
     if backend is None:
         raise RuntimeError(
-            "No STT backend available — install useful-moonshine-onnx or "
-            "faster-whisper (CPU), or hailo_platform+transformers (NPU)"
+            "No STT backend available — export Moonshine-uk ONNX "
+            "(training.export_moonshine_onnx) or install faster-whisper (CPU) / "
+            "hailo_platform+transformers (NPU)"
         )
     return backend
 

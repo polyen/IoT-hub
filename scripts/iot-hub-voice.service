@@ -35,10 +35,14 @@ Environment=WHISPER_VARIANT=tiny
 Environment=WHISPER_LANGUAGE=uk
 Environment=WHISPER_ASSETS_DIR=/mnt/ssd/iot-hub/whisper-cache
 
-# CPU STT path (faster-whisper int8 on RPi5 Cortex-A76) is the working engine
-# for daily use — Hailo Whisper-tiny accuracy on UA is impractical (~30% WER).
-# get_backend() is CPU-first by default; set STT_BACKEND=hailo to demo the NPU
-# path. FORCE_CPU_STT=true additionally hard-blocks the NPU regardless.
+# Working CPU STT engine: Moonshine-base-uk ONNX (no torch). Measured on RPi5:
+# ~1.1 s/command vs ~6 s for faster-whisper-base, and functionally more accurate
+# on Ukrainian. Export once into the path below:
+#   uv run python -m training.export_moonshine_onnx \
+#       --output /mnt/ssd/iot-hub/models/moonshine-base-uk-onnx
+# get_backend() is CPU-first; FORCE_CPU_STT=true hard-blocks the NPU regardless.
+# When MOONSHINE_ONNX_DIR is missing/unexported, STT falls back to faster-whisper.
+Environment=MOONSHINE_ONNX_DIR=/mnt/ssd/iot-hub/models/moonshine-base-uk-onnx
 Environment=FASTER_WHISPER_MODEL=base
 Environment=FORCE_CPU_STT=true
 
