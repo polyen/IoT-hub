@@ -89,8 +89,11 @@ def run(manifest_path: Path, *, warmup: int = 3, onnx_dir: str | None = None) ->
     if onnx_dir:
         try:
             from optimum.onnxruntime import ORTModelForSpeechSeq2Seq
-        except ImportError:
-            return _not_measured("--onnx-dir set but optimum is missing; pip install optimum")
+        except ImportError as exc:
+            return _not_measured(
+                f"onnxruntime path unavailable ({exc}); "
+                "try: pip install onnxruntime optimum-onnx"
+            )
         logger.info("Loading ONNX model from %s via onnxruntime …", onnx_dir)
         processor = AutoProcessor.from_pretrained(onnx_dir)  # type: ignore[no-untyped-call]
         model = ORTModelForSpeechSeq2Seq.from_pretrained(onnx_dir)
