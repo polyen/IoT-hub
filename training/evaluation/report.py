@@ -148,6 +148,16 @@ class EvaluationReport:
                 f"| faster-whisper latency (mean) | {_val(fw, 'latency_mean_s', ' s')} | — | — | — |"
             )
 
+        # TTS synthesis throughput (off NFR-2 critical path; RTF < 1 = real-time)
+        tts = self.results.get("tts_latency", {})
+        if tts:
+            rtf = tts.get("rtf", {}) if _measured(tts) else {}
+            val = "_not measured_" if not _measured(tts) else f"{rtf.get('p95', '—')}"
+            lines.append(_row("TTS RTF (p95)", tts, val, "—", "<1.0"))
+            if _measured(tts):
+                tts_lat = tts.get("latency_s", {})
+                lines.append(f"| └─ TTS latency p95 | {tts_lat.get('p95', '—')} s | — | — | — |")
+
         # End-to-end voice latency (NFR-2)
         e2e = self.results.get("voice_e2e_latency", {})
         if e2e:
@@ -215,6 +225,7 @@ def main() -> None:
         ("cv_latency", "cv_latency.json"),
         ("stt_wer", "stt_wer.json"),
         ("stt_latency", "stt_latency.json"),
+        ("tts_latency", "tts_latency.json"),
         ("voice_e2e_latency", "voice_e2e_latency.json"),
         ("npu_contention", "npu_contention.json"),
         ("agent_accuracy", "agent_accuracy.json"),

@@ -1,0 +1,16 @@
+# Representative Ukrainian assistant responses for TTS latency benchmarking.
+# One phrase per line; blank lines and lines starting with '#' are ignored.
+# Mix of short acknowledgements and longer notifications to exercise both the
+# fixed per-call overhead and the per-character synthesis cost.
+Готово.
+Світло вимкнено.
+Вмикаю світло у вітальні.
+Двері зачинено, все спокійно.
+Температура в спальні двадцять два градуси.
+Вологість у ванній шістдесят п'ять відсотків.
+Виявлено рух у коридорі.
+Котел увімкнено, цільова температура двадцять три градуси.
+Не можу виконати цю дію без вашого підтвердження.
+Вибачте, я не зрозуміла команду. Повторіть, будь ласка.
+За останню годину рух фіксувався тричі у вітальні та один раз у коридорі.
+Увага: датчик диму спрацював на кухні. Перевірте, будь ласка, приміщення.

@@ -1,5 +1,5 @@
 .PHONY: help up-edge down-edge up-cloud down-cloud logs ps compose-check \
-        evaluate evaluate-cv evaluate-cv-compare evaluate-stt evaluate-voice \
+        evaluate evaluate-cv evaluate-cv-compare evaluate-stt evaluate-voice evaluate-tts \
         evaluate-llm evaluate-npu
 
 ENV_FILE ?= .env
@@ -109,8 +109,11 @@ evaluate-stt: ## Run STT WER/CER on the UA corpus + latency benchmark
 	uv run python -m training.evaluation.stt_wer --output $(RESULTS_DIR) $(EVAL_FLAGS)
 	uv run python -m training.evaluation.stt_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
 
-evaluate-voice: ## End-to-end voice latency (STT → intent) against the 5s NFR-2 budget
+evaluate-voice: evaluate-tts ## End-to-end voice latency (STT → intent) against the 5s NFR-2 budget
 	uv run python -m training.evaluation.voice_e2e_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
+
+evaluate-tts: ## TTS synthesis latency / RTF / TTFB (piper UA on RPi 5)
+	uv run python -m training.evaluation.tts_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
 
 evaluate-npu: ## P1.2: NPU contention — CV FPS alone vs CV + STT-on-NPU (needs Hailo + HEF=...)
 	uv run python -m training.evaluation.npu_contention --hef $(HEF) --output $(RESULTS_DIR) $(EVAL_FLAGS)
