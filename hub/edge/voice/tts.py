@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -56,12 +57,33 @@ def _download_model(model_name: str) -> bool:
         return False
 
 
+def _venv_piper() -> str | None:
+    """piper console script next to the running interpreter (its venv bin dir).
+
+    The prod voice pipeline runs from ``.venv-voice`` via ``python -m ...``, which
+    does NOT add the venv's ``bin/`` to ``PATH`` — so ``shutil.which("piper")``
+    misses a venv-local piper and we silently fall back to espeak. Resolving
+    against ``sys.executable``'s directory finds the piper installed in whatever
+    venv launched us, with no PATH wiring in the systemd unit.
+    """
+    bindir = Path(sys.executable).parent
+    for name in ("piper", "piper-tts"):
+        cand = bindir / name
+        if cand.exists():
+            return str(cand)
+    return None
+
+
 def _piper_available() -> bool:
-    return shutil.which("piper") is not None or shutil.which("piper-tts") is not None
+    return (
+        _venv_piper() is not None
+        or shutil.which("piper") is not None
+        or shutil.which("piper-tts") is not None
+    )
 
 
 def _piper_bin() -> str:
-    return shutil.which("piper") or shutil.which("piper-tts") or "piper"
+    return _venv_piper() or shutil.which("piper") or shutil.which("piper-tts") or "piper"
 
 
 def _espeak_available() -> bool:

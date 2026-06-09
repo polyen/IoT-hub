@@ -73,7 +73,7 @@ EnvironmentFile=-/etc/iot-hub-voice.env
 #   .venv-voice/bin/pip install \
 #       aiomqtt redis[hiredis] prometheus-client \
 #       transformers scipy soundfile sounddevice \
-#       openwakeword faster-whisper \
+#       openwakeword faster-whisper piper-tts \
 #       "sqlalchemy[asyncio]" asyncpg pgvector \
 #       pydantic pydantic-settings
 # The apt packages are mandatory:
@@ -82,6 +82,9 @@ EnvironmentFile=-/etc/iot-hub-voice.env
 #   - libsndfile1   → soundfile (audio file I/O).
 #   - ffmpeg        → RTSP audio decoding (rtsp_mic_stream) and PTT WebM/OGG decode.
 #   - espeak-ng     → optional, fallback voice for piper.
+# piper-tts is installed into .venv-voice (pip extras above); tts.py resolves the
+# `piper` console script next to sys.executable, so no PATH= entry is needed in
+# this unit. If piper-tts is missing the pipeline silently speaks via espeak-ng.
 # The pip extras (sqlalchemy, asyncpg, pydantic*) are mandatory too — voice
 # imports hub.backend.db / hub.backend.models to resolve camera RTSP URLs.
 ExecStart=/mnt/ssd/iot-hub/repo/.venv-voice/bin/python -m hub.edge.voice.pipeline
