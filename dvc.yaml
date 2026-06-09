@@ -38,7 +38,7 @@ stages:
       --device ${train.fire_smoke.device}
       --mlflow-uri ${train.fire_smoke.mlflow_uri}
       --name ${train.fire_smoke.name}
-      # --resume
+      --resume
     deps:
       - datasets/fire_smoke_mixed
       - training/fire_smoke/train.py

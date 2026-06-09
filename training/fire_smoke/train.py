@@ -70,6 +70,47 @@ def _disable_ultralytics_mlflow_callbacks(model: YOLO) -> None:
         print(f"Removed {removed} pre-attached Ultralytics MLflow callback(s)")
 
 
+def _register_mlflow_epoch_logging(model: YOLO) -> None:
+    """Log metrics to MLflow at the end of every fit epoch.
+
+    The end-of-run ``mlflow.log_metrics`` call only fires if ``model.train()``
+    returns normally; an OOM/SIGKILL mid-run (common on ``mps``) loses every
+    metric. Logging per-epoch means partial runs still capture progress and the
+    run is watchable live in the MLflow UI. We attach our own callback rather
+    than re-enabling Ultralytics' integration so we keep full control of the
+    active run and avoid its conflicting ``on_train_end`` artifact upload.
+    """
+
+    def _on_fit_epoch_end(trainer: object) -> None:
+        raw = getattr(trainer, "metrics", None) or {}
+        step = int(getattr(trainer, "epoch", 0))
+        clean: dict[str, float] = {}
+        for key, value in raw.items():
+            try:
+                clean[key.replace("(B)", "").replace(":", "_")] = float(value)
+            except (TypeError, ValueError):
+                continue
+        if clean:
+            try:
+                mlflow.log_metrics(clean, step=step)
+            except Exception as exc:  # noqa: BLE001
+                print(f"MLflow per-epoch logging warning (non-fatal): {exc}")
+
+    def _on_train_epoch_end(_trainer: object) -> None:
+        # MPS accumulates memory across epochs on unified-memory Macs, leading
+        # to a jetsam SIGKILL (exit 137). Release the cache each epoch.
+        try:
+            import torch
+
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
+    model.add_callback("on_fit_epoch_end", _on_fit_epoch_end)
+    model.add_callback("on_train_epoch_end", _on_train_epoch_end)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fine-tune YOLO26n on fire/smoke dataset with MLflow tracking."
@@ -174,10 +215,12 @@ def main(argv: list[str] | None = None) -> None:
             print(f"Resuming from {last_pt}")
             model = YOLO(str(last_pt))
             _disable_ultralytics_mlflow_callbacks(model)
+            _register_mlflow_epoch_logging(model)
             results = model.train(resume=True)
         else:
             model = YOLO(args.base_model)
             _disable_ultralytics_mlflow_callbacks(model)
+            _register_mlflow_epoch_logging(model)
             results = model.train(
                 data=str(args.data),
                 epochs=args.epochs,

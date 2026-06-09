@@ -2201,9 +2201,11 @@ training = [
 voice = [
     { name = "faster-whisper" },
     { name = "numpy" },
+    { name = "onnxruntime" },
     { name = "openwakeword" },
     { name = "sounddevice" },
     { name = "soundfile" },
+    { name = "tokenizers" },
     { name = "useful-moonshine-onnx" },
 ]
 
@@ -2227,6 +2229,7 @@ requires-dist = [
     { name = "numpy", marker = "extra == 'voice'", specifier = ">=1.26.0" },
     { name = "onnx", specifier = ">=1.21.0" },
     { name = "onnxruntime", specifier = ">=1.26.0" },
+    { name = "onnxruntime", marker = "extra == 'voice'", specifier = ">=1.18.0" },
     { name = "onnxslim", specifier = ">=0.1.71" },
     { name = "opencv-python", marker = "extra == 'training'", specifier = ">=4.10.0" },
     { name = "openwakeword", marker = "extra == 'voice'", specifier = ">=0.6.0" },
@@ -2254,6 +2257,7 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.0" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'dev'", specifier = ">=2.0.0" },
     { name = "tokenizers", specifier = ">=0.20.0" },
+    { name = "tokenizers", marker = "extra == 'voice'", specifier = ">=0.20.0" },
     { name = "transformers", marker = "extra == 'training'", specifier = ">=4.40.0" },
     { name = "ultralytics", marker = "extra == 'training'", specifier = ">=8.4.0" },
     { name = "useful-moonshine-onnx", marker = "extra == 'voice'", specifier = ">=20251121" },
