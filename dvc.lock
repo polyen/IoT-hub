@@ -2,35 +2,36 @@ schema: '2.0'
 stages:
   train_fire_smoke:
     cmd: "uv run python -m training.fire_smoke.train --data datasets/fire_smoke_mixed/data.yaml
-      --base-model yolo11n.pt --epochs 50 --imgsz 640 --batch 8 --lr 0.001 --device
-      mps --mlflow-uri http://localhost:5001 --resume\n"
+      --base-model yolo26n.pt --epochs 50 --imgsz 640 --batch 8 --lr 0.001 --device
+      mps --mlflow-uri http://localhost:5001 --name train --resume\n"
     deps:
     - path: datasets/fire_smoke_mixed
       hash: md5
-      md5: 0948f21f02d72acfbe4908409fb04709.dir
-      size: 4385298323
-      nfiles: 59055
+      md5: 5dc3f95f6444363d748c8575827a032d.dir
+      size: 4435788827
+      nfiles: 59077
     - path: training/fire_smoke/train.py
       hash: md5
-      md5: cab22b0fdcdb089c3a441fef179a18cf
-      size: 9669
+      md5: 070ac2848cc38d7b826009a6d389853d
+      size: 11903
     params:
       params.yaml:
         train.fire_smoke:
           data: datasets/fire_smoke_mixed/data.yaml
-          base_model: yolo11n.pt
+          base_model: yolo26n.pt
           epochs: 50
           imgsz: 640
           batch: 8
           lr: 0.001
           device: mps
           mlflow_uri: http://localhost:5001
+          name: train
     outs:
     - path: runs/fire_smoke
       hash: md5
-      md5: f81edc4af66c0cca46cdff189feb267d.dir
-      size: 26295312
-      nfiles: 25
+      md5: 19fd1a33b6cdb658afab96e2998bac9c.dir
+      size: 55098397
+      nfiles: 56
   prepare_intent_dataset:
     cmd: "uv run python -m training.intent_classifier.prepare_dataset --out-dir datasets/intent_classifier
       --massive-locale uk-UA --synthetic-per-class 200 --val-size 0.1 --test-size
