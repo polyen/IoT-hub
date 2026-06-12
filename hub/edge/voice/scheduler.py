@@ -4,7 +4,7 @@ Context: CV pipeline runs YOLO continuously at ~15 FPS (≈67 ms/frame), each fr
 occupying Hailo NPU for ~10-30 ms.  Whisper encoder also needs NPU in bursts
 (~100-150 ms) whenever a voice command is detected.
 
-Three strategies are implemented for thesis benchmarking (§8 PROJECT.md):
+Three strategies are implemented for NPU-contention benchmarking:
 
   PREEMPT       Whisper requests interrupt CV at next frame boundary.  Lowest
                 Whisper latency, but introduces variable CV frame drops.

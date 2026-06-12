@@ -184,6 +184,12 @@ class HailoDetector:
         self._cls_name: str | None = None
         self._box_buf: Any = None
         self._cls_buf: Any = None
+        # DFL path (NMS-head HEFs cut at /model.23/Concat, box = 4*reg_max
+        # channels of raw distribution bins instead of decoded xyxy). Resolved
+        # in load(); anchors/strides built once when self._box_dfl is True.
+        self._box_dfl: bool = False
+        self._anchors: Any = None
+        self._strides: Any = None
 
     def load(self, device: Any = None, scheduled: bool = False) -> None:
         """Load HEF and open the Hailo inference pipeline.
@@ -221,21 +227,28 @@ class HailoDetector:
             )
 
         nc = len(DETECTION_CLASSES)
+        # Box output is either decoded xyxy (4 channels, YOLO26 NMS-free, cut at
+        # /model.23/Mul_2) or raw DFL bins (4*reg_max e.g. 64, NMS-head models
+        # like YOLOv8/v11 cut at /model.23/Concat). Class always has nc channels.
         for o in outputs:
             o.set_format_type(FormatType.FLOAT32)
             out_shape = tuple(int(d) for d in o.shape)
-            if 4 in out_shape and nc not in out_shape:
-                self._box_name = o.name
-                self._box_buf = np.empty(out_shape, dtype=np.float32)
-            elif nc in out_shape:
+            if nc in out_shape and 4 not in out_shape and 64 not in out_shape:
                 self._cls_name = o.name
                 self._cls_buf = np.empty(out_shape, dtype=np.float32)
+            elif 4 in out_shape or 64 in out_shape:
+                self._box_name = o.name
+                self._box_buf = np.empty(out_shape, dtype=np.float32)
+                self._box_dfl = 64 in out_shape
         if self._box_name is None or self._cls_name is None:
             raise RuntimeError(
                 "Could not map HEF outputs to box/class by shape "
                 f"({[tuple(int(d) for d in o.shape) for o in outputs]}); "
-                f"expected one with 4 channels and one with {nc}."
+                f"expected class with {nc} channels and box with 4 (decoded) "
+                "or 4*reg_max (DFL) channels."
             )
+        if self._box_dfl:
+            self._build_dfl_anchors()
 
         self._exit_stack = contextlib.ExitStack()
         self._configured = self._exit_stack.enter_context(self._infer_model.configure())
@@ -290,9 +303,11 @@ class HailoDetector:
         import numpy as np
 
         nc = len(DETECTION_CLASSES)
-        box = np.squeeze(np.asarray(box_raw))  # (4, A) or (A, 4)
+        box = np.squeeze(np.asarray(box_raw))  # (4|64, A) or (A, 4|64)
         cls = np.squeeze(np.asarray(cls_raw))  # (nc, A) or (A, nc)
-        if box.shape[0] == 4:
+        if self._box_dfl:
+            box = self._dfl_decode(box)  # -> (A, 4) xyxy in input pixels
+        elif box.shape[0] == 4:
             box = box.T
         if cls.shape[0] == nc:
             cls = cls.T
@@ -328,6 +343,51 @@ class HailoDetector:
             )
             for i in keep
         ]
+
+    def _build_dfl_anchors(self) -> None:
+        """Pre-compute anchor points + strides for the DFL box decode (once).
+
+        Standard 3-level FPN (strides 8/16/32). Anchor points are grid-cell
+        centres in feature-map coordinates; concatenated P3→P4→P5 to match the
+        ONNX/HEF flattening order (e.g. 6400+1600+400 = 8400 for 640 input).
+        """
+        import numpy as np
+
+        pts: list[Any] = []
+        strs: list[Any] = []
+        for stride in (8, 16, 32):
+            h = self._input_h // stride
+            w = self._input_w // stride
+            sx = np.arange(w, dtype=np.float32) + 0.5
+            sy = np.arange(h, dtype=np.float32) + 0.5
+            gy, gx = np.meshgrid(sy, sx, indexing="ij")
+            pts.append(np.stack((gx.ravel(), gy.ravel()), axis=1))  # (h*w, 2)
+            strs.append(np.full((h * w, 1), float(stride), dtype=np.float32))
+        self._anchors = np.concatenate(pts, axis=0)  # (A, 2)
+        self._strides = np.concatenate(strs, axis=0)  # (A, 1)
+
+    def _dfl_decode(self, box: Any) -> Any:
+        """Decode raw DFL distribution bins → xyxy in input-pixel space.
+
+        ``box`` is (4*reg_max, A) or (A, 4*reg_max). Each side's reg_max bins
+        are soft-maxed and reduced to an expected distance, then the (l,t,r,b)
+        distances are applied to the anchor points and scaled by stride —
+        reproducing the Ultralytics DFL + dist2bbox the NMS-free head folds in.
+        """
+        import numpy as np
+
+        if box.shape[0] != self._anchors.shape[0]:
+            box = box.T  # -> (A, 4*reg_max)
+        a = box.shape[0]
+        reg = box.shape[1] // 4
+        d = box.reshape(a, 4, reg).astype(np.float32)
+        d = d - d.max(axis=2, keepdims=True)  # stable softmax
+        e = np.exp(d)
+        p = e / e.sum(axis=2, keepdims=True)
+        dist = (p * np.arange(reg, dtype=np.float32)).sum(axis=2)  # (A, 4) l,t,r,b
+        x1y1 = self._anchors - dist[:, :2]
+        x2y2 = self._anchors + dist[:, 2:]
+        return (np.concatenate([x1y1, x2y2], axis=1) * self._strides).astype(np.float32)
 
     def _nms(self, boxes: Any, scores: Any, iou_threshold: float = 0.45) -> list[int]:
         """Greedy IoU-based NMS. Returns indices of kept boxes."""

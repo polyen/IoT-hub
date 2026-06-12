@@ -99,10 +99,9 @@ evaluate-cv: ## Run CV evaluation (fire/smoke mAP@.5-.95, fall F1, latency FPS)
 	uv run python -m training.evaluation.cv_fall --dataset datasets/fall_validation --output $(RESULTS_DIR) $(EVAL_FLAGS)
 	uv run python -m training.evaluation.cv_latency --output $(RESULTS_DIR) $(EVAL_FLAGS)
 
-evaluate-cv-compare: ## P1.1: Comparative YOLO26 vs YOLOv11 vs YOLOv8 on Hailo-8 (needs HEFs on RPi 5)
+evaluate-cv-compare: ## P1.1: FP32 mAP comparison YOLO26n vs YOLOv11n (local, ultralytics val)
 	uv run python -m training.evaluation.cv_detector_compare \
 		--config materials/evaluation_results/cv_detector_compare/config.yaml \
-		--dataset datasets/fire_smoke_mixed/test \
 		--output materials/evaluation_results/cv_detector_compare $(EVAL_FLAGS)
 
 evaluate-stt: ## Run STT WER/CER on the UA corpus + latency benchmark

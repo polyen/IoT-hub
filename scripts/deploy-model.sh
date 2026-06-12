@@ -32,6 +32,34 @@ info()  { echo -e "${GREEN}[deploy]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[deploy]${NC} $*"; }
 error() { echo -e "${RED}[deploy]${NC} $*" >&2; exit 1; }
 
+dvc_push_with_auto_reauth() {
+    local dvc_target="$1"
+    local push_output=""
+
+    if push_output="$(dvc push "$dvc_target" 2>&1)"; then
+        [[ -n "$push_output" ]] && echo "$push_output"
+        return 0
+    fi
+
+    echo "$push_output" >&2
+    if echo "$push_output" | grep -Eiq "Failed to authenticate GDrive|invalid_grant|expired or revoked"; then
+        warn "Detected expired/revoked GDrive token. Clearing cached credentials and retrying once..."
+
+        # macOS + XDG cache locations used by pydrive2fs.
+        find "$HOME/Library/Caches/pydrive2fs" "$HOME/.cache/pydrive2fs" \
+            -type f \( -name "default.json" -o -name "token.json" \) -delete 2>/dev/null || true
+
+        if push_output="$(dvc push "$dvc_target" 2>&1)"; then
+            [[ -n "$push_output" ]] && echo "$push_output"
+            return 0
+        fi
+
+        echo "$push_output" >&2
+    fi
+
+    return 1
+}
+
 # Load .env from repo root if present
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 [[ -f "${REPO_ROOT}/.env" ]] && set -a && source "${REPO_ROOT}/.env" && set +a
@@ -126,11 +154,14 @@ fi
 # under a new version), so models/onnx always carries a matching .dvc file.
 # ---------------------------------------------------------------------------
 if [[ -f "${DEST_ONNX}.dvc" ]]; then
-    info "DVC pointer exists: ${DEST_ONNX}.dvc — skipping dvc add."
+    info "DVC pointer exists: ${DEST_ONNX}.dvc — skipping dvc add, ensuring remote backup via dvc push."
+    dvc_push_with_auto_reauth "${DEST_ONNX}.dvc" \
+        || error "DVC push failed after automatic token refresh attempt."
 else
     info "DVC add + push ..."
     dvc add "$DEST_ONNX"
-    dvc push "${DEST_ONNX}.dvc"
+    dvc_push_with_auto_reauth "${DEST_ONNX}.dvc" \
+        || error "DVC push failed after automatic token refresh attempt."
 
     git add "${DEST_ONNX}.dvc" "${DEST_DIR}/.gitignore" 2>/dev/null || true
     if ! git diff --cached --quiet; then

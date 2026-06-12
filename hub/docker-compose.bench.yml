@@ -6,7 +6,7 @@
 # Current default in docker-compose.edge.yml = Qwen 2.5 1.5B (the speed win).
 # This override pins it back to 3B for A/B regression of accuracy / quality
 # claims when we want to confirm the smaller model isn't worse on a given
-# eval set.  See materials/llm_optimization_research.md §3 Variant B.
+# eval set (LLM-optimization research, Variant B).
 #
 # Usage (on RPi 5):
 #   docker compose -f hub/docker-compose.edge.yml \

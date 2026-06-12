@@ -76,7 +76,6 @@ stages:
   # ---------------------------------------------------------------------------
   # Intent classifier (T6.x) — SetFit on multilingual-e5-small.
   # Produces ONNX INT8 used by hub/edge/agent/intent_classifier.py.
-  # See materials/ml_intent_classifier_plan.md.
   # ---------------------------------------------------------------------------
   prepare_intent_dataset:
     cmd: >

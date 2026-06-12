@@ -108,15 +108,17 @@ class LatencyProfiler:
         }
 
     def profile_hailo(self, model_path: str) -> dict[str, Any]:
-        """On-NPU FPS is measured by ``cv_detector_compare`` (real ``detect()``).
+        """On-NPU FPS is intentionally not measured.
 
-        This profiler never had a real Hailo inference path — the previous
+        Inference throughput is not a critical metric for this event-driven
+        system (see the "Performance" note in cv_detector_compare.md), and this
+        profiler never had a real Hailo inference path — the previous
         implementation timed an empty loop, so it is intentionally not provided
         here rather than reporting a fabricated number.
         """
         return _not_measured(
-            "on-NPU FPS is measured by `make evaluate-cv-compare` "
-            "(training.evaluation.cv_detector_compare), which runs the real HailoDetector"
+            "on-NPU FPS is not benchmarked — throughput is not a critical metric "
+            "for this event-driven system (see cv_detector_compare.md, Performance note)"
         )
 
     def run(

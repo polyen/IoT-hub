@@ -7,7 +7,7 @@ train:
     #   uv run python -m training.datasets.prepare_mixed
     # Fall back to datasets/fire_smoke/data.yaml for the legacy 2-class run.
     data: datasets/fire_smoke_mixed/data.yaml
-    base_model: yolo11n.pt
+    base_model: yolo26n.pt
     epochs: 50
     imgsz: 640
     batch: 8
@@ -28,7 +28,7 @@ mining:
   # loop conservative: T0 raw frames are excluded unless explicitly overridden.
   max_tier: 1
 
-# Intent classifier (T6.x) — see materials/ml_intent_classifier_plan.md
+# Intent classifier (T6.x)
 intent_classifier:
   dataset:
     # MASSIVE locale (Amazon, arXiv 2204.08582).  uk-UA = Ukrainian.

@@ -123,7 +123,7 @@ class EvaluationReport:
         if fall:
             lines.append(_row("Fall Detection F1", fall, _val(fall, "F1"), "rule", ">0.80"))
 
-        # Cascade FPS (CPU profiler; on-NPU FPS lives in cv_detector_compare)
+        # Cascade FPS (CPU profiler only; on-NPU throughput is not a critical metric)
         lat = self.results.get("cv_latency", {})
         if lat:
             lines.append(

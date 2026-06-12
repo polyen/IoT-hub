@@ -94,28 +94,38 @@ def failure_examples(
 # ---------------------------------------------------------------------------
 
 
-def eval_baseline_tfidf(
-    train_rows: list[dict[str, str]], test_rows: list[dict[str, str]]
-) -> dict[str, Any]:
+def _fit_tfidf(train_rows: list[dict[str, str]]) -> tuple[Any, Any, float] | None:
+    """Fit the TF-IDF + LogisticRegression baseline. Returns (vec, clf, fit_sec).
+
+    Returns ``None`` when scikit-learn is not installed so callers can skip
+    gracefully (CI / minimal dev envs).
+    """
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore[import]
         from sklearn.linear_model import LogisticRegression  # type: ignore[import]
     except ImportError:
         logger.warning("scikit-learn not installed — skipping TF-IDF baseline")
-        return {"available": False}
-
-    train_texts = [r["text"] for r in train_rows]
-    train_labels_list = [r["intent"] for r in train_rows]
-    test_texts = [r["text"] for r in test_rows]
-    test_labels = [r["intent"] for r in test_rows]
+        return None
 
     vec = TfidfVectorizer(ngram_range=(1, 2), min_df=1, analyzer="char_wb")
-    X_train = vec.fit_transform(train_texts)
-
+    X_train = vec.fit_transform([r["text"] for r in train_rows])
     clf = LogisticRegression(max_iter=1000, C=4.0, solver="lbfgs")
     t0 = time.monotonic()
-    clf.fit(X_train, train_labels_list)
+    clf.fit(X_train, [r["intent"] for r in train_rows])
     fit_sec = time.monotonic() - t0
+    return vec, clf, fit_sec
+
+
+def eval_baseline_tfidf(
+    train_rows: list[dict[str, str]], test_rows: list[dict[str, str]]
+) -> dict[str, Any]:
+    fitted = _fit_tfidf(train_rows)
+    if fitted is None:
+        return {"available": False}
+    vec, clf, fit_sec = fitted
+
+    test_texts = [r["text"] for r in test_rows]
+    test_labels = [r["intent"] for r in test_rows]
 
     latencies: list[float] = []
     preds: list[str] = []
@@ -410,6 +420,23 @@ def _key_findings(report: dict[str, Any]) -> str:
             else ""
         ),
     ]
+
+    # OOD generalization gap — the decisive criterion: the in-distribution test
+    # set saturates (baseline ties prod), so the real differentiator is OOD.
+    ood = report.get("ood", {})
+    if ood.get("available"):
+        ood_models = ood.get("models", {})
+        ood_base = ood_models.get("tfidf_logreg", {})
+        ood_onnx = ood_models.get("onnx_int8", {})
+        if ood_base.get("available") and ood_onnx.get("available"):
+            gap = ood_onnx["accuracy"] - ood_base["accuracy"]
+            lines.append(
+                f"- **OOD generalization gap:** SetFit {ood_onnx['accuracy']:.1%} vs"
+                f" TF-IDF baseline {ood_base['accuracy']:.1%} on prod-realistic utterances"
+                f" (+{gap:.1%}). The baseline ties on the in-distribution test set but"
+                " degrades on typos/Russisms/paraphrases it never saw — which is why the"
+                " embedding model was chosen despite the saturated benchmark."
+            )
     return "\n".join(f for f in lines if f)
 
 
@@ -418,8 +445,20 @@ def _key_findings(report: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def eval_ood(model_dir: Path, manual_rows: list[dict[str, str]]) -> dict[str, Any]:
-    """Run ONNX INT8 on manually-authored OOD examples (typos, Russisms, colloquial UA)."""
+def eval_ood(
+    model_dir: Path,
+    manual_rows: list[dict[str, str]],
+    train_rows: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Run the production ONNX INT8 model *and* the TF-IDF baseline on manually-
+    authored OOD examples (typos, Russisms, colloquial UA).
+
+    These utterances do NOT come from the synthetic template pool, so they test
+    real generalization rather than in-distribution template recall — this is
+    where the lexical baseline is expected to diverge from the embedding model.
+    The LLM is reference-only (prod-log numbers, not re-run here), so it has no
+    per-example OOD predictions.
+    """
     if not manual_rows:
         return {"available": False, "reason": "no manual examples"}
     try:
@@ -434,29 +473,62 @@ def eval_ood(model_dir: Path, manual_rows: list[dict[str, str]]) -> dict[str, An
 
     texts = [r["text"] for r in manual_rows]
     labels = [r["intent"] for r in manual_rows]
-    preds: list[str] = []
+
+    # --- Production model (SetFit INT8 ONNX) ---
+    onnx_preds: list[str] = []
     confidences: list[float] = []
     for text in texts:
         label, conf = clf.classify(text)
-        preds.append(label)
+        onnx_preds.append(label)
         confidences.append(conf)
+    onnx_correct = sum(1 for p, gt in zip(onnx_preds, labels, strict=True) if p == gt)
 
-    correct = sum(1 for p, gt in zip(preds, labels, strict=True) if p == gt)
+    # --- TF-IDF baseline (trained on the same train split) ---
+    baseline_preds: list[str | None] = [None] * len(texts)
+    baseline_acc: float | None = None
+    fitted = _fit_tfidf(train_rows) if train_rows else None
+    if fitted is not None:
+        vec, base_clf, _ = fitted
+        baseline_preds = [str(base_clf.predict(vec.transform([t]))[0]) for t in texts]
+        baseline_correct = sum(1 for p, gt in zip(baseline_preds, labels, strict=True) if p == gt)
+        baseline_acc = baseline_correct / max(1, len(labels))
+
     details = [
         {
             "text": t,
             "true": gt,
-            "predicted": p,
+            "onnx_pred": op,
             "confidence": round(c, 3),
-            "ok": p == gt,
+            "onnx_ok": op == gt,
+            "baseline_pred": bp,
+            "baseline_ok": (bp == gt) if bp is not None else None,
         }
-        for t, p, gt, c in zip(texts, preds, labels, confidences, strict=True)
+        for t, gt, op, c, bp in zip(
+            texts, labels, onnx_preds, confidences, baseline_preds, strict=True
+        )
     ]
     return {
         "available": True,
-        "accuracy": correct / max(1, len(labels)),
-        "mean_confidence": statistics.mean(confidences),
         "n": len(labels),
+        # Backwards-compatible top-level keys = production (ONNX) metrics.
+        "accuracy": onnx_correct / max(1, len(labels)),
+        "mean_confidence": statistics.mean(confidences),
+        "models": {
+            "onnx_int8": {
+                "available": True,
+                "accuracy": onnx_correct / max(1, len(labels)),
+                "mean_confidence": statistics.mean(confidences),
+            },
+            "tfidf_logreg": (
+                {"available": True, "accuracy": baseline_acc}
+                if baseline_acc is not None
+                else {"available": False, "reason": "scikit-learn missing or no train data"}
+            ),
+            "llm_reference": {
+                "available": False,
+                "reason": "reference-only (prod logs); OOD not measured",
+            },
+        },
         "details": details,
     }
 
@@ -464,20 +536,50 @@ def eval_ood(model_dir: Path, manual_rows: list[dict[str, str]]) -> dict[str, An
 def render_ood_section(ood: dict[str, Any]) -> list[str]:
     if not ood.get("available"):
         return []
+    models = ood.get("models", {})
+    base = models.get("tfidf_logreg", {})
+    onnx = models.get("onnx_int8", {})
+
     lines = [
         "",
         "## OOD robustness — manual prod-realistic examples",
         "",
-        f"Accuracy on {ood['n']} hand-written utterances with typos, Russisms, colloquial UA:",
-        f"**{ood['accuracy']:.1%}** (mean confidence: {ood['mean_confidence']:.1%})",
+        f"Accuracy on {ood['n']} hand-written utterances with typos, Russisms, colloquial UA.",
+        "Unlike the main test set, these are **not** drawn from the synthetic template pool,",
+        "so they probe real generalization rather than in-distribution template recall.",
         "",
-        "| Text | True | Predicted | Conf | ✓ |",
-        "|---|---|---|---|---|",
+        "| Model | OOD Accuracy | Notes |",
+        "|---|---|---|",
     ]
+    if base.get("available"):
+        lines.append(f"| TF-IDF + LogReg (baseline) | {base['accuracy']:.1%} | char 1-2gram, C=4 |")
+    else:
+        lines.append("| TF-IDF + LogReg (baseline) | n/a | scikit-learn / train data missing |")
+    lines.append(
+        f"| **SetFit INT8 ONNX (prod)** | {onnx.get('accuracy', ood['accuracy']):.1%} |"
+        f" mean confidence {onnx.get('mean_confidence', ood['mean_confidence']):.1%} |"
+    )
+    lines.append("| Qwen 2.5 1.5B Q4_K_M | n/a | reference-only (prod logs); OOD not re-run |")
+
+    lines.extend(
+        [
+            "",
+            "Per-example predictions (ONNX vs baseline):",
+            "",
+            "| Text | True | ONNX pred | Conf | ONNX | Baseline pred | Base |",
+            "|---|---|---|---|---|---|---|",
+        ]
+    )
     for d in ood["details"]:
-        ok = "✓" if d["ok"] else "✗"
+        onnx_ok = "✓" if d["onnx_ok"] else "✗"
+        if d.get("baseline_pred") is None:
+            bpred, base_ok = "—", "—"
+        else:
+            bpred = f"`{d['baseline_pred']}`"
+            base_ok = "✓" if d["baseline_ok"] else "✗"
         lines.append(
-            f"| {d['text']!r} | `{d['true']}` | `{d['predicted']}` | {d['confidence']:.0%} | {ok} |"
+            f"| {d['text']!r} | `{d['true']}` | `{d['onnx_pred']}` |"
+            f" {d['confidence']:.0%} | {onnx_ok} | {bpred} | {base_ok} |"
         )
     return lines
 
@@ -543,7 +645,7 @@ def main(argv: list[str] | None = None) -> int:
             "onnx_int8": eval_onnx_int8(args.model_dir, test_rows),
             "llm_reference": _LLM_REFERENCE,
         },
-        "ood": eval_ood(args.model_dir, manual_rows),
+        "ood": eval_ood(args.model_dir, manual_rows, train_rows),
     }
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

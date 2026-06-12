@@ -385,7 +385,7 @@ services:
   # ---------------------------------------------------------------------------
   # Local LLM (Qwen 2.5 1.5B Instruct Q4_K_M via llama-cpp-python)
   #
-  # See materials/llm_optimization_research.md §3 (Variant B): downsized from
+  # Variant B: downsized from
   # 3B to 1.5B because the edge TextResolver already handles 95%+ of voice
   # commands; LLM is only a fallback for creative / unknown intents.
   # ---------------------------------------------------------------------------

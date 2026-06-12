@@ -42,8 +42,7 @@ from hub.edge.agent.policy import (
 )
 from hub.edge.agent.router import IntentClass, IntentRouter
 
-# Routing-branch telemetry — drives the LLM-optimization decision in
-# materials/llm_optimization_research.md.  Label values:
+# Routing-branch telemetry — drives the LLM-optimization decision.  Label values:
 #   deterministic_resolved | deterministic_failed | structured | creative |
 #   unknown | reasoner_success | reasoner_failure
 AGENT_ROUTING = Counter(
