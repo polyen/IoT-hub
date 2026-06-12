@@ -18,7 +18,11 @@ services:
     networks:
       - cloud-internal
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_pub -h 127.0.0.1 -t '_health' -m '' -q 0 2>/dev/null || exit 1"]
+      # Cloud broker is mTLS-only on 8883 (no plain 1883), so the old
+      # `mosquitto_pub -h 127.0.0.1` probe (defaulting to 1883) always failed.
+      # A TCP liveness check on the TLS port confirms the broker is serving
+      # without needing a client cert.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8883 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -142,7 +146,9 @@ services:
     networks:
       - cloud-internal
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -q 'ok'"]
+      # ntfy /v1/health returns {"healthy":true} — the old probe grepped for
+      # 'ok', which never matches, so the container was always unhealthy.
+      test: ["CMD-SHELL", "wget -q --tries=1 http://localhost:80/v1/health -O - | grep -q 'healthy.:true'"]
       interval: 30s
       timeout: 5s
       retries: 3
