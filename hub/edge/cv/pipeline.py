@@ -31,6 +31,7 @@ import os
 import signal
 import threading
 import time
+from collections import deque
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -51,12 +52,18 @@ except ImportError:
     HailoSchedulingAlgorithm = None  # type: ignore[assignment,misc]
 
 try:
-    from hub.edge.cv.face import FaceRecognizer
+    from hub.edge.cv.face import (
+        COSINE_KNOWN_THRESHOLD,
+        COSINE_UNKNOWN_THRESHOLD,
+        FaceRecognizer,
+    )
 
     FACE_IMPORT_OK = True
 except ImportError:
     FACE_IMPORT_OK = False
     FaceRecognizer = None  # type: ignore[assignment,misc]
+    COSINE_KNOWN_THRESHOLD = 0.6
+    COSINE_UNKNOWN_THRESHOLD = 0.4
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +265,14 @@ MODEL_POLL_INTERVAL_SEC = 5.0
 MAX_ENROLL_EMBEDDINGS = 20
 ENROLL_BUFFER_TTL_SEC = 90
 
+# Per-track identity smoothing. ArcFace runs ~1 Hz/track and single-frame
+# matches flap between enrolled names at surveillance distance (borderline
+# cosine sims ~0.4-0.6). Instead of publishing every raw frame match, we keep
+# a rolling window of recent matches per track, take a similarity-weighted
+# vote, and publish camera/identity only when the *resolved* identity changes
+# — so a single track yields one event per stable identity, not one per second.
+IDENTITY_VOTE_WINDOW = 7
+
 
 def _fetch_pipeline_config(backend_url: str) -> dict[str, Any] | None:
     """Blocking GET of the CV pipeline config from the backend.
@@ -342,6 +357,12 @@ class CVPipeline:
         # Fire/smoke tracks are saved once on first appearance; no re-saves for
         # the same continuous track (avoids T0 flooding on long-running detections).
         self._t0_saved_tracks: set[int] = set()
+        # Per-track identity smoothing state. ``_identity_votes`` holds a rolling
+        # window of recent (base_name, similarity) matches; ``_published_identity``
+        # remembers the last resolved string we emitted so we publish only on
+        # change (see IDENTITY_VOTE_WINDOW). Both are cleared on track loss.
+        self._identity_votes: dict[int, deque[tuple[str, float]]] = {}
+        self._published_identity: dict[int, str] = {}
         self._redis: Any = None  # set in run() if redis package available
 
     def _load_models(self) -> None:
@@ -562,15 +583,56 @@ class CVPipeline:
                 await pipe.execute()
             except Exception as exc:
                 logger.debug("Redis face_embs cache write failed: %s", exc)
+        resolved, resolved_sim = self._resolve_identity(result)
+        # Publish only when the smoothed identity for this track changes — the
+        # per-frame raw match flaps between names at borderline sims, which
+        # otherwise floods one track with dozens of conflicting events.
+        if self._published_identity.get(result.track_id) == resolved:
+            return
+        self._published_identity[result.track_id] = resolved
         payload = {
             "room": self.room,
             "event_type": "identity",
             "track_id": result.track_id,
-            "identity": result.identity,
-            "sim": round(result.similarity, 4),
+            "identity": resolved,
+            "sim": round(resolved_sim, 4),
             "tier": 1,
         }
         await mqtt.publish(f"home/{self.room}/camera/identity", json.dumps(payload))
+
+    def _resolve_identity(self, result: Any) -> tuple[str, float]:
+        """Smooth a raw per-frame match into a stable per-track identity.
+
+        Appends the latest match to the track's rolling vote window, then picks
+        the enrolled name with the highest summed cosine similarity across the
+        window. The winner's *mean* similarity decides confidence: ``>= known``
+        emits the bare name, ``>= unknown`` appends ``"?"`` (UI shows amber),
+        otherwise the track resolves to ``"unknown"``. Voting damps the
+        single-frame flapping that ArcFace produces at surveillance distance.
+        """
+        base = result.identity[:-1] if result.identity.endswith("?") else result.identity
+        window = self._identity_votes.setdefault(
+            result.track_id, deque(maxlen=IDENTITY_VOTE_WINDOW)
+        )
+        window.append((base, result.similarity))
+
+        sums: dict[str, float] = {}
+        counts: dict[str, int] = {}
+        for name, sim in window:
+            if name == "unknown":
+                continue
+            sums[name] = sums.get(name, 0.0) + sim
+            counts[name] = counts.get(name, 0) + 1
+        if not sums:
+            return "unknown", result.similarity
+
+        winner = max(sums, key=lambda n: sums[n])
+        mean_sim = sums[winner] / counts[winner]
+        if mean_sim >= COSINE_KNOWN_THRESHOLD:
+            return winner, mean_sim
+        if mean_sim >= COSINE_UNKNOWN_THRESHOLD:
+            return f"{winner}?", mean_sim
+        return "unknown", mean_sim
 
     async def _maybe_run_fall(self, frame: Any, track: Track, mqtt: Any) -> Keypoints | None:
         """Run pose + fall_rule on a person track; publish alert if triggered.
@@ -727,6 +789,8 @@ class CVPipeline:
                                 # track re-enters frame later (new DB Event will
                                 # carry frame_blob_ref, keeping mining viable).
                                 self._t0_saved_tracks.discard(lost_id)
+                                self._identity_votes.pop(lost_id, None)
+                                self._published_identity.pop(lost_id, None)
                             self._active_track_ids = current_ids
 
                             # One camera/event per frame carrying every
