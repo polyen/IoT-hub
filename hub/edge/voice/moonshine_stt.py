@@ -30,11 +30,11 @@ try:
 
     MOONSHINE_AVAILABLE = True
 except ImportError:
-    soundfile = None  # type: ignore[assignment]
+    soundfile = None
     MOONSHINE_AVAILABLE = False
 
 try:
-    import tokenizers
+    import tokenizers  # type: ignore[import-untyped]
 
     TOKENIZERS_AVAILABLE = True
 except ImportError:
@@ -60,7 +60,7 @@ class MoonshineBackend:
         if not MOONSHINE_AVAILABLE:
             raise RuntimeError("moonshine-onnx not installed: pip install useful-moonshine-onnx")
         self._model_name = model_name
-        self._model: Any = MoonshineOnnxModel(model_name=model_name)  # type: ignore[name-defined]
+        self._model: Any = MoonshineOnnxModel(model_name=model_name)
         logger.info("Moonshine loaded: %s", model_name)
 
     async def transcribe(self, audio_bytes: bytes) -> str:
@@ -112,7 +112,7 @@ class MoonshineBackend:
                 audio_f32 = audio_f32.mean(axis=1)
 
         tokens = self._model.generate(audio_f32[np.newaxis, :])
-        return self._model.tokenizer.decode_batch(tokens)[0].strip()
+        return str(self._model.tokenizer.decode_batch(tokens)[0]).strip()
 
 
 def moonshine_uk_available(onnx_dir: Path | str | None) -> bool:
@@ -148,12 +148,10 @@ class MoonshineUkBackend:
         self._dir = Path(onnx_dir)
         # model_name="base" only selects the decoder layer geometry; the actual
         # weights come from ``models_dir``.
-        self._model: Any = MoonshineOnnxModel(  # type: ignore[name-defined]
+        self._model: Any = MoonshineOnnxModel(
             models_dir=str(self._dir), model_name="base", model_format="onnx"
         )
-        self._tokenizer = tokenizers.Tokenizer.from_file(  # type: ignore[name-defined]
-            str(self._dir / "tokenizer.json")
-        )
+        self._tokenizer = tokenizers.Tokenizer.from_file(str(self._dir / "tokenizer.json"))
         logger.info("Moonshine-uk ONNX loaded from %s", self._dir)
 
     async def transcribe(self, audio_bytes: bytes) -> str:

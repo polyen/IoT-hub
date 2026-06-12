@@ -54,7 +54,7 @@ try:
 
     FASTER_WHISPER_AVAILABLE = True
 except ImportError:
-    WhisperModel = None  # type: ignore[assignment,misc]
+    WhisperModel = None
     FASTER_WHISPER_AVAILABLE = False
 
 try:
@@ -125,7 +125,9 @@ class HailoWhisperBackend:
         self._assets = assets
         self._language = language
 
-        self._tokenizer = AutoTokenizer.from_pretrained(f"openai/whisper-{assets.variant}")
+        self._tokenizer = AutoTokenizer.from_pretrained(  # type: ignore[no-untyped-call]
+            f"openai/whisper-{assets.variant}"
+        )
         sot_id = self._tokenizer.convert_tokens_to_ids(_TOK_SOT)
         lang_id = self._tokenizer.convert_tokens_to_ids(f"<|{language}|>")
         if lang_id is None or lang_id == self._tokenizer.unk_token_id:

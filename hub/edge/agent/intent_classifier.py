@@ -124,7 +124,7 @@ class IntentClassifier:
 
         # fallback: transformers.AutoTokenizer
         try:
-            from transformers import AutoTokenizer
+            from transformers import AutoTokenizer  # type: ignore[import-not-found]
 
             tok = AutoTokenizer.from_pretrained(str(tok_dir))  # type: ignore[no-untyped-call]
             self._tokenizer = ("transformers", tok)

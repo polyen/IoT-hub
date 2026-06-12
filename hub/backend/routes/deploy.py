@@ -136,7 +136,7 @@ async def fetch_from_mlflow(
     POST /api/deploy/{kind}/promote/{version} separately (after shadow testing).
     """
     try:
-        import mlflow  # type: ignore[import]
+        import mlflow
     except ImportError as exc:
         raise HTTPException(status_code=501, detail="mlflow not installed on this host") from exc
 

@@ -184,7 +184,10 @@ class AgentOrchestrator:
         self._policy = policy
         self._router = router
         self._llm = llm
-        self._redis = redis_client
+        # Typed loosely: redis-py's async return annotations (Awaitable[int] | int)
+        # don't satisfy mypy strict at every await site, and the pubsub() helpers
+        # are partly untyped. The client is covered by integration tests.
+        self._redis: Any = redis_client
         self._mqtt = mqtt_client
         self._session_factory = session_factory
         self._max_tool_calls = max_tool_calls_per_turn
@@ -960,9 +963,9 @@ class AgentOrchestrator:
                 try:
                     from hub.backend.models import ConfirmRequest  # noqa: PLC0415
 
-                    req = await session.get(ConfirmRequest, confirm_id)
-                    if req is not None and req.state == "pending":
-                        req.state = "timeout" if not approved else "executed"
+                    existing = await session.get(ConfirmRequest, confirm_id)
+                    if existing is not None and existing.state == "pending":
+                        existing.state = "timeout" if not approved else "executed"
                         await session.commit()
                 except Exception:
                     logger.exception("Failed to update ConfirmRequest %s state", confirm_id)

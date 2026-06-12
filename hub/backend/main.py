@@ -51,7 +51,7 @@ async def _feedback_mining_loop(
     Collects feedback events for *debounce_sec* after the first arrival, then
     fires a single DVC run so rapid user-labelling doesn't spawn concurrent jobs.
     """
-    pubsub = redis.pubsub()
+    pubsub: Any = redis.pubsub()
     await pubsub.subscribe("feedback:new")
     pending = 0
     deadline: float | None = None

@@ -182,17 +182,17 @@ class PolicyEngine:
         except (ValueError, TypeError):
             return True
         if op == "==":
-            return pv == rv
+            return bool(pv == rv)
         if op == "!=":
-            return pv != rv
+            return bool(pv != rv)
         if op == ">":
-            return pv > rv
+            return bool(pv > rv)
         if op == ">=":
-            return pv >= rv
+            return bool(pv >= rv)
         if op == "<":
-            return pv < rv
+            return bool(pv < rv)
         if op == "<=":
-            return pv <= rv
+            return bool(pv <= rv)
         return True
 
     @staticmethod

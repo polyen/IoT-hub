@@ -434,7 +434,8 @@ async def _run_mic_loop(
     redis_client = await aioredis.from_url(redis_url, decode_responses=True)
 
     async def _get_device() -> str | None:
-        return await redis_client.get("audio:input_device")
+        val = await redis_client.get("audio:input_device")
+        return None if val is None else str(val)
 
     try:
         while True:

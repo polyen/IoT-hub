@@ -48,8 +48,8 @@ try:
     HAILO_AVAILABLE = True
 except ImportError:
     HAILO_AVAILABLE = False
-    HailoVDevice = None  # type: ignore[assignment,misc]
-    HailoSchedulingAlgorithm = None  # type: ignore[assignment,misc]
+    HailoVDevice = None
+    HailoSchedulingAlgorithm = None
 
 try:
     from hub.edge.cv.face import (
@@ -436,7 +436,7 @@ class CVPipeline:
 
         if FACE_IMPORT_OK and self.face_hef_path is not None and self.face_hef_path.exists():
             try:
-                old_throttle = {}
+                old_throttle: dict[int, float] = {}
                 face_resolved = (
                     self.face_hef_path.resolve()
                     if self.face_hef_path.is_symlink()
@@ -526,7 +526,7 @@ class CVPipeline:
         if track.track_id in self._t0_saved_tracks:
             return None
         try:
-            import cv2  # type: ignore[import]
+            import cv2
 
             from hub.edge.storage.t0 import write_frame
 

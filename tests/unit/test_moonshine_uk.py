@@ -7,8 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import hub.edge.voice.hailo_whisper as hw
-import hub.edge.voice.moonshine_stt as ms
+# whisper_preprocess (imported transitively by hailo_whisper) needs scipy, which
+# ships only with the optional ``voice`` extra — skip this module on CI's --extra dev.
+pytest.importorskip("scipy")
+
+import hub.edge.voice.hailo_whisper as hw  # noqa: E402
+import hub.edge.voice.moonshine_stt as ms  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # moonshine_uk_available — file/flag gating

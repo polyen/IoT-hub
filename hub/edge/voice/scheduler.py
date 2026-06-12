@@ -35,6 +35,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,12 @@ except ImportError:
     PROM_AVAILABLE = False
 
 if PROM_AVAILABLE:
-    _CONTENTION_COUNTER = Counter(
+    _CONTENTION_COUNTER: Any = Counter(
         "iot_hub_npu_contention_total",
         "Times Whisper had to wait for NPU",
         ["strategy"],
     )
-    _WHISPER_WAIT_HIST = Histogram(
+    _WHISPER_WAIT_HIST: Any = Histogram(
         "iot_hub_npu_whisper_wait_ms",
         "Milliseconds Whisper waited for NPU access",
         ["strategy"],

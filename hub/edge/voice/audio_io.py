@@ -41,7 +41,7 @@ def is_raw_pcm(audio_bytes: bytes) -> bool:
 async def local_mic_stream(device_index: int | None = None) -> AsyncGenerator[bytes, None]:
     """Yield raw 16kHz int16 mono chunks from a local sounddevice input."""
     try:
-        import sounddevice as sd  # type: ignore[import]
+        import sounddevice as sd
     except ImportError as exc:
         raise ImportError("sounddevice not installed") from exc
 
@@ -49,7 +49,7 @@ async def local_mic_stream(device_index: int | None = None) -> AsyncGenerator[by
     queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=64)
 
     def _cb(indata: object, frames: int, time_info: object, status: object) -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))  # type: ignore[arg-type]
+        loop.call_soon_threadsafe(queue.put_nowait, bytes(indata))  # type: ignore[call-overload]
 
     with sd.RawInputStream(
         samplerate=SAMPLE_RATE,
@@ -126,7 +126,7 @@ async def local_speaker_play(audio_pcm: bytes, device_index: int | None = None) 
     """Play raw 16kHz int16 mono PCM through a local sounddevice output."""
     try:
         import numpy as np
-        import sounddevice as sd  # type: ignore[import]
+        import sounddevice as sd
     except ImportError as exc:
         raise ImportError("sounddevice/numpy not installed") from exc
 

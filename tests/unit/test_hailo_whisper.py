@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-import hub.edge.voice.hailo_whisper as hw
+# whisper_preprocess (imported transitively by hailo_whisper) needs scipy, which
+# ships only with the optional ``voice`` extra — skip this module on CI's --extra dev.
+pytest.importorskip("scipy")
+
+import hub.edge.voice.hailo_whisper as hw  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # FasterWhisperBackend defaults

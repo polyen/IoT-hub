@@ -295,7 +295,7 @@ class FaceRecognizer:
         norm = float(np.linalg.norm(emb))
         if norm > 0:
             emb = emb / norm
-        return emb.tolist()
+        return emb.tolist()  # type: ignore[no-any-return]
 
     def _match(self, embedding: list[float]) -> tuple[str, float]:
         """Return (identity, similarity). 'unknown' if best sim < threshold.

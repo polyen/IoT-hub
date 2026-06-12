@@ -218,6 +218,11 @@ module = [
     "hub.edge.cv.face",
     "hub.edge.voice.vad",
     "hub.edge.voice.wake_word",
+    # transformers/tokenizers resolve differently across envs (installed locally,
+    # absent in CI's --extra dev), so the import / from_pretrained ignores below
+    # are used in one env and redundant in the other — don't flag either way.
+    "hub.edge.voice.hailo_whisper",
+    "hub.edge.agent.intent_classifier",
 ]
 warn_unused_ignores = false
 
