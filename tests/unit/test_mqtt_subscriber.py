@@ -79,6 +79,35 @@ async def test_handle_valid_sensors_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_first_event_not_suppressed_on_fresh_boot() -> None:
+    """Regression: a never-seen (room, type_) must persist even when the
+    monotonic clock is near zero (freshly booted host / CI runner).
+
+    With the old ``_seen_events.get(key, 0.0)`` sentinel, the dedup check
+    degenerated to ``monotonic() < TTL`` and silently dropped the very first
+    sensor/fused event of every room+type in the first minute of uptime."""
+    payload: dict[str, Any] = {"tier": 1, "temperature": 21.0}
+    message = _FakeMessage("home/fresh-room/sensors", json.dumps(payload).encode())
+    redis_client = _make_redis()
+
+    mock_session = AsyncMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+    mock_session.add = MagicMock()
+    mock_session.commit = AsyncMock()
+
+    # Simulate a host that booted 5 seconds ago: monotonic() << dedup TTL.
+    with (
+        patch("hub.backend.mqtt_subscriber.AsyncSessionLocal", return_value=mock_session),
+        patch("hub.backend.mqtt_subscriber.time.monotonic", return_value=5.0),
+    ):
+        await _handle(message, redis_client)
+
+    mock_session.add.assert_called_once()
+    mock_session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_handle_invalid_json() -> None:
     message = _FakeMessage("home/kitchen/sensors", b"not-valid-json{{{")
     redis_client = _make_redis()

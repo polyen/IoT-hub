@@ -63,9 +63,8 @@ def train(
 ) -> dict[str, Any]:
     """Fine-tune SetFit and write checkpoint + metadata."""
     try:
-        from setfit import SetFitModel, Trainer, TrainingArguments  # type: ignore[import]
-
         from datasets import Dataset  # type: ignore[import]
+        from setfit import SetFitModel, Trainer, TrainingArguments  # type: ignore[import]
     except ImportError as exc:
         raise ImportError("setfit + datasets not installed. Run: uv sync --extra training") from exc
 

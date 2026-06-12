@@ -237,10 +237,17 @@ async def _persist_event(
 def _is_event_suppressed(room: str | None, type_: str) -> bool:
     """Return True and skip DB write if an identical (room, type_) event was
     persisted within _EVENT_DEDUP_TTL_SEC.  Updates the seen-timestamp on first
-    occurrence so subsequent calls within the window are suppressed."""
+    occurrence so subsequent calls within the window are suppressed.
+
+    A *never-seen* key must never be suppressed.  We use ``None`` (not ``0.0``)
+    as the "absent" sentinel: with a ``0.0`` default the check degenerates to
+    ``time.monotonic() < _EVENT_DEDUP_TTL_SEC``, which is true on a freshly
+    booted host (monotonic clock starts near zero) and would silently drop the
+    first event of every (room, type_) in the first minute of uptime."""
     key = f"{room}/{type_}"
     now = time.monotonic()
-    if now - _seen_events.get(key, 0.0) < _EVENT_DEDUP_TTL_SEC:
+    last = _seen_events.get(key)
+    if last is not None and now - last < _EVENT_DEDUP_TTL_SEC:
         return True
     _seen_events[key] = now
     return False

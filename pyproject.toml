@@ -102,6 +102,13 @@ ignore = ["E501"]  # line length handled by black
 
 [tool.ruff.lint.isort]
 known-first-party = ["hub"]
+# ``training/datasets/`` is a first-party package whose name collides with the
+# PyPI HuggingFace ``datasets``.  Without this, ruff's isort classifies a bare
+# ``import datasets`` as first-party or third-party depending on the local
+# environment (whether the PyPI package is installed), so import ordering passes
+# locally but fails in CI.  Pin the bare name to third-party — the first-party
+# package is always imported as ``training.datasets``.
+known-third-party = ["datasets"]
 
 # ---------------------------------------------------------------------------
 # black
