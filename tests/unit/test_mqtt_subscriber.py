@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import hub.backend.mqtt_subscriber as mqtt_subscriber
 from hub.backend.mqtt_subscriber import MQTT_MSGS, _dead_letter, _handle
 
 
@@ -33,8 +34,15 @@ def _make_redis() -> AsyncMock:
 
 
 @pytest.fixture(autouse=True)
-def _reset_counter() -> None:
-    """Reset Prometheus counter state between tests via labels side-effect isolation."""
+def _reset_dedup_state() -> None:
+    """Clear the module-level dedup caches so tests don't leak event-suppression
+    state into each other.  ``_handle`` routes sensors/fused events through
+    ``_is_event_suppressed``, which records ``{room}/{type_}`` in ``_seen_events``
+    with a 60s TTL; without this reset a prior test publishing the same
+    room+type would cause a later ``_handle`` call to be suppressed (no DB
+    write), making assertions order-dependent."""
+    mqtt_subscriber._seen_events.clear()
+    mqtt_subscriber._seen_tracks.clear()
 
 
 @pytest.mark.asyncio
