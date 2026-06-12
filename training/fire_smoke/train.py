@@ -20,8 +20,9 @@ import sys
 from pathlib import Path
 
 try:
-    import mlflow
     import mlflow.artifacts
+
+    import mlflow
 
     _MLFLOW_AVAILABLE = True
 except ImportError:

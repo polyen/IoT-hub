@@ -26,8 +26,7 @@ def upgrade() -> None:
     # succeeds and the column is added even when the publication can't be created.
     # To activate replication later:
     #   ALTER SYSTEM SET wal_level = 'logical';  -- then restart postgres
-    op.execute(
-        """
+    op.execute("""
         DO $$ BEGIN
             CREATE PUBLICATION events_pub
             FOR TABLE events
@@ -35,8 +34,7 @@ def upgrade() -> None:
         EXCEPTION WHEN OTHERS THEN
             RAISE WARNING 'Skipping publication setup (requires wal_level=logical): %', SQLERRM;
         END $$;
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

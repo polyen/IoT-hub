@@ -14,15 +14,19 @@ repos:
         exclude: "^uv\\.lock$"
       - id: debug-statements
 
+  # Keep these revs in sync with the ruff/black versions pinned in uv.lock —
+  # CI runs `ruff check` + `black --check` at those versions, so an older hook
+  # here will reformat code into a layout CI then rejects (e.g. isort import
+  # ordering flip-flops).  CI does NOT run `ruff format`; black is the formatter
+  # of record, so we don't enable the ruff-format hook (two formatters fight).
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.4
+    rev: v0.15.12
     hooks:
       - id: ruff
         args: ["--fix"]
-      - id: ruff-format
 
   - repo: https://github.com/psf/black
-    rev: 24.4.2
+    rev: 26.3.1
     hooks:
       - id: black
         language_version: python3.11
