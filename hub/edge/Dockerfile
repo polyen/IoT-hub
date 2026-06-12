@@ -6,7 +6,7 @@ WORKDIR /app
 # Non-root user
 RUN useradd --create-home --shell /bin/bash appuser
 
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY hub/ hub/
 
 RUN pip install --no-cache-dir uv && \
