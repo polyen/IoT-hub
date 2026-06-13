@@ -207,6 +207,42 @@ class FaceRecognizer:
         self._exit_stack: Any = None
         self._output_buf: Any = None
 
+    def reload_embeddings(self) -> None:
+        """(Re-)read enrolled templates from ``embeddings.pkl`` into memory.
+
+        Called once from ``load()`` and again whenever the CV pipeline notices
+        the file changed on disk (after ``/api/cv/enroll`` rewrites it). This
+        is the *lightweight* reload path — it does NOT touch the Hailo HEF, so
+        a fresh enrollment takes effect within one poll interval without a
+        VDevice reconfigure or a dropped frame. In prod (CV as a host systemd
+        service, container scaled to 0) the enroll route's ``docker kill
+        SIGHUP cv`` never reaches us, so this on-disk poll is the *only* way a
+        new enrollment is picked up without a full ``systemctl restart``.
+        """
+        if not self._embeddings_path.exists():
+            logger.warning(
+                "No embeddings file at %s — recognition will return 'unknown' only",
+                self._embeddings_path,
+            )
+            self._enrolled = {}
+            return
+        try:
+            with open(self._embeddings_path, "rb") as f:
+                raw = pickle.load(f)  # noqa: S301 — local T0 file
+            self._enrolled = _coerce_to_templates(raw)
+            total_templates = sum(len(v) for v in self._enrolled.values())
+            logger.info(
+                "Loaded %d identities (%d templates total) from %s",
+                len(self._enrolled),
+                total_templates,
+                self._embeddings_path,
+            )
+        except (EOFError, pickle.UnpicklingError):
+            logger.warning(
+                "Embeddings file %s is empty or corrupt — recognition will return 'unknown'",
+                self._embeddings_path,
+            )
+
     def load(self, device: Any = None, scheduled: bool = False) -> None:
         """Open the ArcFace HEF and load enrolled embeddings (if any).
 
@@ -226,28 +262,7 @@ class FaceRecognizer:
             )
         import numpy as np  # type: ignore[import]
 
-        if self._embeddings_path.exists():
-            try:
-                with open(self._embeddings_path, "rb") as f:
-                    raw = pickle.load(f)  # noqa: S301 — local T0 file
-                self._enrolled = _coerce_to_templates(raw)
-                total_templates = sum(len(v) for v in self._enrolled.values())
-                logger.info(
-                    "Loaded %d identities (%d templates total) from %s",
-                    len(self._enrolled),
-                    total_templates,
-                    self._embeddings_path,
-                )
-            except (EOFError, pickle.UnpicklingError):
-                logger.warning(
-                    "Embeddings file %s is empty or corrupt — recognition will return 'unknown'",
-                    self._embeddings_path,
-                )
-        else:
-            logger.warning(
-                "No embeddings file at %s — recognition will return 'unknown' only",
-                self._embeddings_path,
-            )
+        self.reload_embeddings()
 
         self._owns_device = device is None
         self._device = VDevice() if device is None else device

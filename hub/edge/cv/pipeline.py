@@ -313,6 +313,8 @@ class CVPipeline:
         room: str,
         target_fps: int = 15,
         confidence_threshold: float = 0.5,
+        class_thresholds: dict[int, float] | None = None,
+        track_buffer: int = 30,
         face_hef_path: Path | None = None,
         face_embeddings_path: Path | None = None,
         backend_url: str = "http://localhost:8000",
@@ -334,12 +336,17 @@ class CVPipeline:
         self.redis_url = redis_url
         self.target_fps = target_fps
         self.confidence_threshold = confidence_threshold
+        self.class_thresholds = class_thresholds
+        # Larger track_buffer bridges brief detection gaps so a momentarily
+        # undetected person keeps the same track_id instead of being re-IDed —
+        # the dominant source of duplicate camera/identity events.
+        self.track_buffer = track_buffer
 
         self._hailo_device: Any = None  # shared VDevice across all Hailo models
         self._detector: HailoDetector | None = None
         self._pose: PoseEstimator | None = None
         self._face: FaceRecognizer | None = None
-        self._tracker = ObjectTracker()
+        self._tracker = ObjectTracker(max_lost_frames=track_buffer)
         self._fall = FallDetector()
         self._kps_ema: dict[int, list[tuple[float, float, float]]] = {}
         self._reload_requested = False
@@ -352,6 +359,10 @@ class CVPipeline:
         # Fingerprint of the active model symlinks; refreshed on every
         # _load_models() and polled in run() to self-trigger reloads.
         self._model_sig: tuple[Any, ...] = ()
+        # Separate fingerprint for embeddings.pkl — enrollment rewrites it
+        # out-of-band and needs a *lightweight* reload (no HEF reconfigure),
+        # so it is polled and applied independently of the HEF symlinks.
+        self._embeddings_sig: Any = None
         self._last_model_check = 0.0
         # Track IDs for which a T0 frame has already been saved this session.
         # Fire/smoke tracks are saved once on first appearance; no re-saves for
@@ -413,7 +424,9 @@ class CVPipeline:
 
         resolved = self.hef_path.resolve() if self.hef_path.is_symlink() else self.hef_path
         _scheduled = self._hailo_device is not None
-        self._detector = HailoDetector(resolved, self.confidence_threshold)
+        self._detector = HailoDetector(
+            resolved, self.confidence_threshold, class_thresholds=self.class_thresholds
+        )
         self._detector.load(device=self._hailo_device, scheduled=_scheduled)
         logger.info("Loaded detector HEF: %s", resolved)
 
@@ -459,6 +472,10 @@ class CVPipeline:
             self._face = None
 
         self._model_sig = self._model_signature()
+        # _load_models() already read the current embeddings.pkl via
+        # FaceRecognizer.load(); record its fingerprint so the poll loop only
+        # fires the lightweight reload on a *subsequent* change.
+        self._embeddings_sig = self._embeddings_signature()
 
     def _model_signature(self) -> tuple[Any, ...]:
         """Cheap fingerprint of the active model symlinks.
@@ -479,6 +496,21 @@ class CVPipeline:
             except OSError:
                 sig.append(None)
         return tuple(sig)
+
+    def _embeddings_signature(self) -> Any:
+        """Fingerprint of embeddings.pkl, or None when unset/missing.
+
+        Changes whenever ``/api/cv/enroll`` atomically replaces the file, so
+        the poll loop can hot-reload templates without a HEF reconfigure.
+        """
+        p = self.face_embeddings_path
+        if p is None:
+            return None
+        try:
+            st = p.stat()
+            return (st.st_ino, int(st.st_mtime), st.st_size)
+        except OSError:
+            return None
 
     def request_reload(self) -> None:
         """Set the reload flag — picked up at the start of the next frame."""
@@ -730,6 +762,16 @@ class CVPipeline:
                                 if sig != self._model_sig:
                                     logger.info("Model symlink change detected — reload queued")
                                     self._reload_requested = True
+                                # Embeddings change → lightweight reload of the
+                                # enrolled templates only (no HEF reconfigure).
+                                # This is how a fresh /api/cv/enroll takes effect
+                                # on the host-systemd CV, where SIGHUP can't land.
+                                emb_sig = self._embeddings_signature()
+                                if emb_sig != self._embeddings_sig:
+                                    self._embeddings_sig = emb_sig
+                                    if self._face is not None:
+                                        logger.info("embeddings.pkl change detected — reloading")
+                                        self._face.reload_embeddings()
 
                             if self._reload_requested:
                                 try:
@@ -836,6 +878,8 @@ async def run_pipeline_with_fusion(
     room: str,
     target_fps: int = 15,
     confidence_threshold: float = 0.5,
+    class_thresholds: dict[int, float] | None = None,
+    track_buffer: int = 30,
     enable_fusion: bool = True,
     face_hef_path: Path | None = None,
     face_embeddings_path: Path | None = None,
@@ -856,6 +900,8 @@ async def run_pipeline_with_fusion(
         room=room,
         target_fps=target_fps,
         confidence_threshold=confidence_threshold,
+        class_thresholds=class_thresholds,
+        track_buffer=track_buffer,
         face_hef_path=face_hef_path,
         face_embeddings_path=face_embeddings_path,
         backend_url=backend_url,
@@ -935,6 +981,10 @@ if __name__ == "__main__":
     pose_path_env = os.environ.get("POSE_HEF_PATH")
     face_path_env = os.environ.get("FACE_HEF_PATH")
     face_emb_env = os.environ.get("FACE_EMBEDDINGS_PATH")
+    # Global floor (fire/smoke) and a lower per-class floor for person — see
+    # HailoDetector._class_thresholds for why person needs a lower bar.
+    conf_threshold = float(os.environ.get("CONF_THRESHOLD", "0.5"))
+    person_conf = float(os.environ.get("CONF_THRESHOLD_PERSON", "0.35"))
     asyncio.run(
         run_pipeline_with_fusion(
             rtsp_url=os.environ["RTSP_URL"],
@@ -950,6 +1000,9 @@ if __name__ == "__main__":
             backend_url=os.environ.get("BACKEND_URL", "http://localhost:8000"),
             redis_url=os.environ.get("REDIS_URL", "redis://redis:6379"),
             target_fps=int(os.environ.get("TARGET_FPS", "15")),
+            confidence_threshold=conf_threshold,
+            class_thresholds={0: person_conf},
+            track_buffer=int(os.environ.get("TRACK_BUFFER", "45")),
             enable_fusion=os.environ.get("ENABLE_FUSION", "true").lower() == "true",
         )
     )

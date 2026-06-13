@@ -160,6 +160,7 @@ class HailoDetector:
         hef_path: Path,
         confidence_threshold: float = 0.5,
         nms_free: bool = False,
+        class_thresholds: dict[int, float] | None = None,
     ) -> None:
         if not HAILO_AVAILABLE:
             raise ImportError(
@@ -168,6 +169,15 @@ class HailoDetector:
             )
         self._hef_path = hef_path
         self._confidence_threshold = confidence_threshold
+        # Per-class confidence floors. ``person`` (class 0) is kept lower than
+        # fire/smoke: at surveillance distance the quantised YOLO26n score
+        # hovers right at 0.5, so a single 0.5 floor makes the person bbox
+        # flicker frame-to-frame (drops below 0.5 → track lost → new track_id →
+        # duplicate identity events). A lower person floor keeps the detection
+        # continuous so the track — and the identity — stays stable. fire/smoke
+        # stay at the global floor to avoid extra false alarms. Classes absent
+        # from this map fall back to ``confidence_threshold``.
+        self._class_thresholds: dict[int, float] = class_thresholds or {}
         # YOLO26's one2one head deduplicates predictions on-device; with
         # nms_free=True the CPU-side NMS in _postprocess is skipped.
         self._nms_free = nms_free
@@ -316,7 +326,16 @@ class HailoDetector:
         class_ids = np.argmax(cls, axis=1)
         confidences = cls[np.arange(len(class_ids)), class_ids]
 
-        mask = confidences >= self._confidence_threshold
+        # Per-detection threshold: a per-class floor when set, else the global
+        # one. Vectorised so the mask stays a single numpy comparison.
+        if self._class_thresholds:
+            thresholds = np.array(
+                [self._class_thresholds.get(int(c), self._confidence_threshold) for c in class_ids],
+                dtype=confidences.dtype,
+            )
+            mask = confidences >= thresholds
+        else:
+            mask = confidences >= self._confidence_threshold
         if not mask.any():
             return []
 

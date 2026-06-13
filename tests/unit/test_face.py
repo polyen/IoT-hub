@@ -321,3 +321,53 @@ def test_samples_save_load_roundtrip(tmp_path: Path) -> None:
     assert not (target.parent / "samples.npz.tmp.npz").exists()
     loaded = _load_samples(target)
     np.testing.assert_array_equal(loaded, arr)
+
+
+# --- Embeddings hot-reload (enrollment without restart) ---------------------
+
+
+def _write_pkl(path: Path, payload: dict[str, list[list[float]]]) -> None:
+    import pickle
+
+    with open(path, "wb") as f:
+        pickle.dump(payload, f)
+
+
+def test_reload_embeddings_reads_file(tmp_path: Path) -> None:
+    """reload_embeddings() populates _enrolled from embeddings.pkl on disk."""
+    pkl = tmp_path / "embeddings.pkl"
+    _write_pkl(pkl, {"vlad": [_unit(1.0, 0.0)]})
+    r = FaceRecognizer(Path("/nonexistent.hef"), embeddings_path=pkl)
+
+    r.reload_embeddings()
+    assert set(r._enrolled) == {"vlad"}
+
+
+def test_reload_embeddings_picks_up_rewrite(tmp_path: Path) -> None:
+    """Regression: a fresh enrollment rewriting embeddings.pkl must be reflected
+    on the next reload — the bug where SIGHUP can't reach the host-systemd CV so
+    new enrollments were never recognized until a full restart."""
+    pkl = tmp_path / "embeddings.pkl"
+    _write_pkl(pkl, {})
+    r = FaceRecognizer(Path("/nonexistent.hef"), embeddings_path=pkl)
+    r.reload_embeddings()
+    assert r._enrolled == {}
+
+    # Simulate /api/cv/enroll rewriting the file, then the poll-loop reload.
+    _write_pkl(pkl, {"vlad": [_unit(1.0, 0.0), _unit(0.0, 1.0)]})
+    r.reload_embeddings()
+    assert set(r._enrolled) == {"vlad"}
+    assert len(r._enrolled["vlad"]) == 2
+
+
+def test_reload_embeddings_missing_file_clears(tmp_path: Path) -> None:
+    """A deleted embeddings.pkl resets _enrolled to empty (delete-enrollment)."""
+    pkl = tmp_path / "embeddings.pkl"
+    _write_pkl(pkl, {"vlad": [_unit(1.0, 0.0)]})
+    r = FaceRecognizer(Path("/nonexistent.hef"), embeddings_path=pkl)
+    r.reload_embeddings()
+    assert set(r._enrolled) == {"vlad"}
+
+    pkl.unlink()
+    r.reload_embeddings()
+    assert r._enrolled == {}
