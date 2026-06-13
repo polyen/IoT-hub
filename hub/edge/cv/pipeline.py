@@ -273,6 +273,17 @@ ENROLL_BUFFER_TTL_SEC = 90
 # — so a single track yields one event per stable identity, not one per second.
 IDENTITY_VOTE_WINDOW = 7
 
+# Hysteresis band for the known/uncertain tier decision. The vote above damps
+# *which name* wins, but the confidence tier (Vlad vs Vlad?) was decided by a
+# single threshold (COSINE_KNOWN_THRESHOLD=0.6), so a track whose mean_sim sits
+# right at ~0.6 flaps Vlad↔Vlad? every frame and floods camera/identity even
+# though the person never changed. With hysteresis a tier upgrades at the
+# *enter* threshold (0.6 known / 0.4 uncertain) but only downgrades once sim
+# falls below a lower *exit* threshold — so a borderline-confidence track
+# resolves to one stable label instead of toggling. Cleared on track loss.
+IDENTITY_KNOWN_EXIT = 0.55
+IDENTITY_UNCERTAIN_EXIT = 0.35
+
 
 def _fetch_pipeline_config(backend_url: str) -> dict[str, Any] | None:
     """Blocking GET of the CV pipeline config from the backend.
@@ -374,6 +385,10 @@ class CVPipeline:
         # change (see IDENTITY_VOTE_WINDOW). Both are cleared on track loss.
         self._identity_votes: dict[int, deque[tuple[str, float]]] = {}
         self._published_identity: dict[int, str] = {}
+        # Per-track (winner, tier) for the hysteresis above — remembers whether
+        # the track is currently resolved as known/uncertain/unknown so a
+        # borderline sim doesn't flip the published label every frame.
+        self._identity_tier: dict[int, tuple[str, str]] = {}
         self._redis: Any = None  # set in run() if redis package available
 
     def _load_models(self) -> None:
@@ -637,10 +652,11 @@ class CVPipeline:
 
         Appends the latest match to the track's rolling vote window, then picks
         the enrolled name with the highest summed cosine similarity across the
-        window. The winner's *mean* similarity decides confidence: ``>= known``
-        emits the bare name, ``>= unknown`` appends ``"?"`` (UI shows amber),
-        otherwise the track resolves to ``"unknown"``. Voting damps the
-        single-frame flapping that ArcFace produces at surveillance distance.
+        window. The winner's *mean* similarity decides confidence via
+        ``_resolve_tier`` (hysteresis): ``known`` emits the bare name,
+        ``uncertain`` appends ``"?"`` (UI shows amber), else ``"unknown"``.
+        Voting damps which name wins; the tier hysteresis stops the bare-name↔?
+        toggling a borderline sim would otherwise cause.
         """
         base = result.identity[:-1] if result.identity.endswith("?") else result.identity
         window = self._identity_votes.setdefault(
@@ -660,11 +676,40 @@ class CVPipeline:
 
         winner = max(sums, key=lambda n: sums[n])
         mean_sim = sums[winner] / counts[winner]
-        if mean_sim >= COSINE_KNOWN_THRESHOLD:
+        tier = self._resolve_tier(result.track_id, winner, mean_sim)
+        if tier == "known":
             return winner, mean_sim
-        if mean_sim >= COSINE_UNKNOWN_THRESHOLD:
+        if tier == "uncertain":
             return f"{winner}?", mean_sim
         return "unknown", mean_sim
+
+    def _resolve_tier(self, track_id: int, winner: str, mean_sim: float) -> str:
+        """Map mean_sim → known/uncertain/unknown with per-track hysteresis.
+
+        The tier only *upgrades* when sim reaches the enter threshold but
+        *downgrades* only once sim drops below the lower exit threshold, so a
+        borderline track stops toggling Vlad↔Vlad?. Hysteresis is reset when the
+        winning name changes (a genuinely new identity gets no sticky carryover).
+        """
+        prev_winner, prev_tier = self._identity_tier.get(track_id, ("", "unknown"))
+        if winner != prev_winner:
+            prev_tier = "unknown"
+
+        if prev_tier == "known":
+            known_floor, uncertain_floor = IDENTITY_KNOWN_EXIT, COSINE_UNKNOWN_THRESHOLD
+        elif prev_tier == "uncertain":
+            known_floor, uncertain_floor = COSINE_KNOWN_THRESHOLD, IDENTITY_UNCERTAIN_EXIT
+        else:  # unknown — must clear the full enter thresholds to climb
+            known_floor, uncertain_floor = COSINE_KNOWN_THRESHOLD, COSINE_UNKNOWN_THRESHOLD
+
+        if mean_sim >= known_floor:
+            tier = "known"
+        elif mean_sim >= uncertain_floor:
+            tier = "uncertain"
+        else:
+            tier = "unknown"
+        self._identity_tier[track_id] = (winner, tier)
+        return tier
 
     async def _maybe_run_fall(self, frame: Any, track: Track, mqtt: Any) -> Keypoints | None:
         """Run pose + fall_rule on a person track; publish alert if triggered.
@@ -833,6 +878,7 @@ class CVPipeline:
                                 self._t0_saved_tracks.discard(lost_id)
                                 self._identity_votes.pop(lost_id, None)
                                 self._published_identity.pop(lost_id, None)
+                                self._identity_tier.pop(lost_id, None)
                             self._active_track_ids = current_ids
 
                             # One camera/event per frame carrying every
