@@ -62,8 +62,8 @@ try:
 except ImportError:
     FACE_IMPORT_OK = False
     FaceRecognizer = None  # type: ignore[assignment,misc]
-    COSINE_KNOWN_THRESHOLD = 0.6
-    COSINE_UNKNOWN_THRESHOLD = 0.4
+    COSINE_KNOWN_THRESHOLD = 0.65
+    COSINE_UNKNOWN_THRESHOLD = 0.45
 
 logger = logging.getLogger(__name__)
 
@@ -281,8 +281,12 @@ IDENTITY_VOTE_WINDOW = 7
 # *enter* threshold (0.6 known / 0.4 uncertain) but only downgrades once sim
 # falls below a lower *exit* threshold — so a borderline-confidence track
 # resolves to one stable label instead of toggling. Cleared on track loss.
-IDENTITY_KNOWN_EXIT = 0.55
-IDENTITY_UNCERTAIN_EXIT = 0.35
+# Derived from the (env-tunable) cosine thresholds so the band tracks any
+# threshold change: enter known at COSINE_KNOWN_THRESHOLD, drop out only once
+# sim falls a full band below it.
+IDENTITY_HYSTERESIS_BAND = 0.05
+IDENTITY_KNOWN_EXIT = COSINE_KNOWN_THRESHOLD - IDENTITY_HYSTERESIS_BAND
+IDENTITY_UNCERTAIN_EXIT = COSINE_UNKNOWN_THRESHOLD - IDENTITY_HYSTERESIS_BAND
 
 
 def _fetch_pipeline_config(backend_url: str) -> dict[str, Any] | None:

@@ -54,6 +54,17 @@ _seen_tracks: dict[str, dict[Any, float]] = {}
 _EVENT_DEDUP_TTL_SEC = 60.0
 _seen_events: dict[str, float] = {}
 
+# Per-room {track_id: (base_name, confident, last-seen ts)} for camera/identity.
+# The CV side already smooths its publishes, but it emits once per *resolved
+# label change*, and a new track_id (or a Vlad↔Vlad? upgrade) is a change — so
+# without this the events feed gets one identity row per change instead of one
+# per person per appearance. We persist a row only on a NEW base identity for a
+# track, plus one "?"→confident upgrade, mirroring _seen_tracks for camera/event.
+# Entry TTL keeps a continuously-present person from re-emitting; once they leave
+# and the entry expires, a fresh appearance persists again.
+_IDENTITY_PERSIST_TTL_SEC = 300.0
+_persisted_identities: dict[str, dict[Any, tuple[str, bool, float]]] = {}
+
 
 async def run(redis_client: _RedisClient) -> None:
     while True:
@@ -272,6 +283,30 @@ def _new_tracks(room: str, dets: list[Any]) -> list[dict[str, Any]]:
     return new
 
 
+def _should_persist_identity(room: str, track_id: Any, identity: str) -> bool:
+    """One identity row per (track, person) — dedup base name, allow one upgrade.
+
+    Persists when: the track is new, OR its base identity changed, OR it upgrades
+    from uncertain ("Vlad?") to confident ("Vlad"). A confident match is "sticky"
+    so a later dip back to "Vlad?" doesn't re-emit. Mirrors ``_new_tracks``.
+    """
+    base = identity[:-1] if identity.endswith("?") else identity
+    confident = not identity.endswith("?")
+    now = time.monotonic()
+    seen = _persisted_identities.setdefault(room, {})
+    for tid in [t for t, (_, _, ts) in seen.items() if now - ts > _IDENTITY_PERSIST_TTL_SEC]:
+        del seen[tid]
+
+    prev = seen.get(track_id)
+    sticky_confident = confident or (prev is not None and prev[0] == base and prev[1])
+    seen[track_id] = (base, sticky_confident, now)
+
+    if prev is None or prev[0] != base:
+        return True
+    # Same base: emit only on the uncertain → confident upgrade (once).
+    return confident and not prev[1]
+
+
 async def _handle_identity_event(
     redis_client: _RedisClient,
     room: str | None,
@@ -290,8 +325,10 @@ async def _handle_identity_event(
         if isinstance(result, Awaitable):
             await result
 
-    # Don't persist pure-unknown hits — they're too noisy and carry no information.
-    if identity != "unknown":
+    # Don't persist pure-unknown hits — they're too noisy and carry no
+    # information. For named hits, persist one row per (track, person) so the
+    # events feed shows one entry per appearance, not one per frame/relabel.
+    if identity != "unknown" and _should_persist_identity(room, track_id, identity):
         await _persist_event(redis_client, room, "camera/identity", tier, payload)
 
 

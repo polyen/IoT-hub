@@ -22,6 +22,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
+import os
 import pickle
 import time
 from dataclasses import dataclass
@@ -38,9 +39,22 @@ except ImportError:
     HAILO_AVAILABLE = False
 
 # ArcFace decision thresholds (cosine similarity, range [-1, 1]).
-# Tuned to be conservative — only confident matches are emitted as "known".
-COSINE_KNOWN_THRESHOLD = 0.6
-COSINE_UNKNOWN_THRESHOLD = 0.4
+# Conservative by design — only confident matches are emitted as "known". The
+# defaults sit higher than the naive 0.6 because at surveillance distance the
+# intra-person and inter-person cosine distributions overlap around 0.6, which
+# is what produced confident *false* matches (e.g. "Anita" at 0.65 on a Vlad
+# track). Both are env-tunable (mirrors Frigate's recognition_threshold /
+# unknown_score) so they can be calibrated against a given enrollment gallery.
+COSINE_KNOWN_THRESHOLD = float(os.environ.get("FACE_KNOWN_THRESHOLD", "0.65"))
+COSINE_UNKNOWN_THRESHOLD = float(os.environ.get("FACE_UNKNOWN_THRESHOLD", "0.45"))
+
+# Input gating before ArcFace runs (cheaper + reduces borderline ~0.5 sims that
+# flap). A face crop must be at least this many pixels and sharp enough; distant
+# or motion-blurred crops are skipped entirely rather than fed to recognition.
+# Mirrors Frigate's min_area + blur_confidence_filter. Blur uses the variance of
+# the Laplacian; set FACE_BLUR_VAR_MIN=0 to disable the blur gate.
+FACE_MIN_CROP_AREA_PX = int(os.environ.get("FACE_MIN_CROP_AREA_PX", "2500"))  # ~50×50
+FACE_BLUR_VAR_MIN = float(os.environ.get("FACE_BLUR_VAR_MIN", "40.0"))
 
 # Heuristic head/face box inside a person bbox when pose keypoints aren't
 # available. Surveys of standing-figure crops suggest the head occupies the
@@ -152,6 +166,32 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(x * x for x in b))
     return dot / (na * nb + 1e-8) if na > 0 and nb > 0 else 0.0
+
+
+def _crop_quality_ok(crop: Any) -> bool:
+    """Reject face crops too small or too blurry to recognize reliably.
+
+    Distant (small) or motion-blurred crops yield borderline ~0.5 cosine sims
+    that flap between names and flood camera/identity. Skipping them at the
+    source keeps only confident, stable matches — Frigate does the same with
+    ``min_area`` + ``blur_confidence_filter``. Area is gated unconditionally;
+    the blur gate degrades gracefully if OpenCV isn't importable.
+    """
+    try:
+        h, w = crop.shape[:2]
+    except (AttributeError, ValueError):
+        return True  # unknown shape — don't block (defensive)
+    if h * w < FACE_MIN_CROP_AREA_PX:
+        return False
+    if FACE_BLUR_VAR_MIN <= 0:
+        return True
+    try:
+        import cv2  # type: ignore[import]
+
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if crop.ndim == 3 else crop
+        return bool(cv2.Laplacian(gray, cv2.CV_64F).var() >= FACE_BLUR_VAR_MIN)
+    except Exception:  # noqa: BLE001 — never let the blur gate break recognition
+        return True
 
 
 def _coerce_to_templates(raw: Any) -> dict[str, list[list[float]]]:
@@ -371,7 +411,7 @@ class FaceRecognizer:
             crop = crop_face_from_keypoints(frame, keypoints, person_bbox)
         else:
             crop = crop_face_from_bbox(frame, person_bbox)
-        if crop is None:
+        if crop is None or not _crop_quality_ok(crop):
             return None
 
         try:

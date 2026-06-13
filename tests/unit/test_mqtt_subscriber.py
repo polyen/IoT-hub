@@ -43,6 +43,7 @@ def _reset_dedup_state() -> None:
     write), making assertions order-dependent."""
     mqtt_subscriber._seen_events.clear()
     mqtt_subscriber._seen_tracks.clear()
+    mqtt_subscriber._persisted_identities.clear()
 
 
 @pytest.mark.asyncio
@@ -190,3 +191,40 @@ def _get_counter_value(topic: str, status: str) -> float:
         return MQTT_MSGS.labels(topic=topic, status=status)._value.get()
     except Exception:
         return 0.0
+
+
+# --- Identity persist dedup (one feed row per appearance) --------------------
+
+from hub.backend.mqtt_subscriber import _should_persist_identity  # noqa: E402
+
+
+def test_identity_persist_first_then_suppressed() -> None:
+    """First sighting of a track persists; repeats of the same name are dropped."""
+    assert _should_persist_identity("r", 1, "Vlad") is True
+    assert _should_persist_identity("r", 1, "Vlad") is False
+    assert _should_persist_identity("r", 1, "Vlad") is False
+
+
+def test_identity_persist_uncertain_then_upgrade_once() -> None:
+    """A 'Vlad?'→'Vlad' upgrade persists once; further 'Vlad' are suppressed and a
+    later dip back to 'Vlad?' does not re-emit (confident is sticky)."""
+    assert _should_persist_identity("r", 1, "Vlad?") is True  # first sighting
+    assert _should_persist_identity("r", 1, "Vlad?") is False  # same uncertain
+    assert _should_persist_identity("r", 1, "Vlad") is True  # upgrade
+    assert _should_persist_identity("r", 1, "Vlad") is False  # already confident
+    assert _should_persist_identity("r", 1, "Vlad?") is False  # sticky, no re-emit
+
+
+def test_identity_persist_base_name_change_emits() -> None:
+    """A genuinely different identity on the same track is a new feed row."""
+    assert _should_persist_identity("r", 1, "Vlad") is True
+    assert _should_persist_identity("r", 1, "Anita") is True
+    assert _should_persist_identity("r", 1, "Anita") is False
+
+
+def test_identity_persist_per_track_and_room() -> None:
+    """Dedup is scoped per (room, track_id) — different tracks/rooms are independent."""
+    assert _should_persist_identity("r", 1, "Vlad") is True
+    assert _should_persist_identity("r", 2, "Vlad") is True  # different track
+    assert _should_persist_identity("other", 1, "Vlad") is True  # different room
+    assert _should_persist_identity("r", 1, "Vlad") is False
