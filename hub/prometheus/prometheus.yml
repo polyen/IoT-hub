@@ -28,6 +28,12 @@ scrape_configs:
       - targets: ["node-exporter:9100"]
 
   - job_name: cv_pipeline
+    # CV serves Prometheus metrics on :8002 (METRICS_PORT default), NOT :8001
+    # (that's the LLM service). In prod CV runs as a host systemd service (the
+    # `cv` container is scaled to 0), so the Docker DNS name `cv` does not
+    # resolve — scrape the host instead via host.docker.internal. This also
+    # works for a dev/container CV, which publishes 8002 to the host. Requires
+    # `extra_hosts: host.docker.internal:host-gateway` on the prometheus service.
     static_configs:
-      - targets: ["cv:8001"]
+      - targets: ["host.docker.internal:8002"]
     metrics_path: /metrics

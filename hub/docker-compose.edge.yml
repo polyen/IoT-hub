@@ -162,6 +162,10 @@ services:
       - "--storage.tsdb.retention.time=30d"
     ports:
       - "9090:9090"
+    # Lets the cv_pipeline scrape job reach the host (CV runs as a host systemd
+    # service on :8002, not as a container) via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - iot-internal
 
