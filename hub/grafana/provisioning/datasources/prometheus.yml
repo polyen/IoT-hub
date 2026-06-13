@@ -2,6 +2,12 @@ apiVersion: 1
 datasources:
   - name: Prometheus
     type: prometheus
+    # Fixed uid so dashboards can reference it by a stable id. Without this
+    # Grafana assigns a random uid, and the shadow_vs_active dashboard (which
+    # hard-codes `uid: prometheus`) can't find the datasource → all its panels
+    # render empty. system-overview uses a `${DS_PROMETHEUS}` input that binds
+    # to the default datasource, so it worked regardless.
+    uid: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true

@@ -37,3 +37,13 @@ scrape_configs:
     static_configs:
       - targets: ["host.docker.internal:8002"]
     metrics_path: /metrics
+
+  - job_name: cv_shadow
+    # The shadow CV runner (hub.edge.mlops.shadow_runner) emits iot_hub_shadow_*
+    # on :8003. It is launched on the host on-demand during a canary/shadow
+    # evaluation of a candidate model, so this target is DOWN (no series) unless
+    # a shadow run is active — that is expected. Feeds the Shadow vs Active
+    # dashboard. Same host-scrape rationale as cv_pipeline.
+    static_configs:
+      - targets: ["host.docker.internal:8003"]
+    metrics_path: /metrics
