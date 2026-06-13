@@ -205,9 +205,21 @@ def test_identity_persist_first_then_suppressed() -> None:
     assert _should_persist_identity("r", 1, "Vlad") is False
 
 
-def test_identity_persist_uncertain_then_upgrade_once() -> None:
-    """A 'Vlad?'→'Vlad' upgrade persists once; further 'Vlad' are suppressed and a
-    later dip back to 'Vlad?' does not re-emit (confident is sticky)."""
+def test_identity_persist_uncertain_suppressed_by_default() -> None:
+    """Uncertain '?' matches are per-frame noise and never reach the feed by
+    default; the first *confident* match persists once."""
+    assert _should_persist_identity("r", 1, "Vlad?") is False
+    assert _should_persist_identity("r", 1, "mark?") is False
+    assert _should_persist_identity("r", 1, "Anita?") is False
+    # The one confident hit is the first feed row for this track.
+    assert _should_persist_identity("r", 1, "Vlad") is True
+    assert _should_persist_identity("r", 1, "Vlad") is False
+
+
+def test_identity_persist_uncertain_when_opted_in(monkeypatch: Any) -> None:
+    """With PERSIST_UNCERTAIN_IDENTITY enabled, the old '?'→confident upgrade
+    behaviour returns (first sighting + one upgrade, then suppressed)."""
+    monkeypatch.setattr(mqtt_subscriber, "_PERSIST_UNCERTAIN_IDENTITY", True)
     assert _should_persist_identity("r", 1, "Vlad?") is True  # first sighting
     assert _should_persist_identity("r", 1, "Vlad?") is False  # same uncertain
     assert _should_persist_identity("r", 1, "Vlad") is True  # upgrade

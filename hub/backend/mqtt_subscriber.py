@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from collections.abc import Awaitable
 from datetime import UTC, datetime
@@ -64,6 +65,17 @@ _seen_events: dict[str, float] = {}
 # and the entry expires, a fresh appearance persists again.
 _IDENTITY_PERSIST_TTL_SEC = 300.0
 _persisted_identities: dict[str, dict[Any, tuple[str, bool, float]]] = {}
+
+# Uncertain ("Vlad?") matches are noise in the persisted feed: at surveillance
+# distance the per-frame winner flaps between *different* enrolled names
+# (Vlad?→mark?→Anita?→…) at borderline sims, so each is a new base name and
+# defeats name-based dedup. Best practice (à la Frigate) is to surface a named
+# event only when the recognition is *confident* — the "?" tier stays in Redis
+# for the live amber overlay but never becomes a feed row. Set
+# PERSIST_UNCERTAIN_IDENTITY=true to restore the old behaviour.
+_PERSIST_UNCERTAIN_IDENTITY = (
+    os.environ.get("PERSIST_UNCERTAIN_IDENTITY", "false").lower() == "true"
+)
 
 
 async def run(redis_client: _RedisClient) -> None:
@@ -290,8 +302,13 @@ def _should_persist_identity(room: str, track_id: Any, identity: str) -> bool:
     from uncertain ("Vlad?") to confident ("Vlad"). A confident match is "sticky"
     so a later dip back to "Vlad?" doesn't re-emit. Mirrors ``_new_tracks``.
     """
-    base = identity[:-1] if identity.endswith("?") else identity
     confident = not identity.endswith("?")
+    # Uncertain matches don't reach the feed (and don't disturb dedup state) —
+    # they're per-frame noise that flaps between names. Overlay still gets them
+    # via the Redis cache written in _handle_identity_event.
+    if not confident and not _PERSIST_UNCERTAIN_IDENTITY:
+        return False
+    base = identity[:-1] if identity.endswith("?") else identity
     now = time.monotonic()
     seen = _persisted_identities.setdefault(room, {})
     for tid in [t for t, (_, _, ts) in seen.items() if now - ts > _IDENTITY_PERSIST_TTL_SEC]:
