@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Event } from "../types";
+import type { HubEvent } from "../lib/types";
 import { api } from "../lib/api";
 
 const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/events`;
@@ -8,12 +8,12 @@ const WS_URL = `${location.protocol === "https:" ? "wss" : "ws"}://${location.ho
 const REPLAY_WINDOW_MS = 2000;
 
 export function useWebSocket(): {
-  events: Event[];
+  events: HubEvent[];
   connected: boolean;
   missedCount: number;
   clearMissed: () => void;
 } {
-  const [events, setEvents] = useState<Event[]>([]);
+  const [events, setHubEvents] = useState<HubEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [missedCount, setMissedCount] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -62,7 +62,7 @@ export function useWebSocket(): {
 
       ws.onmessage = (e) => {
         try {
-          const event: Event = JSON.parse(e.data as string);
+          const event: HubEvent = JSON.parse(e.data as string);
           // ignore ping frames which don't have a proper id
           if (!event.id) return;
           lastIdRef.current = event.id;
@@ -71,7 +71,7 @@ export function useWebSocket(): {
             replayCountRef.current += 1;
           }
 
-          setEvents((prev) => [event, ...prev].slice(0, 200));
+          setHubEvents((prev) => [event, ...prev].slice(0, 200));
           saveToIDB(event);
         } catch {
           /* ignore malformed */
@@ -82,15 +82,15 @@ export function useWebSocket(): {
     // Load seed data: merge IDB cache + REST API (REST wins on id collisions).
     Promise.all([
       loadFromIDB(),
-      api.get<Event[]>("/api/events?limit=100", true).catch(() => [] as Event[]),
+      api.get<HubEvent[]>("/api/events?limit=100", true).catch(() => [] as HubEvent[]),
     ]).then(([cached, fetched]) => {
-      const byId = new Map<string, Event>();
+      const byId = new Map<string, HubEvent>();
       for (const e of cached) byId.set(e.id, e);
       for (const e of fetched) byId.set(e.id, e);
       const merged = [...byId.values()].sort((a, b) =>
         b.timestamp.localeCompare(a.timestamp),
       );
-      if (merged.length) setEvents(merged);
+      if (merged.length) setHubEvents(merged);
     });
     connect();
 
@@ -113,19 +113,19 @@ async function openDB(): Promise<IDBDatabase> {
   });
 }
 
-async function saveToIDB(event: Event): Promise<void> {
+async function saveToIDB(event: HubEvent): Promise<void> {
   const db = await openDB();
   const tx = db.transaction("events", "readwrite");
   tx.objectStore("events").put(event);
 }
 
-async function loadFromIDB(): Promise<Event[]> {
+async function loadFromIDB(): Promise<HubEvent[]> {
   const db = await openDB();
   return new Promise((resolve) => {
     const tx = db.transaction("events", "readonly");
     const req = tx.objectStore("events").getAll();
     req.onsuccess = () => {
-      const all: Event[] = req.result as Event[];
+      const all: HubEvent[] = req.result as HubEvent[];
       resolve(all.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 200));
     };
     req.onerror = () => resolve([]);
