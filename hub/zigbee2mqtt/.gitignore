@@ -1,0 +1,4 @@
+# Z2M runtime state — keep only configuration.yaml in git.
+*
+!.gitignore
+!configuration.yaml

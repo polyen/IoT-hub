@@ -1,0 +1,36 @@
+# Zigbee2MQTT — IoT Hub edge coordinator config.
+#
+# Coordinator: SONOFF "Dongle-PMG24" (Silicon Labs EFR32MG24) → driver `ember`.
+# Z2M publishes to the in-cluster Mosquitto on plain 1883 over iot-internal; the
+# zigbee-bridge service remaps zigbee2mqtt/{slug}/{kind} → home/{slug}/...
+#
+# Device naming convention (set in the Z2M frontend at http://<rpi>:8080):
+#   rename each paired device to "{room_slug}/{kind}", e.g.
+#     living_room/temp     kitchen/motion     hall/door     kitchen/plug
+#   The room slug must match a Room.slug in the hub (see hub/backend/slug.py).
+
+homeassistant: false
+permit_join: false          # flip to true in the frontend only while pairing
+
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://mosquitto:1883
+  # 1883 on iot-internal is anonymous (see mosquitto.conf) — no user/password.
+
+serial:
+  # Stable by-id path of the dongle, passed into the container as /dev/ttyACM0
+  # (see the `devices:` mapping in docker-compose.edge.yml). Keep this literal
+  # /dev/ttyACM0 — the host by-id path is resolved at the compose layer.
+  port: /dev/ttyACM0
+  adapter: ember            # EmberZNet driver for EFR32MG24/MG21 coordinators
+  baudrate: 115200
+
+advanced:
+  # Pin the Zigbee channel away from your Wi-Fi (15, 20, or 25 are good choices).
+  channel: 25
+  log_level: info
+  # network_key is auto-generated on first start and persisted alongside this file.
+
+frontend:
+  enabled: true
+  port: 8080

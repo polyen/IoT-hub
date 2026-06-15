@@ -448,6 +448,52 @@ services:
       retries: 3
 
   # ---------------------------------------------------------------------------
+  # Zigbee2MQTT — USB coordinator ("Dongle-PMG24" / EFR32MG24, driver `ember`).
+  # Publishes to zigbee2mqtt/{friendly_name}; the zigbee-bridge below remaps to
+  # the home/{slug}/... schema. Set ZIGBEE_SERIAL in .env to the dongle's stable
+  # by-id path: ls -l /dev/serial/by-id/  (e.g. usb-Silicon_Labs_...-if00).
+  # ---------------------------------------------------------------------------
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt:latest
+    container_name: zigbee2mqtt
+    restart: unless-stopped
+    volumes:
+      - ./zigbee2mqtt:/app/data
+      - /run/udev:/run/udev:ro
+    devices:
+      - ${ZIGBEE_SERIAL:-/dev/ttyACM0}:/dev/ttyACM0
+    ports:
+      - "127.0.0.1:8081:8080"   # Z2M frontend (pairing/rename), loopback only (8080 = ntfy)
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - iot-internal
+
+  # ---------------------------------------------------------------------------
+  # Zigbee bridge — zigbee2mqtt/{slug}/{kind} → home/{slug}/{sensors,alert}
+  # with project data-tier tags. No backend change needed; mqtt_subscriber
+  # persists the republished messages like any ESP32/mock sensor.
+  # ---------------------------------------------------------------------------
+  zigbee-bridge:
+    build:
+      context: ..
+      dockerfile: hub/edge/zigbee/Dockerfile
+    container_name: zigbee-bridge
+    restart: unless-stopped
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      Z2M_BASE_TOPIC: zigbee2mqtt
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      zigbee2mqtt:
+        condition: service_started
+    networks:
+      - iot-internal
+
+  # ---------------------------------------------------------------------------
   # Web PWA (served via nginx)
   # ---------------------------------------------------------------------------
   web:
