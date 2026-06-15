@@ -15,12 +15,14 @@ payload into the project schema with the correct tier, and republishes — so th
 backend persists Zigbee readings exactly like an ESP32 or mock sensor. **No
 backend change is required.**
 
-Mapping (kind prefix → project topic + tier), mirroring the mock sensors:
-  * temp/climate/air  → ``home/{slug}/sensors``  tier 1  (temperature, humidity, …)
-  * motion/pir/presence → ``home/{slug}/alert``  tier 2  (alert_type=motion)
-  * contact/door/window → ``home/{slug}/alert``  tier 2  (door_open/door_close)
-  * plug/power/meter  → ``home/{slug}/sensors``  tier 0  (power_w, voltage_v, …)
-  * anything else     → ``home/{slug}/sensors``  tier 1  (numeric pass-through)
+Mapping is **by payload field**, not by the device name — one combo sensor (e.g.
+mmWave presence + temperature + humidity + illuminance in a single message) fans
+out into several project topics at once, mirroring the mock sensors:
+  * climate fields (temperature/humidity/illuminance/…) → ``home/{slug}/sensors`` tier 1
+  * occupancy|presence (rising edge only)               → ``home/{slug}/alert``   tier 2 (motion)
+  * contact                                             → ``home/{slug}/alert``   tier 2 (door_open/close)
+  * power/voltage/current/energy                        → ``home/{slug}/sensors`` tier 0
+  * nothing recognised                                  → ``home/{slug}/sensors`` tier 1 (numeric pass-through)
 
 ``battery`` and ``linkquality`` are attached as diagnostic fields to every
 published payload so device health is visible in the events feed without a
@@ -51,106 +53,96 @@ Z2M_BASE = os.getenv("Z2M_BASE_TOPIC", "zigbee2mqtt")
 _DIAG_FIELDS = ("battery", "linkquality")
 
 
-def _climate(src: dict[str, Any]) -> tuple[str, int, dict[str, Any]] | None:
-    """Temperature / humidity / air-quality sensor → home/{slug}/sensors, tier 1."""
-    keep = (
-        "temperature",
-        "humidity",
-        "pressure",
-        "co2",
-        "voc",
-        "pm25",
-        "illuminance_lux",
-    )
-    fields = {k: src[k] for k in keep if k in src}
-    if not fields:
-        return None
-    return "sensors", 1, fields
+# Climate fields → home/{slug}/sensors, tier 1 (numeric environmental readings).
+_CLIMATE_FIELDS = (
+    "temperature",
+    "humidity",
+    "pressure",
+    "co2",
+    "voc",
+    "pm25",
+    "illuminance",
+    "illuminance_lux",
+)
+
+# Smart-plug / energy-meter fields → home/{slug}/sensors, tier 0 (matches PowerSensor).
+_POWER_RENAME = {
+    "power": "power_w",
+    "voltage": "voltage_v",
+    "current": "current_a",
+    "energy": "energy_kwh",
+}
+
+# Rising-edge state for presence/occupancy, keyed by device_id. mmWave/PIR combo
+# sensors republish their full state every cycle (with presence unchanged), so we
+# emit a motion *alert* only on the False→True transition — otherwise the events
+# feed gets one "motion" per heartbeat the whole time a room is occupied.
+_presence_state: dict[str, bool] = {}
 
 
-def _motion(src: dict[str, Any]) -> tuple[str, int, dict[str, Any]] | None:
-    """PIR / occupancy → home/{slug}/alert, tier 2. Only the *detected* edge is published."""
-    occ = src.get("occupancy")
-    if not occ:  # None or False — mirror the mock PIR which only emits on motion
-        return None
-    return "alert", 2, {"alert_type": "motion", "confidence": 1.0}
+def translate(slug: str, kind: str, src: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Fan one Z2M device message out into ``[(subtopic, project_payload), ...]``.
 
-
-def _contact(src: dict[str, Any]) -> tuple[str, int, dict[str, Any]] | None:
-    """Door/window reed → home/{slug}/alert, tier 2.
-
-    Zigbee convention: ``contact: true`` = magnets together (closed),
-    ``contact: false`` = separated (open).
+    Routing is by **payload fields**, not by the device's ``kind`` — a single combo
+    sensor (e.g. mmWave presence + temperature + humidity + illuminance in one
+    message) maps to *several* project topics at once: climate → ``sensors`` tier 1,
+    presence → ``alert`` tier 2, etc. ``kind`` is kept only as a label in
+    ``device_id``. Each ``subtopic`` is appended to ``home/{slug}/``.
     """
-    contact = src.get("contact")
-    if contact is None:
-        return None
-    alert_type = "door_close" if contact else "door_open"
-    return "alert", 2, {"alert_type": alert_type, "confidence": 1.0}
+    device_id = f"zigbee-{slug}-{kind}"
+    parts: list[tuple[str, int, dict[str, Any]]] = []
 
+    climate = {k: src[k] for k in _CLIMATE_FIELDS if k in src}
+    if climate:
+        parts.append(("sensors", 1, climate))
 
-def _power(src: dict[str, Any]) -> tuple[str, int, dict[str, Any]] | None:
-    """Smart plug / energy meter → home/{slug}/sensors, tier 0 (matches PowerSensor)."""
-    rename = {
-        "power": "power_w",
-        "voltage": "voltage_v",
-        "current": "current_a",
-        "energy": "energy_kwh",
-    }
-    fields = {dst: src[srck] for srck, dst in rename.items() if srck in src}
-    if "state" in src:  # ON/OFF relay state of the plug
-        fields["state"] = src["state"]
-    if not fields:
-        return None
-    return "sensors", 0, fields
+    power = {dst: src[srck] for srck, dst in _POWER_RENAME.items() if srck in src}
+    if power:
+        if "state" in src:  # ON/OFF relay state of the plug
+            power["state"] = src["state"]
+        parts.append(("sensors", 0, power))
 
+    if "contact" in src:
+        # Zigbee convention: contact=true = magnets together (closed).
+        alert_type = "door_close" if src["contact"] else "door_open"
+        parts.append(("alert", 2, {"alert_type": alert_type, "confidence": 1.0}))
 
-def _generic(src: dict[str, Any]) -> tuple[str, int, dict[str, Any]] | None:
-    """Unknown kind → pass numeric fields through to home/{slug}/sensors, tier 1."""
-    fields = {
-        k: v for k, v in src.items() if isinstance(v, int | float | bool) and k not in _DIAG_FIELDS
-    }
-    if not fields:
-        return None
-    return "sensors", 1, fields
+    # Presence/occupancy, edge-triggered. Devices vary on the field name
+    # (occupancy on PIR, presence on mmWave) — accept either.
+    motion = src.get("occupancy")
+    if motion is None:
+        motion = src.get("presence")
+    if isinstance(motion, bool):
+        prev = _presence_state.get(device_id, False)
+        _presence_state[device_id] = motion
+        if motion and not prev:  # rising edge only
+            parts.append(("alert", 2, {"alert_type": "motion", "confidence": 1.0}))
 
+    # Nothing recognised → pass numeric/bool fields through as a tier-1 sensor,
+    # so an unsupported device still surfaces *something* in the feed.
+    if not parts:
+        generic = {
+            k: v
+            for k, v in src.items()
+            if isinstance(v, int | float | bool) and k not in _DIAG_FIELDS
+        }
+        if generic:
+            parts.append(("sensors", 1, generic))
 
-# Matched by ``kind.startswith(prefix)`` for any prefix in the tuple.
-_HANDLERS: list[tuple[tuple[str, ...], Any]] = [
-    (("temp", "th", "clim", "air", "co2"), _climate),
-    (("motion", "pir", "occup", "presence"), _motion),
-    (("contact", "door", "window", "reed"), _contact),
-    (("plug", "power", "meter", "socket", "outlet", "energy"), _power),
-]
-
-
-def translate(slug: str, kind: str, src: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """Map one Z2M device message to ``(subtopic, project_payload)`` or ``None`` to drop.
-
-    ``subtopic`` is appended to ``home/{slug}/`` (e.g. ``"sensors"`` → ``home/living_room/sensors``).
-    """
-    handler = _generic
-    kl = kind.lower()
-    for prefixes, fn in _HANDLERS:
-        if kl.startswith(prefixes):
-            handler = fn
-            break
-
-    result = handler(src)
-    if result is None:
-        return None
-    subtopic, tier, fields = result
-
-    payload: dict[str, Any] = {
-        "device_id": f"zigbee-{slug}-{kind}",
-        "ts": datetime.now(UTC).isoformat(),
-        "tier": tier,
-        **fields,
-    }
-    for diag in _DIAG_FIELDS:
-        if diag in src:
-            payload[diag] = src[diag]
-    return subtopic, payload
+    ts = datetime.now(UTC).isoformat()
+    results: list[tuple[str, dict[str, Any]]] = []
+    for subtopic, tier, fields in parts:
+        payload: dict[str, Any] = {
+            "device_id": device_id,
+            "ts": ts,
+            "tier": tier,
+            **fields,
+        }
+        for diag in _DIAG_FIELDS:
+            if diag in src:
+                payload[diag] = src[diag]
+        results.append((subtopic, payload))
+    return results
 
 
 async def _handle(message: aiomqtt.Message, out: aiomqtt.Client) -> None:
@@ -174,13 +166,10 @@ async def _handle(message: aiomqtt.Message, out: aiomqtt.Client) -> None:
     if not isinstance(src, dict):
         return
 
-    mapped = translate(slug, kind, src)
-    if mapped is None:
-        return
-    subtopic, payload = mapped
-    out_topic = f"home/{slug}/{subtopic}"
-    await out.publish(out_topic, json.dumps(payload), qos=1)
-    logger.info("Zigbee %s → %s (tier %s)", topic, out_topic, payload["tier"])
+    for subtopic, payload in translate(slug, kind, src):
+        out_topic = f"home/{slug}/{subtopic}"
+        await out.publish(out_topic, json.dumps(payload), qos=1)
+        logger.info("Zigbee %s → %s (tier %s)", topic, out_topic, payload["tier"])
 
 
 async def run() -> None:
