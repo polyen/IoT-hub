@@ -22,10 +22,15 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         navigateFallback: "index.html",
+        // Activate a new SW immediately on deploy so a stale worker never keeps
+        // serving an old app on one origin (the iot-hub.local vs IP mismatch).
+        clientsClaim: true,
+        skipWaiting: true,
         runtimeCaching: [
           {
-            // API and media: bypass SW entirely — real-time data must not be cached
-            urlPattern: /^\/(api|hls|whep|ws)\/.*/,
+            // API and media: bypass SW entirely — real-time data must not be cached.
+            // Match on pathname (a `^/…` RegExp does NOT match the full request URL).
+            urlPattern: ({ url }) => /^\/(api|hls|whep|ws)\//.test(url.pathname),
             handler: "NetworkOnly",
           },
           {

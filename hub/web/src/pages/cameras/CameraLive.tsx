@@ -113,37 +113,31 @@ export const CameraLive = forwardRef<CameraLiveHandle, Props>(function CameraLiv
     let pc: RTCPeerConnection | null = null;
     let hls: import("hls.js").default | null = null;
     let cancelled = false;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
 
-    const whep = whepUrl(camera.stream_hls);
+    function clearVideoSource() {
+      const v = videoRef.current;
+      if (v?.srcObject instanceof MediaStream) {
+        (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+        v.srcObject = null;
+      }
+    }
 
-    if (whep) {
-      connectWhep(whep, video)
-        .then((conn) => { if (!cancelled) pc = conn; })
-        .catch(() => {
-          // WebRTC failed — fall back to HLS
-          if (cancelled || !camera.stream_hls) return;
-          import("hls.js").then(({ default: Hls }) => {
-            if (cancelled || !videoRef.current) return;
-            if (Hls.isSupported()) {
-              hls = new Hls({
-                lowLatencyMode: true,
-                liveSyncDurationCount: 1,
-                liveMaxLatencyDurationCount: 2,
-                maxBufferLength: 2,
-                maxMaxBufferLength: 4,
-              });
-              hls.loadSource(camera.stream_hls!);
-              hls.attachMedia(videoRef.current);
-            } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
-              videoRef.current.src = camera.stream_hls!;
-            }
-          });
-        });
-    } else if (camera.stream_hls) {
+    function startHls() {
+      if (cancelled || hls || !camera.stream_hls) return;
+      const v = videoRef.current;
+      if (!v) return;
+      clearVideoSource(); // WHEP may have left an (empty) MediaStream attached
       import("hls.js").then(({ default: Hls }) => {
         if (cancelled || !videoRef.current) return;
         if (Hls.isSupported()) {
-          hls = new Hls({ lowLatencyMode: true });
+          hls = new Hls({
+            lowLatencyMode: true,
+            liveSyncDurationCount: 1,
+            liveMaxLatencyDurationCount: 2,
+            maxBufferLength: 2,
+            maxMaxBufferLength: 4,
+          });
           hls.loadSource(camera.stream_hls!);
           hls.attachMedia(videoRef.current);
         } else if (videoRef.current.canPlayType("application/vnd.apple.mpegurl")) {
@@ -152,14 +146,38 @@ export const CameraLive = forwardRef<CameraLiveHandle, Props>(function CameraLiv
       });
     }
 
+    const whep = whepUrl(camera.stream_hls);
+
+    if (whep) {
+      connectWhep(whep, video)
+        .then((conn) => {
+          if (cancelled) { conn.close(); return; }
+          pc = conn;
+          // WHEP signalling can succeed while media never arrives (ICE/UDP
+          // blocked, advertised host unreachable, no usable video track). If no
+          // frame has decoded within 4 s, drop WebRTC and use HLS over TCP/nginx
+          // — which needs no ICE/UDP and works on any origin.
+          watchdog = setTimeout(() => {
+            if (cancelled || (videoRef.current?.videoWidth ?? 0) > 0) return;
+            pc?.close();
+            pc = null;
+            startHls();
+          }, 4000);
+        })
+        .catch(() => {
+          // WHEP signalling itself failed (e.g. 400) — straight to HLS.
+          startHls();
+        });
+    } else if (camera.stream_hls) {
+      startHls();
+    }
+
     return () => {
       cancelled = true;
+      if (watchdog) clearTimeout(watchdog);
       pc?.close();
       hls?.destroy();
-      if (video.srcObject instanceof MediaStream) {
-        (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-        video.srcObject = null;
-      }
+      clearVideoSource();
     };
   }, [camera.stream_hls]);
 
