@@ -5,8 +5,8 @@ from hub.edge.zigbee.bridge import translate
 
 
 def setup_function():
-    # Presence edge-detection state is module-global; reset between tests.
-    bridge._presence_state.clear()
+    # Edge-detection state is module-global; reset between tests.
+    bridge._edge_state.clear()
 
 
 def _by_subtopic(results):
@@ -59,6 +59,17 @@ def test_presence_is_edge_triggered():
 def test_occupancy_field_also_accepted():
     out = _by_subtopic(translate("kitchen", "motion", {"occupancy": True}))
     assert out["alert"]["alert_type"] == "motion"
+
+
+def test_water_leak_is_tier2_alert_edge_triggered():
+    # Dry → no alert.
+    assert "alert" not in _by_subtopic(translate("kitchen", "leak", {"water_leak": False}))
+    # Dry → wet: critical alert.
+    wet = _by_subtopic(translate("kitchen", "leak", {"water_leak": True, "battery": 95}))
+    assert wet["alert"]["tier"] == 2
+    assert wet["alert"]["alert_type"] == "water_leak"
+    # Still wet → no repeat.
+    assert "alert" not in _by_subtopic(translate("kitchen", "leak", {"water_leak": True}))
 
 
 def test_contact_open_close_polarity():

@@ -20,6 +20,7 @@ mmWave presence + temperature + humidity + illuminance in a single message) fans
 out into several project topics at once, mirroring the mock sensors:
   * climate fields (temperature/humidity/illuminance/…) → ``home/{slug}/sensors`` tier 1
   * occupancy|presence (rising edge only)               → ``home/{slug}/alert``   tier 2 (motion)
+  * water_leak (rising edge only)                       → ``home/{slug}/alert``   tier 2 (water_leak)
   * contact                                             → ``home/{slug}/alert``   tier 2 (door_open/close)
   * power/voltage/current/energy                        → ``home/{slug}/sensors`` tier 0
   * nothing recognised                                  → ``home/{slug}/sensors`` tier 1 (numeric pass-through)
@@ -73,11 +74,20 @@ _POWER_RENAME = {
     "energy": "energy_kwh",
 }
 
-# Rising-edge state for presence/occupancy, keyed by device_id. mmWave/PIR combo
-# sensors republish their full state every cycle (with presence unchanged), so we
-# emit a motion *alert* only on the False→True transition — otherwise the events
-# feed gets one "motion" per heartbeat the whole time a room is occupied.
-_presence_state: dict[str, bool] = {}
+# Rising-edge state for level-reported binary alerts (presence, water_leak, …),
+# keyed by (device_id, signal). Many battery sensors republish their full state
+# every cycle (presence/leak unchanged), so we emit the alert only on the
+# False→True transition — otherwise the feed gets one alert per heartbeat for as
+# long as the condition holds.
+_edge_state: dict[tuple[str, str], bool] = {}
+
+
+def _rising_edge(device_id: str, signal: str, value: bool) -> bool:
+    """Update stored state and return True only on a False→True transition."""
+    key = (device_id, signal)
+    prev = _edge_state.get(key, False)
+    _edge_state[key] = value
+    return value and not prev
 
 
 def translate(slug: str, kind: str, src: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
@@ -112,11 +122,14 @@ def translate(slug: str, kind: str, src: dict[str, Any]) -> list[tuple[str, dict
     motion = src.get("occupancy")
     if motion is None:
         motion = src.get("presence")
-    if isinstance(motion, bool):
-        prev = _presence_state.get(device_id, False)
-        _presence_state[device_id] = motion
-        if motion and not prev:  # rising edge only
-            parts.append(("alert", 2, {"alert_type": "motion", "confidence": 1.0}))
+    if isinstance(motion, bool) and _rising_edge(device_id, "motion", motion):
+        parts.append(("alert", 2, {"alert_type": "motion", "confidence": 1.0}))
+
+    # Water-leak sensor — a critical alert (tier 2), edge-triggered on dry→wet so
+    # an ongoing leak doesn't flood the feed every heartbeat.
+    leak = src.get("water_leak")
+    if isinstance(leak, bool) and _rising_edge(device_id, "water_leak", leak):
+        parts.append(("alert", 2, {"alert_type": "water_leak", "confidence": 1.0}))
 
     # Nothing recognised → pass numeric/bool fields through as a tier-1 sensor,
     # so an unsupported device still surfaces *something* in the feed.
