@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../app/providers/ThemeProvider";
 import i18n from "i18next";
+import { AudioSettings } from "../../features/audio/AudioSettings";
 
 export default function SettingsPage() {
   const { t } = useTranslation("common");
@@ -43,6 +44,15 @@ export default function SettingsPage() {
               {Notification.permission === "granted" ? "✓ Дозволено" : "Дозволити"}
             </button>
           </div>
+        </div>
+
+        <AudioSettings />
+
+        <div className="bg-slate-800 light:bg-white rounded-xl p-4 border border-slate-700 light:border-slate-200 space-y-1 text-sm text-slate-300 light:text-slate-700">
+          <p className="font-semibold text-slate-200 light:text-slate-900">IoT Hub</p>
+          <p>Local-first privacy-preserving IoT Hub</p>
+          <p>Edge: Raspberry Pi 5 + Hailo-8 NPU</p>
+          <p className="text-slate-500">v0.1.0</p>
         </div>
       </div>
     </div>

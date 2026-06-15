@@ -2,6 +2,8 @@
   "nav": {
     "home": "Home",
     "cameras": "Cameras",
+    "assistant": "Assistant",
+    "events": "Events",
     "voice": "Voice",
     "confirm": "Confirm",
     "more": "More"

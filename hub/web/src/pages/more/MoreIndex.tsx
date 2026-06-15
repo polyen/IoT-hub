@@ -1,8 +1,6 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
-  Activity,
-  Zap,
   FileText,
   Cpu,
   Shield,
@@ -10,7 +8,6 @@ import {
   ScrollText,
   Lock,
   Settings,
-  Info,
   Brain,
   ChevronRight,
   LucideIcon,
@@ -31,15 +28,8 @@ interface MoreSection {
 
 const SECTIONS: MoreSection[] = [
   {
-    label: "Моніторинг",
+    label: "Дім",
     items: [
-      {
-        to: "/more/events",
-        icon: Activity,
-        key: "events",
-        color: "text-blue-400",
-        bgColor: "bg-blue-500/15",
-      },
       {
         to: "/more/digest",
         icon: FileText,
@@ -47,18 +37,6 @@ const SECTIONS: MoreSection[] = [
         color: "text-violet-400",
         bgColor: "bg-violet-500/15",
       },
-      {
-        to: "/more/scenarios",
-        icon: Zap,
-        key: "scenarios",
-        color: "text-warm-400",
-        bgColor: "bg-warm-500/15",
-      },
-    ],
-  },
-  {
-    label: "Управління",
-    items: [
       {
         to: "/more/devices",
         icon: Cpu,
@@ -74,32 +52,6 @@ const SECTIONS: MoreSection[] = [
         bgColor: "bg-green-500/15",
       },
       {
-        to: "/more/models",
-        icon: Brain,
-        key: "models",
-        color: "text-pink-400",
-        bgColor: "bg-pink-500/15",
-      },
-      {
-        to: "/more/system",
-        icon: Server,
-        key: "system",
-        color: "text-orange-400",
-        bgColor: "bg-orange-500/15",
-      },
-    ],
-  },
-  {
-    label: "Конфігурація",
-    items: [
-      {
-        to: "/more/policy",
-        icon: ScrollText,
-        key: "policy",
-        color: "text-slate-400",
-        bgColor: "bg-slate-500/15",
-      },
-      {
         to: "/more/privacy",
         icon: Lock,
         key: "privacy",
@@ -113,12 +65,31 @@ const SECTIONS: MoreSection[] = [
         color: "text-[color:var(--text-muted)]",
         bgColor: "bg-[color:var(--raised)]",
       },
+    ],
+  },
+  {
+    label: "Оператор · розширене",
+    items: [
       {
-        to: "/more/about",
-        icon: Info,
-        key: "about",
-        color: "text-[color:var(--text-muted)]",
-        bgColor: "bg-[color:var(--raised)]",
+        to: "/more/models",
+        icon: Brain,
+        key: "models",
+        color: "text-pink-400",
+        bgColor: "bg-pink-500/15",
+      },
+      {
+        to: "/more/policy",
+        icon: ScrollText,
+        key: "policy",
+        color: "text-slate-400",
+        bgColor: "bg-slate-500/15",
+      },
+      {
+        to: "/more/system",
+        icon: Server,
+        key: "system",
+        color: "text-orange-400",
+        bgColor: "bg-orange-500/15",
       },
     ],
   },

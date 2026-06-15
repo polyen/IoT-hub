@@ -1,15 +1,14 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Shell } from "./layout/Shell";
 import { Spinner } from "../components/Spinner";
 
 const HomePage = lazy(() => import("../pages/home/HomePage"));
 const CamerasPage = lazy(() => import("../pages/cameras/CamerasPage"));
-const VoicePage = lazy(() => import("../pages/voice/VoicePage"));
+const AssistantPage = lazy(() => import("../pages/assistant/AssistantPage"));
 const ConfirmPage = lazy(() => import("../pages/confirm/ConfirmPage"));
 const MoreIndex = lazy(() => import("../pages/more/MoreIndex"));
 const EventsPage = lazy(() => import("../pages/more/EventsPage"));
-const ScenariosPage = lazy(() => import("../pages/more/ScenariosPage"));
 const DigestPage = lazy(() => import("../pages/more/DigestPage"));
 const DevicesListPage = lazy(() => import("../pages/more/DevicesListPage"));
 const SecurityPage = lazy(() => import("../pages/more/SecurityPage"));
@@ -17,7 +16,6 @@ const SystemPage = lazy(() => import("../pages/more/SystemPage"));
 const PolicyPage = lazy(() => import("../pages/more/PolicyPage"));
 const PrivacyPage = lazy(() => import("../pages/more/PrivacyPage"));
 const SettingsPage = lazy(() => import("../pages/more/SettingsPage"));
-const AboutPage = lazy(() => import("../pages/more/AboutPage"));
 const ModelsPage = lazy(() => import("../pages/more/ModelsPage"));
 
 function PageLoader() {
@@ -35,20 +33,24 @@ export function AppRouter() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/cameras" element={<CamerasPage />} />
-          <Route path="/voice" element={<VoicePage />} />
+          <Route path="/assistant" element={<AssistantPage />} />
+          <Route path="/events" element={<EventsPage />} />
           <Route path="/confirm" element={<ConfirmPage />} />
           <Route path="/more" element={<MoreIndex />} />
-          <Route path="/more/events" element={<EventsPage />} />
-          <Route path="/more/scenarios" element={<ScenariosPage />} />
           <Route path="/more/digest" element={<DigestPage />} />
           <Route path="/more/devices" element={<DevicesListPage />} />
           <Route path="/more/security" element={<SecurityPage />} />
-          <Route path="/more/system" element={<SystemPage />} />
           <Route path="/more/policy" element={<PolicyPage />} />
           <Route path="/more/privacy" element={<PrivacyPage />} />
           <Route path="/more/settings" element={<SettingsPage />} />
-          <Route path="/more/about" element={<AboutPage />} />
+          <Route path="/more/system" element={<SystemPage />} />
           <Route path="/more/models" element={<ModelsPage />} />
+
+          {/* Legacy redirects (kept so old bookmarks / PWA cache don't 404) */}
+          <Route path="/voice" element={<Navigate to="/assistant" replace />} />
+          <Route path="/more/scenarios" element={<Navigate to="/assistant?tab=scenarios" replace />} />
+          <Route path="/more/events" element={<Navigate to="/events" replace />} />
+          <Route path="/more/about" element={<Navigate to="/more/settings" replace />} />
         </Routes>
       </Suspense>
     </Shell>

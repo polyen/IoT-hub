@@ -1,8 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Home, Camera, Mic, CheckCircle, LayoutGrid, LucideIcon } from "lucide-react";
+import { Home, Camera, Bot, Activity, LayoutGrid, LucideIcon } from "lucide-react";
 import { clsx } from "clsx";
-import { ConfirmBadge } from "./ConfirmBadge";
 
 interface NavItem {
   to: string;
@@ -15,8 +14,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/", icon: Home, key: "home", exact: true },
   { to: "/cameras", icon: Camera, key: "cameras" },
-  { to: "/voice", icon: Mic, key: "voice" },
-  { to: "/confirm", icon: CheckCircle, key: "confirm", badge: true },
+  { to: "/assistant", icon: Bot, key: "assistant" },
+  { to: "/events", icon: Activity, key: "events" },
   { to: "/more", icon: LayoutGrid, key: "more" },
 ];
 
@@ -49,7 +48,6 @@ export function BottomNav() {
                 <>
                   <span className="relative">
                     <Icon size={22} strokeWidth={isActive ? 2.2 : 1.8} />
-                    {item.badge && <ConfirmBadge />}
                   </span>
                   <span
                     className={clsx(

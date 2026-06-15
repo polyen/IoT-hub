@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Play, Clock, Zap } from "lucide-react";
+import { Play, Clock } from "lucide-react";
 import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { relativeTime } from "../../lib/format";
 import type { AgentAuditEntry } from "../../lib/types";
+import { ACTION_COLORS } from "./shared";
 
 interface Scenario {
   id: string;
@@ -106,7 +107,84 @@ function ScenarioCard({
   );
 }
 
-export default function ScenariosPage() {
+// ── Policy simulator (dry-run; does not execute) ────────────────────────────
+
+interface TryResult {
+  matched_rule: string;
+  action_class: string;
+  reason: string;
+  latency_ms: number;
+  inferred_tool?: string | null;
+}
+
+function PolicySimulator() {
+  const [intentText, setIntentText] = useState("");
+  const [tool, setTool] = useState("");
+  const [result, setResult] = useState<TryResult | null>(null);
+
+  const tryMutation = useMutation({
+    mutationFn: (body: { intent_text: string; tool?: string }) =>
+      api.post<TryResult>("/api/agent/try", body),
+    onSuccess: (data) => setResult(data),
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!intentText.trim()) return;
+    tryMutation.mutate({ intent_text: intentText, tool: tool || undefined });
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 space-y-3">
+      <p className="text-xs text-slate-400">
+        Перевір, як намір буде класифіковано політикою безпеки — без виконання.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <textarea
+          value={intentText}
+          onChange={(e) => setIntentText(e.target.value)}
+          rows={2}
+          placeholder="напр. «Вимкни всі лампи в будинку»"
+          className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        />
+        <input
+          value={tool}
+          onChange={(e) => setTool(e.target.value)}
+          placeholder="Інструмент (необов'язково), напр. mqtt_publish"
+          className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          disabled={tryMutation.isPending || !intentText.trim()}
+        >
+          {tryMutation.isPending ? "Перевіряємо…" : "Симулювати"}
+        </Button>
+      </form>
+
+      {result && (
+        <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 space-y-2 text-sm">
+          <div className="flex items-center gap-3">
+            <span className={`rounded px-2 py-0.5 text-xs font-bold ${ACTION_COLORS[result.action_class] ?? "bg-slate-700 text-slate-300"}`}>
+              {result.action_class}
+            </span>
+            <span className="text-slate-400">{result.latency_ms} мс</span>
+            {result.inferred_tool && (
+              <span className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+                ↳ <span className="font-mono">{result.inferred_tool}</span> (інференс)
+              </span>
+            )}
+          </div>
+          <p className="text-slate-300"><span className="text-slate-500">Правило: </span>{result.matched_rule}</p>
+          <p className="text-slate-400 text-xs">{result.reason}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ScenariosTab() {
   const [runningId, setRunningId] = useState<string | null>(null);
   const [customIntent, setCustomIntent] = useState("");
 
@@ -149,15 +227,8 @@ export default function ScenariosPage() {
     );
   }
 
-  const recentRuns = auditLog?.slice(0, 10) ?? [];
-
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-2">
-        <Zap size={20} className="text-primary-400" />
-        <h1 className="text-xl font-semibold">Сценарії</h1>
-      </div>
-
+    <div className="space-y-6">
       {/* Scenario cards */}
       <section className="space-y-2">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -211,41 +282,12 @@ export default function ScenariosPage() {
         </div>
       </section>
 
-      {/* Recent runs */}
+      {/* Policy simulator (dry-run) */}
       <section className="space-y-2">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Останні дії агента
+          Симулятор політики
         </h2>
-        {recentRuns.length === 0 ? (
-          <div className="rounded-xl border border-slate-700 bg-slate-800/40 px-4 py-6 text-center text-xs text-slate-500">
-            Ще не було дій
-          </div>
-        ) : (
-          <div className="rounded-xl border border-slate-700 bg-slate-800/60 divide-y divide-slate-700">
-            {recentRuns.map((run) => (
-              <div key={run.id} className="flex items-start gap-3 px-4 py-2.5 text-sm">
-                <span
-                  className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
-                    run.action_class === "DENY"
-                      ? "bg-red-500"
-                      : run.action_class === "CONFIRM"
-                      ? "bg-amber-500"
-                      : "bg-green-500"
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="text-slate-300 truncate text-sm">{run.intent_text}</p>
-                  {run.tool && (
-                    <p className="text-xs text-slate-500 font-mono mt-0.5">{run.tool}</p>
-                  )}
-                </div>
-                <span className="text-xs text-slate-500 shrink-0 mt-0.5">
-                  {relativeTime(run.timestamp)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        <PolicySimulator />
       </section>
     </div>
   );

@@ -1,14 +1,11 @@
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
-import { ConfirmBadge } from "./ConfirmBadge";
 import {
   Home,
   Camera,
-  Mic,
-  CheckCircle,
+  Bot,
   Activity,
-  Zap,
   FileText,
   Cpu,
   Shield,
@@ -16,7 +13,6 @@ import {
   ScrollText,
   Lock,
   Settings,
-  Info,
   Brain,
   LucideIcon,
 } from "lucide-react";
@@ -25,7 +21,6 @@ interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
-  badge?: boolean;
   exact?: boolean;
 }
 
@@ -56,7 +51,6 @@ function NavItemLink({ item }: { item: NavItem }) {
           />
           <span className="truncate relative">
             {item.label}
-            {item.badge && <ConfirmBadge />}
           </span>
         </>
       )}
@@ -78,28 +72,22 @@ export function Sidebar() {
   const primary: NavItem[] = [
     { to: "/", icon: Home, label: t("nav.home"), exact: true },
     { to: "/cameras", icon: Camera, label: t("nav.cameras") },
-    { to: "/voice", icon: Mic, label: t("nav.voice") },
-    { to: "/confirm", icon: CheckCircle, label: t("nav.confirm"), badge: true },
+    { to: "/assistant", icon: Bot, label: t("nav.assistant") },
+    { to: "/events", icon: Activity, label: t("nav.events") },
   ];
 
-  const monitor: NavItem[] = [
-    { to: "/more/events", icon: Activity, label: t("more.events") },
+  const home: NavItem[] = [
     { to: "/more/digest", icon: FileText, label: t("more.digest") },
-    { to: "/more/scenarios", icon: Zap, label: t("more.scenarios") },
-  ];
-
-  const manage: NavItem[] = [
     { to: "/more/devices", icon: Cpu, label: t("more.devices") },
     { to: "/more/security", icon: Shield, label: t("more.security") },
-    { to: "/more/models", icon: Brain, label: t("more.models") },
-    { to: "/more/system", icon: Server, label: t("more.system") },
-  ];
-
-  const config: NavItem[] = [
-    { to: "/more/policy", icon: ScrollText, label: t("more.policy") },
     { to: "/more/privacy", icon: Lock, label: t("more.privacy") },
     { to: "/more/settings", icon: Settings, label: t("more.settings") },
-    { to: "/more/about", icon: Info, label: t("more.about") },
+  ];
+
+  const operator: NavItem[] = [
+    { to: "/more/models", icon: Brain, label: t("more.models") },
+    { to: "/more/policy", icon: ScrollText, label: t("more.policy") },
+    { to: "/more/system", icon: Server, label: t("more.system") },
   ];
 
   return (
@@ -143,18 +131,13 @@ export function Sidebar() {
           <NavItemLink key={item.to} item={item} />
         ))}
 
-        <SectionLabel label="Моніторинг" />
-        {monitor.map((item) => (
+        <SectionLabel label="Дім" />
+        {home.map((item) => (
           <NavItemLink key={item.to} item={item} />
         ))}
 
-        <SectionLabel label="Управління" />
-        {manage.map((item) => (
-          <NavItemLink key={item.to} item={item} />
-        ))}
-
-        <SectionLabel label="Конфігурація" />
-        {config.map((item) => (
+        <SectionLabel label="Оператор" />
+        {operator.map((item) => (
           <NavItemLink key={item.to} item={item} />
         ))}
       </nav>

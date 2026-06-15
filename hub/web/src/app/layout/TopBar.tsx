@@ -2,6 +2,7 @@ import React from "react";
 import { Sun, Moon, WifiOff } from "lucide-react";
 import { useTheme } from "../providers/ThemeProvider";
 import { useOnlineStatus } from "../../hooks/useOnlineStatus";
+import { ConfirmBell } from "./ConfirmBell";
 
 function Clock() {
   const [time, setTime] = React.useState(() => new Date());
@@ -43,6 +44,8 @@ export function TopBar() {
 
       <div className="flex items-center gap-4">
         <Clock />
+
+        <ConfirmBell />
 
         <button
           onClick={toggle}
