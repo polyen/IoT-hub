@@ -9,13 +9,8 @@ import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
 import { countdownSeconds } from "../../lib/format";
+import { deviceMeta } from "../../lib/deviceIcons";
 import type { ConfirmRequest, DeviceKind, DevicePlacement, FloorPlanData, Room } from "../../lib/types";
-
-const KIND_ICON: Record<string, string> = {
-  camera: "📷", light: "💡", lock: "🔒", thermostat: "🌡", relay: "⚡",
-  sensor_pir: "👁", sensor_door: "🚪", sensor_dht: "💧", sensor_mq2: "💨",
-  sensor_power: "🔌", speaker: "🔊",
-};
 
 const KIND_LABELS: Record<string, string> = {
   camera: "Камера", light: "Лампа", lock: "Замок", thermostat: "Термостат",
@@ -171,12 +166,13 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
 
   const actionKinds = ["light", "relay", "lock"] as const;
   const isControllable = actionKinds.includes(placement.kind as (typeof actionKinds)[number]);
+  const kindMeta = deviceMeta(placement.kind);
 
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-800/60 overflow-hidden">
       <div className="flex items-center gap-3 px-4 py-3">
-        <span className="text-2xl w-8 shrink-0 text-center" aria-hidden>
-          {KIND_ICON[placement.kind] ?? "⚙"}
+        <span className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center ${kindMeta.bg}`}>
+          <kindMeta.Icon size={18} strokeWidth={1.9} className={kindMeta.text} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="font-medium text-sm truncate">{placement.label || placement.device_id}</p>
@@ -258,7 +254,7 @@ function DeviceCard({ placement, room, onSave, onDelete }: DeviceCardProps) {
               >
                 {DEVICE_KINDS.map((k) => (
                   <option key={k} value={k}>
-                    {KIND_ICON[k]} {KIND_LABELS[k] ?? k}
+                    {KIND_LABELS[k] ?? k}
                   </option>
                 ))}
               </select>

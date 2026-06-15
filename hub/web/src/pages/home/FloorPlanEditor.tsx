@@ -9,6 +9,7 @@ import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { RoomAliasesPanel } from "./RoomAliasesPanel";
+import { DeviceIcon, deviceMeta, DEVICE_KINDS } from "../../lib/deviceIcons";
 import type { DeviceKind, DevicePlacement, Room } from "../../lib/types";
 
 interface DiscoveredDevice {
@@ -17,25 +18,6 @@ interface DiscoveredDevice {
   last_seen: string | null;
   source: "mqtt" | "redis";
 }
-
-const KIND_ICON: Record<string, string> = {
-  camera: "📷",
-  light: "💡",
-  lock: "🔒",
-  thermostat: "🌡",
-  relay: "⚡",
-  sensor_pir: "👁",
-  sensor_door: "🚪",
-  sensor_dht: "💧",
-  sensor_mq2: "💨",
-  sensor_power: "🔌",
-  speaker: "🔊",
-};
-
-const DEVICE_KINDS: DeviceKind[] = [
-  "camera", "light", "lock", "thermostat", "relay",
-  "sensor_pir", "sensor_door", "sensor_dht", "sensor_mq2", "sensor_power", "speaker",
-];
 
 const ROOM_FILL_COLORS = ["#0c1a30", "#091420", "#130a18", "#091614", "#180e0a"];
 
@@ -154,6 +136,9 @@ export function FloorPlanEditor() {
   }, [draft]);
 
   const [pending, setPending] = useState<PendingPoly | null>(null);
+  // Room drawing: rectangle drag (default, easy) vs freehand polygon (advanced).
+  const [roomDraw, setRoomDraw] = useState<"rect" | "poly">("rect");
+  const [rect, setRect] = useState<{ start: [number, number]; now: [number, number] } | null>(null);
   const [newRoomState, setNewRoomState] = useState<{ polygon: [number, number][]; name: string } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editPlacement, setEditPlacement] = useState<{ id: string; label: string; device_id: string; rtsp_url: string; rtsp_hd_url: string } | null>(null);
@@ -171,6 +156,7 @@ export function FloorPlanEditor() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setPending(null);
+        setRect(null);
         setSelectedId(null);
       }
       if (e.key === "Enter" && pending && pending.vertices.length >= 3) {
@@ -278,6 +264,7 @@ export function FloorPlanEditor() {
     }
 
     if (mode === "add-room") {
+      if (roomDraw !== "poly") return; // rectangle mode uses mouse down/up drag
       const snapped: [number, number] = [clampN(nx), clampN(ny)];
       setPending((prev) => ({
         vertices: prev ? [...prev.vertices, snapped] : [snapped],
@@ -314,11 +301,34 @@ export function FloorPlanEditor() {
     }
   }
 
-  function handleStageMouseMove(e: KonvaEventObject<MouseEvent>) {
-    if (mode !== "add-room" || !pending) return;
+  function handleStageMouseDown(e: KonvaEventObject<MouseEvent>) {
+    if (mode !== "add-room" || roomDraw !== "rect") return;
+    if (e.target !== e.target.getStage()) return;
     const pos = e.target.getStage()!.getPointerPosition()!;
-    const cursor: [number, number] = [clampN(snapN(pos.x / stageW)), clampN(snapN(pos.y / stageH))];
-    setPending((prev) => (prev ? { ...prev, cursor } : null));
+    const p: [number, number] = [clampN(snapN(pos.x / stageW)), clampN(snapN(pos.y / stageH))];
+    setRect({ start: p, now: p });
+  }
+
+  function handleStageMouseMove(e: KonvaEventObject<MouseEvent>) {
+    const pos = e.target.getStage()!.getPointerPosition()!;
+    const p: [number, number] = [clampN(snapN(pos.x / stageW)), clampN(snapN(pos.y / stageH))];
+    if (mode === "add-room" && roomDraw === "rect" && rect) {
+      setRect((r) => (r ? { ...r, now: p } : null));
+      return;
+    }
+    if (mode !== "add-room" || !pending) return;
+    setPending((prev) => (prev ? { ...prev, cursor: p } : null));
+  }
+
+  function handleStageMouseUp() {
+    if (mode !== "add-room" || roomDraw !== "rect" || !rect) return;
+    const [sx, sy] = rect.start;
+    const [ex, ey] = rect.now;
+    const x0 = Math.min(sx, ex), y0 = Math.min(sy, ey);
+    const x1 = Math.max(sx, ex), y1 = Math.max(sy, ey);
+    setRect(null);
+    if (x1 - x0 < 0.04 || y1 - y0 < 0.04) return; // ignore taps / tiny drags
+    finishPolygon([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
   }
 
   function handleStageDblClick(e: KonvaEventObject<MouseEvent>) {
@@ -346,22 +356,24 @@ export function FloorPlanEditor() {
 
   // ── Toolbar hint text ──────────────────────────────────────────────────────
   const hint =
-    mode === "add-room" && !pending
-      ? "Клацай щоб додати вершини. Подвійний клік або Enter — завершити (мін. 3). Esc — скасувати."
-      : mode === "add-room" && pending
-        ? `${pending.vertices.length} верш.  — ще ${Math.max(0, 3 - pending.vertices.length)} потрібно`
-        : mode === "add-device" && !pendingDeviceKind
-          ? "Обери тип пристрою нижче."
-          : mode === "add-device"
-            ? `Клацни всередині кімнати щоб розмістити ${KIND_ICON[pendingDeviceKind!]}`
-            : selectedId
-              ? "Перетягни для переміщення. Del — видалити."
-              : "Клацни кімнату або пристрій для вибору.";
+    mode === "add-room"
+      ? roomDraw === "rect"
+        ? "Перетягни прямокутник, щоб створити кімнату. Esc — скасувати."
+        : pending
+          ? `${pending.vertices.length} верш. — подвійний клік або Enter завершує (мін. 3)`
+          : "Клацай, щоб додати вершини. Подвійний клік / Enter — завершити. Esc — скасувати."
+      : mode === "add-device" && !pendingDeviceKind
+        ? "Обери тип пристрою нижче."
+        : mode === "add-device"
+          ? `Клацни всередині кімнати щоб розмістити «${deviceMeta(pendingDeviceKind!).label}»`
+          : selectedId
+            ? "Перетягни для переміщення. Del — видалити."
+            : "Клацни кімнату або пристрій для вибору.";
 
   const modeLabel: Record<string, string> = {
-    select: "↖ Вибір",
-    "add-room": "⬡ + Кімната",
-    "add-device": "· + Пристрій",
+    select: "Вибір",
+    "add-room": "+ Кімната",
+    "add-device": "+ Пристрій",
   };
 
   return (
@@ -376,7 +388,7 @@ export function FloorPlanEditor() {
           {(["select", "add-room", "add-device"] as const).map((m) => (
             <button
               key={m}
-              onClick={() => { setMode(m); setPending(null); setSelectedId(null); }}
+              onClick={() => { setMode(m); setPending(null); setRect(null); setSelectedId(null); }}
               className={[
                 "rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150",
                 mode === m
@@ -444,6 +456,40 @@ export function FloorPlanEditor() {
         </div>
       </div>
 
+      {/* ── Room draw-mode toggle ── */}
+      {mode === "add-room" && (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-xl p-3 animate-fade-in"
+          style={{ border: "1px solid var(--border)", background: "var(--card)" }}
+        >
+          <span className="text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+            Форма кімнати
+          </span>
+          <div className="flex gap-1 rounded-lg p-1" style={{ background: "var(--raised)" }}>
+            {([
+              ["rect", "Прямокутник"],
+              ["poly", "Полігон"],
+            ] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => { setRoomDraw(v); setPending(null); setRect(null); }}
+                className={[
+                  "rounded-md px-3 py-1 text-xs font-medium transition-all",
+                  roomDraw === v
+                    ? "bg-primary-600 text-white"
+                    : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
+                ].join(" ")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-[color:var(--text-faint)]">
+            {roomDraw === "rect" ? "перетягни прямокутник на плані" : "клацай вершини, подвійний клік завершує"}
+          </span>
+        </div>
+      )}
+
       {/* ── Device palette ── */}
       {mode === "add-device" && (
         <div className="space-y-2 animate-fade-in">
@@ -468,8 +514,8 @@ export function FloorPlanEditor() {
                   ].join(" ")}
                   style={pendingDeviceKind === k && !pendingDeviceId ? { border: "1px solid rgba(99,102,241,0.35)" } : { border: "1px solid transparent" }}
                 >
-                  <span className="text-base leading-none" aria-hidden>{KIND_ICON[k]}</span>
-                  <span className="text-[9px] font-mono leading-tight">{k.replace("sensor_", "")}</span>
+                  <DeviceIcon kind={k} size={18} className={deviceMeta(k).text} />
+                  <span className="text-[9px] leading-tight">{deviceMeta(k).label}</span>
                 </button>
               ))}
             </div>
@@ -498,7 +544,7 @@ export function FloorPlanEditor() {
                     ].join(" ")}
                     style={pendingDeviceId === d.device_id ? { border: "1px solid rgba(99,102,241,0.35)" } : { border: "1px solid var(--border)" }}
                   >
-                    <span aria-hidden>{KIND_ICON[d.kind_guess] ?? "⚙"}</span>
+                    <DeviceIcon kind={d.kind_guess} size={14} className={deviceMeta(d.kind_guess).text} />
                     <span className="font-mono max-w-[120px] truncate">{d.device_id}</span>
                   </button>
                 ))}
@@ -544,7 +590,9 @@ export function FloorPlanEditor() {
           width={stageW}
           height={stageH}
           onClick={handleStageClick}
+          onMouseDown={handleStageMouseDown}
           onMouseMove={handleStageMouseMove}
+          onMouseUp={handleStageMouseUp}
           onDblClick={handleStageDblClick}
         >
           <Layer>
@@ -616,15 +664,14 @@ export function FloorPlanEditor() {
                     listening={false}
                   />
 
-                  {/* Device icons in room */}
+                  {/* Device indicator dots in room (colour = device tone) */}
                   {roomPlacements.slice(0, 6).map((p, i) => (
-                    <Text
+                    <Circle
                       key={p.id}
-                      x={cx - (Math.min(roomPlacements.length, 6) * 14) / 2 + i * 14}
-                      y={cy + 4}
-                      text={KIND_ICON[p.kind] ?? "⚙"}
-                      fontSize={12}
-                      align="center"
+                      x={cx - (Math.min(roomPlacements.length, 6) * 12) / 2 + i * 12 + 6}
+                      y={cy + 8}
+                      radius={4}
+                      fill={deviceMeta(p.kind).hex}
                       listening={false}
                     />
                   ))}
@@ -682,16 +729,10 @@ export function FloorPlanEditor() {
                   <Circle
                     radius={12}
                     fill={isSelected ? C.deviceFillSelected : C.deviceFill}
-                    stroke={isSelected ? C.deviceStrokeSelected : C.deviceStroke}
-                    strokeWidth={isSelected ? 2 : 1}
+                    stroke={isSelected ? C.deviceStrokeSelected : deviceMeta(p.kind).hex}
+                    strokeWidth={isSelected ? 2.5 : 2}
                   />
-                  <Text
-                    text={KIND_ICON[p.kind] ?? "⚙"}
-                    fontSize={13}
-                    offsetX={7}
-                    offsetY={7}
-                    listening={false}
-                  />
+                  <Circle radius={4.5} fill={deviceMeta(p.kind).hex} listening={false} />
                   {p.label && (
                     <Text
                       text={p.label}
@@ -707,6 +748,24 @@ export function FloorPlanEditor() {
                 </Group>
               );
             })}
+
+            {/* ── In-progress rectangle drag ── */}
+            {rect && (
+              <Line
+                points={[
+                  rect.start[0] * stageW, rect.start[1] * stageH,
+                  rect.now[0] * stageW, rect.start[1] * stageH,
+                  rect.now[0] * stageW, rect.now[1] * stageH,
+                  rect.start[0] * stageW, rect.now[1] * stageH,
+                ]}
+                closed
+                stroke={C.pendingStroke}
+                strokeWidth={2}
+                dash={[6, 4]}
+                fill="rgba(99,102,241,0.12)"
+                listening={false}
+              />
+            )}
 
             {/* ── In-progress polygon ── */}
             {pending && pending.vertices.length > 0 && (
@@ -829,11 +888,11 @@ export function FloorPlanEditor() {
             >
               <div>
                 <h3 className="font-display font-semibold text-base text-[color:var(--text)] flex items-center gap-2">
-                  <span>{KIND_ICON[p?.kind ?? ""] ?? "⚙"}</span>
+                  <DeviceIcon kind={p?.kind ?? ""} size={18} className={deviceMeta(p?.kind ?? "").text} />
                   Редагувати пристрій
                 </h3>
-                <p className="text-xs font-mono text-[color:var(--text-faint)] mt-1">
-                  {p?.kind ?? ""}
+                <p className="text-xs text-[color:var(--text-faint)] mt-1">
+                  {deviceMeta(p?.kind ?? "").label}
                 </p>
               </div>
 

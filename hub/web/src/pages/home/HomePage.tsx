@@ -233,7 +233,7 @@ export default function HomePage() {
           />
           <RoomSheet
             room={selectedRoom}
-            placements={data.placements}
+            data={data}
             onClose={() => setSelectedRoom(null)}
           />
         </>

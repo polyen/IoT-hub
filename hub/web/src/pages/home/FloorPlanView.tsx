@@ -1,16 +1,11 @@
 import { useState } from "react";
 import type { FloorPlanData, Room } from "../../lib/types";
+import { deviceMeta } from "../../lib/deviceIcons";
 
 const ROOM_COLORS: Record<string, string> = {
   idle: "#0d1a2e",
   alert: "#2d0a0a",
   presence: "#0a1e10",
-};
-
-const KIND_ICON: Record<string, string> = {
-  camera: "⬛", light: "💡", lock: "🔒", thermostat: "🌡", relay: "⚡",
-  sensor_pir: "👁", sensor_door: "🚪", sensor_dht: "🌡", sensor_mq2: "💨",
-  sensor_power: "⚡", speaker: "🔊",
 };
 
 interface Props {
@@ -81,20 +76,24 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
               >
                 {room.name}
               </text>
-              {/* device icons row */}
-              {roomPlacements.slice(0, 4).map((p, i) => (
-                <text
-                  key={p.id}
-                  x={cx - (roomPlacements.length * 3) / 2 + i * 3 + 1.5}
-                  y={cy + 3}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize="3"
-                  className="pointer-events-none select-none"
-                >
-                  {KIND_ICON[p.kind] ?? "⚙"}
-                </text>
-              ))}
+              {/* device icons row — lucide glyphs rendered as nested SVGs */}
+              {roomPlacements.slice(0, 4).map((p, i) => {
+                const { Icon, hex } = deviceMeta(p.kind);
+                const w = 3.4;
+                const n = Math.min(roomPlacements.length, 4);
+                return (
+                  <Icon
+                    key={p.id}
+                    x={cx - (n * w) / 2 + i * w}
+                    y={cy + 1.4}
+                    width={w}
+                    height={w}
+                    color={hex}
+                    strokeWidth={2}
+                    className="pointer-events-none select-none"
+                  />
+                );
+              })}
             </g>
           );
         })}

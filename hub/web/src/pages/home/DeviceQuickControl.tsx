@@ -1,19 +1,16 @@
 import { useState } from "react";
+import { Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
+import { deviceMeta } from "../../lib/deviceIcons";
 import type { DevicePlacement } from "../../lib/types";
 
 interface Props {
   placement: DevicePlacement;
+  onDelete?: () => void;
 }
 
-const KIND_ICON: Record<string, string> = {
-  camera: "⬛", light: "💡", lock: "🔒", thermostat: "🌡", relay: "⚡",
-  sensor_pir: "👁", sensor_door: "🚪", sensor_dht: "🌡", sensor_mq2: "💨",
-  sensor_power: "⚡", speaker: "🔊",
-};
-
-export function DeviceQuickControl({ placement }: Props) {
+export function DeviceQuickControl({ placement, onDelete }: Props) {
   const [loading, setLoading] = useState(false);
 
   const sendCmd = async (payload: Record<string, unknown>) => {
@@ -25,16 +22,19 @@ export function DeviceQuickControl({ placement }: Props) {
     }
   };
 
-  const icon = KIND_ICON[placement.kind] ?? "⚙";
+  const meta = deviceMeta(placement.kind);
+  const { Icon } = meta;
   const label = placement.label ?? placement.device_id;
 
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-slate-700 light:border-slate-200 last:border-0">
-      <div className="flex items-center gap-2">
-        <span className="text-lg">{icon}</span>
+    <div className="flex items-center justify-between py-2.5 border-b border-[color:var(--border)] last:border-0">
+      <div className="flex items-center gap-2.5">
+        <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${meta.bg}`}>
+          <Icon size={16} strokeWidth={1.9} className={meta.text} />
+        </span>
         <div>
           <p className="text-sm font-medium">{label}</p>
-          <p className="text-xs text-slate-500">{placement.kind}</p>
+          <p className="text-xs text-[color:var(--text-faint)]">{meta.label}</p>
         </div>
       </div>
       <div className="flex gap-2">
@@ -56,7 +56,16 @@ export function DeviceQuickControl({ placement }: Props) {
           </Button>
         )}
         {!["light", "relay", "lock"].includes(placement.kind) && (
-          <span className="text-xs text-slate-500">тільки читання</span>
+          <span className="text-xs text-[color:var(--text-faint)]">тільки читання</span>
+        )}
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            title="Прибрати з кімнати"
+            className="ml-1 p-1.5 rounded-lg text-[color:var(--text-faint)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <Trash2 size={15} />
+          </button>
         )}
       </div>
     </div>
