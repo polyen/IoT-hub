@@ -105,7 +105,7 @@ export function Sidebar() {
           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
           style={{
             background: "var(--primary-dim)",
-            border: "1px solid rgba(201,168,76,0.3)",
+            border: "1px solid rgba(99,102,241,0.3)",
           }}
         >
           <Home size={15} strokeWidth={1.5} className="text-primary-400" />

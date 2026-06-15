@@ -27,28 +27,40 @@ interface DigestSummary {
   cameras_online: number;
 }
 
+type Tone = "neutral" | "ok" | "danger" | "info" | "sky";
+
+const TONE: Record<Tone, { bg: string; fg: string }> = {
+  neutral: { bg: "bg-[color:var(--raised)]", fg: "text-[color:var(--text-muted)]" },
+  ok: { bg: "bg-emerald-500/15", fg: "text-emerald-400" },
+  danger: { bg: "bg-red-500/15", fg: "text-red-400" },
+  info: { bg: "bg-primary-500/15", fg: "text-primary-400" },
+  sky: { bg: "bg-sky-500/15", fg: "text-sky-400" },
+};
+
 interface StatCardProps {
   icon: React.ReactNode;
   label: string;
   value: string | number;
-  iconBg: string;
-  iconColor: string;
+  tone?: Tone;
   highlight?: boolean;
 }
 
-function StatCard({ icon, label, value, iconBg, iconColor, highlight }: StatCardProps) {
+function StatCard({ icon, label, value, tone = "neutral", highlight }: StatCardProps) {
+  const c = TONE[tone];
   return (
     <div
-      className={`card rounded-2xl px-4 py-3.5 flex items-center gap-3 transition-all ${
-        highlight ? "border-warm-500/40 bg-warm-500/5" : ""
+      className={`card card-hover rounded-2xl px-4 py-3.5 flex items-center gap-3 ${
+        highlight ? "ring-1 ring-red-500/40" : ""
       }`}
     >
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg}`}>
-        <span className={iconColor}>{icon}</span>
+      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${c.bg}`}>
+        <span className={c.fg}>{icon}</span>
       </div>
       <div className="min-w-0">
-        <p className="text-xl font-bold text-[color:var(--text)] leading-none">{value}</p>
-        <p className="text-xs text-[color:var(--text-muted)] mt-0.5 truncate">{label}</p>
+        <p className="text-xl font-bold font-mono tabular-nums text-[color:var(--text)] leading-none">
+          {value}
+        </p>
+        <p className="text-xs text-[color:var(--text-muted)] mt-1 truncate">{label}</p>
       </div>
     </div>
   );
@@ -74,30 +86,26 @@ function InsightsStrip({
         icon={<Users size={18} strokeWidth={1.8} />}
         label="Присутніх"
         value={presenceCount}
-        iconBg="bg-green-500/15"
-        iconColor="text-green-400"
+        tone="ok"
       />
       <StatCard
         icon={<AlertTriangle size={18} strokeWidth={1.8} />}
         label="Тривог сьогодні"
         value={digest?.alerts_today ?? alertCount}
-        iconBg={alertCount > 0 ? "bg-red-500/15" : "bg-[color:var(--raised)]"}
-        iconColor={alertCount > 0 ? "text-red-400" : "text-[color:var(--text-muted)]"}
+        tone={alertCount > 0 ? "danger" : "neutral"}
         highlight={alertCount > 0}
       />
       <StatCard
         icon={<Camera size={18} strokeWidth={1.8} />}
         label="Камери онлайн"
         value={digest?.cameras_online ?? "—"}
-        iconBg="bg-primary-500/15"
-        iconColor="text-primary-400"
+        tone="info"
       />
       <StatCard
         icon={<Activity size={18} strokeWidth={1.8} />}
         label="Подій сьогодні"
         value={digest?.total_events ?? "—"}
-        iconBg="bg-violet-500/15"
-        iconColor="text-violet-400"
+        tone="sky"
       />
     </div>
   );
@@ -156,7 +164,7 @@ export default function HomePage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-display font-semibold text-2xl text-[color:var(--text)] tracking-wide">
+          <h1 className="font-display font-semibold text-2xl text-[color:var(--text)]">
             Мій дім
           </h1>
           <p className="text-xs font-mono text-[color:var(--text-muted)] mt-1 tracking-wide uppercase">
@@ -208,11 +216,11 @@ export default function HomePage() {
           {/* Legend */}
           <div className="flex items-center gap-4 text-xs text-[color:var(--text-muted)]">
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-green-700/80" />
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
               присутність
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm bg-red-800/80" />
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
               тривога
             </span>
           </div>

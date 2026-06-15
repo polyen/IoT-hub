@@ -162,34 +162,43 @@ export default function CamerasPage() {
   }
 
   const selected = cameras.find((c) => c.id === selectedId) ?? cameras[0];
+  const onlineCount = cameras.filter((c) => c.online).length;
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-bold text-[color:var(--text)]">Камери</h1>
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[color:var(--text)]">Камери</h1>
+          <p className="text-xs font-mono uppercase tracking-wide text-[color:var(--text-muted)] mt-1">
+            {cameras.length} камер · <span className="text-emerald-400">{onlineCount} онлайн</span>
+          </p>
+        </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setPrivacyMode((v) => !v)}
-            title="Приватний режим"
-            className={`p-2 rounded-xl border transition-all ${
-              privacyMode
-                ? "border-primary-500/40 bg-primary-500/10 text-primary-400"
-                : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--raised)]"
-            }`}
-          >
-            {privacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
-          </button>
-          <button
-            onClick={() => setOverlayEnabled((v) => !v)}
-            title="Overlay детекцій"
-            className={`p-2 rounded-xl border transition-all ${
-              overlayEnabled
-                ? "border-primary-500/40 bg-primary-500/10 text-primary-400"
-                : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--raised)]"
-            }`}
-          >
-            <Crosshair size={16} />
-          </button>
+          {/* View toggles — grouped */}
+          <div className="flex items-center gap-0.5 rounded-xl border border-[color:var(--border)] p-0.5">
+            <button
+              onClick={() => setPrivacyMode((v) => !v)}
+              title="Приватний режим"
+              className={`p-1.5 rounded-lg transition-all ${
+                privacyMode
+                  ? "bg-warm-500/15 text-warm-400"
+                  : "text-[color:var(--text-muted)] hover:bg-[color:var(--raised)]"
+              }`}
+            >
+              {privacyMode ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+            <button
+              onClick={() => setOverlayEnabled((v) => !v)}
+              title="Overlay детекцій"
+              className={`p-1.5 rounded-lg transition-all ${
+                overlayEnabled
+                  ? "bg-primary-500/15 text-primary-400"
+                  : "text-[color:var(--text-muted)] hover:bg-[color:var(--raised)]"
+              }`}
+            >
+              <Crosshair size={16} />
+            </button>
+          </div>
           <Button
             size="sm"
             variant="secondary"
@@ -231,15 +240,18 @@ export default function CamerasPage() {
             <button
               key={cam.id}
               onClick={() => setSelectedId(cam.id)}
-              className={`shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border transition-all ${
+              className={`shrink-0 flex items-center gap-2 text-xs px-3 py-2 rounded-xl border transition-all ${
                 cam.id === selected.id
                   ? "border-primary-500/50 bg-primary-500/10 text-primary-300"
                   : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:border-[color:var(--text-faint)]"
               }`}
             >
-              <Camera size={13} />
+              <span
+                className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                  cam.online ? "bg-emerald-500" : "bg-red-500 animate-pulse"
+                }`}
+              />
               {cam.name}
-              {!cam.online && <span className="h-1.5 w-1.5 rounded-full bg-red-500 ml-0.5" />}
             </button>
           ))}
         </div>

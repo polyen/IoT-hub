@@ -13,10 +13,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         className={clsx(
           "inline-flex items-center justify-center rounded-xl font-medium transition-all duration-150",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500",
-          "disabled:opacity-50 disabled:pointer-events-none",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--bg)]",
+          "active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none",
           {
-            "bg-primary-600 text-white hover:bg-primary-700 shadow-sm hover:shadow-glow-primary":
+            "bg-primary-600 text-white hover:bg-primary-500 shadow-sm hover:shadow-glow-primary":
               variant === "primary",
             "bg-[color:var(--raised)] text-[color:var(--text)] hover:bg-[color:var(--card-hover)] border border-[color:var(--border)]":
               variant === "secondary",

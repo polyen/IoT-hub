@@ -11,8 +11,8 @@ export default defineConfig({
         name: "IoT Hub",
         short_name: "IoTHub",
         description: "Local-first smart home control panel",
-        theme_color: "#1e40af",
-        background_color: "#0f172a",
+        theme_color: "#4f46e5",
+        background_color: "#0b1120",
         display: "standalone",
         icons: [
           { src: "/icon-192.png", sizes: "192x192", type: "image/png" },

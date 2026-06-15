@@ -63,7 +63,7 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
                 points={pts}
                 fill={roomColor(room)}
                 fillOpacity={isHovered ? 0.9 : 0.7}
-                stroke={isHovered ? "#c9a84c" : "#1a2e4a"}
+                stroke={isHovered ? "#6366f1" : "#29374e"}
                 strokeWidth={isHovered ? 0.6 : 0.4}
                 className="cursor-pointer transition-all"
                 onMouseEnter={() => setHovered(room.id)}

@@ -42,17 +42,17 @@ const ROOM_FILL_COLORS = ["#0c1a30", "#091420", "#130a18", "#091614", "#180e0a"]
 // Canvas color constants (hardcoded for Konva — cannot use CSS vars in canvas props)
 const C = {
   grid: "#0d1824",
-  roomStroke: "#1a2e4a",
-  roomStrokeSelected: "#c9a84c",
+  roomStroke: "#29374e",
+  roomStrokeSelected: "#6366f1",
   roomText: "#c8c4b8",
-  vertexFill: "#c9a84c",
+  vertexFill: "#6366f1",
   vertexStroke: "#f2dfa0",
-  pendingStroke: "#c9a84c",
+  pendingStroke: "#6366f1",
   pendingStrokeClose: "#e8c95a",
   deviceFill: "#08132a",
   deviceFillSelected: "#1a2840",
   deviceStroke: "#1e3050",
-  deviceStrokeSelected: "#c9a84c",
+  deviceStrokeSelected: "#6366f1",
   deviceLabel: "#7a8ba8",
 } as const;
 const SNAP = 0.05;
@@ -415,7 +415,7 @@ export function FloorPlanEditor() {
               setEditPlacement({ id: p.id, label: p.label ?? "", device_id: p.device_id, rtsp_url: (p.config?.rtsp_url as string) ?? "", rtsp_hd_url: (p.config?.rtsp_hd_url as string) ?? "" });
             }}
             className="rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
-            style={{ background: "var(--primary-dim)", color: "var(--primary)", border: "1px solid rgba(201,168,76,0.2)" }}
+            style={{ background: "var(--primary-dim)", color: "var(--primary)", border: "1px solid rgba(99,102,241,0.2)" }}
           >
             Редагувати
           </button>
@@ -466,7 +466,7 @@ export function FloorPlanEditor() {
                       ? "bg-primary-600/20 text-primary-300"
                       : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)]",
                   ].join(" ")}
-                  style={pendingDeviceKind === k && !pendingDeviceId ? { border: "1px solid rgba(201,168,76,0.35)" } : { border: "1px solid transparent" }}
+                  style={pendingDeviceKind === k && !pendingDeviceId ? { border: "1px solid rgba(99,102,241,0.35)" } : { border: "1px solid transparent" }}
                 >
                   <span className="text-base leading-none" aria-hidden>{KIND_ICON[k]}</span>
                   <span className="text-[9px] font-mono leading-tight">{k.replace("sensor_", "")}</span>
@@ -496,7 +496,7 @@ export function FloorPlanEditor() {
                         ? "bg-primary-600/20 text-primary-300"
                         : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)]",
                     ].join(" ")}
-                    style={pendingDeviceId === d.device_id ? { border: "1px solid rgba(201,168,76,0.35)" } : { border: "1px solid var(--border)" }}
+                    style={pendingDeviceId === d.device_id ? { border: "1px solid rgba(99,102,241,0.35)" } : { border: "1px solid var(--border)" }}
                   >
                     <span aria-hidden>{KIND_ICON[d.kind_guess] ?? "⚙"}</span>
                     <span className="font-mono max-w-[120px] truncate">{d.device_id}</span>

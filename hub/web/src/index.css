@@ -12,8 +12,26 @@
   body {
     background-color: var(--bg);
     color: var(--text);
-    font-family: "DM Sans", system-ui, sans-serif;
+    font-family: var(--font-sans);
     transition: background-color 0.2s, color 0.2s;
+  }
+
+  /* Headings use the geometric display face for a modern, glanceable feel */
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /* Consistent, accessible focus ring across the app */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
+  ::selection {
+    background: var(--primary-dim);
+    color: var(--text);
   }
 
   * {
@@ -47,7 +65,8 @@
   .card {
     background-color: var(--card);
     border: 1px solid var(--border);
-    border-radius: 0.75rem;
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 
   .card-hover {
@@ -85,7 +104,7 @@
   }
   .nav-item.active {
     background-color: var(--primary-dim);
-    color: #a5b4fc;
+    color: var(--primary);
   }
 }
 
