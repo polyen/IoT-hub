@@ -1,0 +1,16 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="IoT Hub">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+  <!-- Full-bleed background so the icon works as maskable (OS applies its own mask) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- House + presence node, centred in the maskable safe zone -->
+  <g fill="none" stroke="#ffffff" stroke-width="26" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M150 246 L256 156 L362 246"/>
+    <path d="M178 232 V356 H334 V232"/>
+  </g>
+  <circle cx="256" cy="306" r="26" fill="#ffffff"/>
+</svg>

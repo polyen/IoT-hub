@@ -32,6 +32,11 @@ export function useConfirmStream(): {
 
   useEffect(() => {
     let destroyed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    // Exponential backoff so a globally-mounted bell doesn't hammer /ws/confirm
+    // every 3 s while the hub is unreachable (ERR_NAME_NOT_RESOLVED floods).
+    let retryDelay = 2000;
+    const MAX_DELAY = 30_000;
 
     async function fetchPending() {
       try {
@@ -48,14 +53,30 @@ export function useConfirmStream(): {
 
     fetchPending();
 
+    function scheduleReconnect() {
+      if (destroyed) return;
+      reconnectTimer = setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, MAX_DELAY); // 2→4→8→16→30s cap
+    }
+
     function connect() {
+      if (destroyed || navigator.onLine === false) {
+        // No point dialing while the browser knows it's offline — wait for 'online'.
+        scheduleReconnect();
+        return;
+      }
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
-      ws.onopen = () => { if (!destroyed) setConnected(true); };
+      ws.onopen = () => {
+        if (!destroyed) {
+          setConnected(true);
+          retryDelay = 2000; // reset backoff on a healthy connection
+        }
+      };
       ws.onclose = () => {
         if (!destroyed) {
           setConnected(false);
-          setTimeout(connect, 3000);
+          scheduleReconnect();
         }
       };
       ws.onerror = () => ws.close();
@@ -82,8 +103,21 @@ export function useConfirmStream(): {
 
     connect();
 
+    // When connectivity returns, reconnect immediately instead of waiting out the backoff.
+    const onOnline = () => {
+      retryDelay = 2000;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (wsRef.current?.readyState !== WebSocket.OPEN) {
+        wsRef.current?.close();
+        connect();
+      }
+    };
+    window.addEventListener("online", onOnline);
+
     return () => {
       destroyed = true;
+      window.removeEventListener("online", onOnline);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       wsRef.current?.close();
     };
   }, []);
