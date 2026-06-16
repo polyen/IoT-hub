@@ -206,7 +206,8 @@ async def _handle(message: aiomqtt.Message, out: aiomqtt.Client) -> None:
     for subtopic, payload in translate(slug, kind, src):
         out_topic = f"home/{slug}/{subtopic}"
         await out.publish(out_topic, json.dumps(payload), qos=1)
-        logger.info("Zigbee %s → %s (tier %s)", topic, out_topic, payload["tier"])
+        # Device-state payloads (e.g. presence /state) carry no tier — don't assume one.
+        logger.info("Zigbee %s → %s (tier %s)", topic, out_topic, payload.get("tier", "state"))
 
 
 async def run() -> None:

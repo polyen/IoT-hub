@@ -63,6 +63,18 @@ def test_presence_is_edge_triggered():
     assert held["motion/state"]["presence"] == "true"
 
 
+def test_only_state_payloads_lack_tier():
+    # Regression: _handle logs payload["tier"] for every publish. The presence
+    # /state payload intentionally has no tier (it's device-state, not an event),
+    # so the log must use .get(...) — otherwise the bridge crash-loops on KeyError.
+    results = translate("vitalnia", "motion", {"presence": True, "temperature": 21.0})
+    for subtopic, payload in results:
+        if subtopic.endswith("/state"):
+            assert "tier" not in payload
+        else:
+            assert "tier" in payload, f"event payload for {subtopic!r} must carry a tier"
+
+
 def test_presence_state_clears_on_falling_edge():
     # Occupied, then room clears: no new event on the way down, but the level
     # state flips to "false" so room_states stops lighting the room.
