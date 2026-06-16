@@ -240,3 +240,38 @@ def test_identity_persist_per_track_and_room() -> None:
     assert _should_persist_identity("r", 2, "Vlad") is True  # different track
     assert _should_persist_identity("other", 1, "Vlad") is True  # different room
     assert _should_persist_identity("r", 1, "Vlad") is False
+
+
+@pytest.mark.asyncio
+async def test_cache_climate_writes_numeric_fields_only() -> None:
+    """_cache_climate hsets only numeric fields (+ ts) and bumps the TTL."""
+    redis = AsyncMock()
+    await mqtt_subscriber._cache_climate(
+        redis,
+        "living-room",
+        {
+            "tier": 1,
+            "temperature": 22.5,
+            "humidity": 50,
+            "ts": "2026-06-16T10:00:00+00:00",
+            "device_id": "mock-dht22",  # non-numeric → excluded
+            "model_version": "v1",  # non-numeric → excluded
+        },
+    )
+    redis.hset.assert_awaited_once()
+    mapping = redis.hset.call_args.kwargs["mapping"]
+    assert mapping["temperature"] == "22.5"
+    assert mapping["humidity"] == "50"
+    assert mapping["ts"] == "2026-06-16T10:00:00+00:00"
+    assert "device_id" not in mapping
+    assert "model_version" not in mapping
+    redis.expire.assert_awaited_once()
+    assert redis.expire.call_args[0][0] == "home:climate:living-room"
+
+
+@pytest.mark.asyncio
+async def test_cache_climate_skips_when_no_numeric_fields() -> None:
+    """A sensors message with no numeric payload writes nothing."""
+    redis = AsyncMock()
+    await mqtt_subscriber._cache_climate(redis, "kitchen", {"tier": 1, "state": "on"})
+    redis.hset.assert_not_awaited()

@@ -30,6 +30,7 @@ from hub.backend.routes.health import router as health_router
 from hub.backend.routes.policy import router as policy_router
 from hub.backend.routes.privacy import router as privacy_router
 from hub.backend.routes.security import router as security_router
+from hub.backend.routes.sensors import router as sensors_router
 from hub.backend.routes.system import router as system_router
 from hub.edge.mlops.deploy import ModelStore, monitor_loop
 from hub.edge.storage.t0 import cleanup_old_frames
@@ -275,5 +276,6 @@ app.include_router(policy_router)
 app.include_router(digest_router)
 app.include_router(privacy_router)
 app.include_router(security_router)
+app.include_router(sensors_router)
 app.include_router(audio_router)
 app.mount("/metrics", make_asgi_app())

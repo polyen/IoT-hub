@@ -10,6 +10,7 @@ const ConfirmPage = lazy(() => import("../pages/confirm/ConfirmPage"));
 const MoreIndex = lazy(() => import("../pages/more/MoreIndex"));
 const EventsPage = lazy(() => import("../pages/more/EventsPage"));
 const DigestPage = lazy(() => import("../pages/more/DigestPage"));
+const ClimatePage = lazy(() => import("../pages/more/ClimatePage"));
 const DevicesListPage = lazy(() => import("../pages/more/DevicesListPage"));
 const SecurityPage = lazy(() => import("../pages/more/SecurityPage"));
 const SystemPage = lazy(() => import("../pages/more/SystemPage"));
@@ -38,6 +39,7 @@ export function AppRouter() {
           <Route path="/confirm" element={<ConfirmPage />} />
           <Route path="/more" element={<MoreIndex />} />
           <Route path="/more/digest" element={<DigestPage />} />
+          <Route path="/more/climate" element={<ClimatePage />} />
           <Route path="/more/devices" element={<DevicesListPage />} />
           <Route path="/more/security" element={<SecurityPage />} />
           <Route path="/more/policy" element={<PolicyPage />} />

@@ -38,6 +38,18 @@ SUBSCRIPTIONS = [
 # How long a face recognition result is cached in Redis for overlay enrichment.
 _IDENTITY_TTL_SEC = 10
 
+# Latest microclimate reading per room is cached in Redis ``home:climate:{room}``
+# (a hash of numeric sensor fields + ``ts``) so the floor-plan overlay and
+# ``/api/sensors/latest`` can read the freshest value without a hypertable scan.
+# This is updated on *every* sensors message, independent of the events-feed
+# dedup (which only governs DB persistence), so the live overlay never goes
+# stale even while most readings are suppressed from the feed.
+_CLIMATE_KEY_PREFIX = "home:climate:"
+# Drop the cache entry if a sensor goes silent — keeps a removed/offline room
+# from showing a frozen value forever.  Long enough to survive the slowest
+# (60 s) sensor cycle plus jitter.
+_CLIMATE_TTL_SEC = 300
+
 _DEAD_LETTER_KEY = "mqtt:dead-letter"
 _DEAD_LETTER_MAX = 1000
 
@@ -178,6 +190,11 @@ async def _handle(
         MQTT_MSGS.labels(topic=type_, status="ok").inc()
         return
 
+    # Cache latest microclimate values per room *before* the dedup check — the
+    # live overlay must reflect every reading even when the feed suppresses it.
+    if type_ == "sensors" and room is not None:
+        await _cache_climate(redis_client, room, payload)
+
     # Deduplicate repetitive non-alert event types (sensors, fused) so the
     # events feed doesn't flood.  Alerts always bypass this check.
     if type_ != "alert" and _is_event_suppressed(room, type_):
@@ -209,6 +226,33 @@ async def _handle_device_state(
     state_fields = {str(k): str(v) for k, v in payload.items()}
     await redis_client.hset(f"home:state:{device_id}", mapping=state_fields)
     logger.debug("Device state updated: %s → %s", device_id, state_fields)
+
+
+async def _cache_climate(
+    redis_client: _RedisClient,
+    room: str,
+    payload: dict[str, Any],
+) -> None:
+    """Merge the numeric fields of a sensors message into ``home:climate:{room}``.
+
+    Several sensors (DHT22, air-quality, power) publish to the same
+    ``home/{room}/sensors`` topic with *disjoint* field sets, so we ``hset`` only
+    the keys present in this message rather than replacing the whole hash — that
+    way temperature isn't wiped by the next power-only reading and vice-versa.
+    ``ts`` is refreshed on every update and the key TTL is bumped so a silent
+    room eventually drops out of ``/api/sensors/latest``.
+    """
+    fields = {k: v for k, v in payload.items() if k != "tier" and isinstance(v, int | float)}
+    if not fields:
+        return
+    mapping = {k: str(v) for k, v in fields.items()}
+    mapping["ts"] = str(payload.get("ts") or datetime.now(UTC).isoformat())
+    key = f"{_CLIMATE_KEY_PREFIX}{room}"
+    try:
+        await redis_client.hset(key, mapping=mapping)
+        await redis_client.expire(key, _CLIMATE_TTL_SEC)
+    except Exception as exc:  # pragma: no cover - cache is best-effort
+        logger.debug("climate cache write failed for %s: %s", room, exc)
 
 
 async def _persist_event(

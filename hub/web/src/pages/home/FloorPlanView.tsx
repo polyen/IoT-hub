@@ -8,15 +8,19 @@ const ROOM_COLORS: Record<string, string> = {
   presence: "#0a1e10",
 };
 
+/** Latest microclimate readings keyed by room slug (from /api/sensors/latest). */
+export type ClimateBySlug = Record<string, { temperature?: number; humidity?: number }>;
+
 interface Props {
   data: FloorPlanData;
   onRoomClick: (room: Room) => void;
   /** active alerts: set of room names/ids that have alerts */
   alertRooms?: Set<string>;
   presenceRooms?: Set<string>;
+  climate?: ClimateBySlug;
 }
 
-export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: Props) {
+export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms, climate }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
 
   const plan = data.floor_plans[0];
@@ -52,6 +56,19 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
           const isHovered = hovered === room.id;
           const roomPlacements = placements.filter((p) => p.room_id === room.id);
 
+          const cl = climate?.[room.slug];
+          const climateLabel = cl
+            ? [
+                cl.temperature != null ? `${cl.temperature.toFixed(1)}°` : null,
+                cl.humidity != null ? `${Math.round(cl.humidity)}%` : null,
+              ]
+                .filter(Boolean)
+                .join("  ")
+            : null;
+
+          const hasExtras = climateLabel != null || roomPlacements.length > 0;
+          const iconY = cy + (climateLabel ? 2.8 : 1.4);
+
           return (
             <g key={room.id}>
               <polygon
@@ -67,7 +84,7 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
               />
               <text
                 x={cx}
-                y={cy - (roomPlacements.length > 0 ? 2 : 0)}
+                y={cy - (hasExtras ? 2.6 : 0)}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize="3.5"
@@ -76,6 +93,19 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
               >
                 {room.name}
               </text>
+              {climateLabel && (
+                <text
+                  x={cx}
+                  y={cy}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize="2.8"
+                  fill="#fbbf77"
+                  className="pointer-events-none select-none font-mono"
+                >
+                  {climateLabel}
+                </text>
+              )}
               {/* device icons row — lucide glyphs rendered as nested SVGs */}
               {roomPlacements.slice(0, 4).map((p, i) => {
                 const { Icon, hex } = deviceMeta(p.kind);
@@ -85,7 +115,7 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms }: 
                   <Icon
                     key={p.id}
                     x={cx - (n * w) / 2 + i * w}
-                    y={cy + 1.4}
+                    y={iconY}
                     width={w}
                     height={w}
                     color={hex}

@@ -14,6 +14,7 @@ import {
   Lock,
   Settings,
   Brain,
+  Thermometer,
   LucideIcon,
 } from "lucide-react";
 
@@ -78,6 +79,7 @@ export function Sidebar() {
 
   const home: NavItem[] = [
     { to: "/more/digest", icon: FileText, label: t("more.digest") },
+    { to: "/more/climate", icon: Thermometer, label: t("more.climate") },
     { to: "/more/devices", icon: Cpu, label: t("more.devices") },
     { to: "/more/security", icon: Shield, label: t("more.security") },
     { to: "/more/privacy", icon: Lock, label: t("more.privacy") },

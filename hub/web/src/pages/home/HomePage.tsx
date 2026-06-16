@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Users, AlertTriangle, Camera, Activity, PencilLine } from "lucide-react";
 import { useFloorPlan } from "../../features/floorplan/useFloorPlan";
 import { useFloorPlanStore } from "../../features/floorplan/floorplan-store";
-import { FloorPlanView } from "./FloorPlanView";
+import { FloorPlanView, type ClimateBySlug } from "./FloorPlanView";
 import { RoomSheet } from "./RoomSheet";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
@@ -18,6 +18,10 @@ const FloorPlanEditor = lazy(() =>
 interface RoomStates {
   presence_rooms: string[];
   alert_rooms: string[];
+}
+
+interface LatestClimate {
+  rooms: Record<string, { values: Record<string, number> }>;
 }
 
 interface DigestSummary {
@@ -123,6 +127,22 @@ export default function HomePage() {
     staleTime: 25_000,
     enabled: !!data,
   });
+
+  const { data: latestClimate } = useQuery<LatestClimate>({
+    queryKey: ["sensors-latest"],
+    queryFn: () => api.get<LatestClimate>("/api/sensors/latest", true),
+    refetchInterval: 30_000,
+    staleTime: 25_000,
+    enabled: !!data,
+  });
+
+  const climate = useMemo<ClimateBySlug>(() => {
+    const out: ClimateBySlug = {};
+    for (const [slug, c] of Object.entries(latestClimate?.rooms ?? {})) {
+      out[slug] = { temperature: c.values.temperature, humidity: c.values.humidity };
+    }
+    return out;
+  }, [latestClimate]);
 
   const alertRooms = useMemo(
     () => new Set(roomStates?.alert_rooms ?? []),
@@ -230,6 +250,7 @@ export default function HomePage() {
             onRoomClick={setSelectedRoom}
             alertRooms={alertRooms}
             presenceRooms={presenceRooms}
+            climate={climate}
           />
           <RoomSheet
             room={selectedRoom}

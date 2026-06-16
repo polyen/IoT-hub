@@ -9,6 +9,7 @@ import {
   Lock,
   Settings,
   Brain,
+  Thermometer,
   ChevronRight,
   LucideIcon,
 } from "lucide-react";
@@ -36,6 +37,13 @@ const SECTIONS: MoreSection[] = [
         key: "digest",
         color: "text-violet-400",
         bgColor: "bg-violet-500/15",
+      },
+      {
+        to: "/more/climate",
+        icon: Thermometer,
+        key: "climate",
+        color: "text-orange-400",
+        bgColor: "bg-orange-500/15",
       },
       {
         to: "/more/devices",
