@@ -1,10 +1,13 @@
 import { lazy, Suspense, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, AlertTriangle, Camera, Activity, PencilLine } from "lucide-react";
+import { PencilLine } from "lucide-react";
 import { useFloorPlan } from "../../features/floorplan/useFloorPlan";
 import { useFloorPlanStore } from "../../features/floorplan/floorplan-store";
 import { FloorPlanView, type ClimateBySlug } from "./FloorPlanView";
 import { RoomSheet } from "./RoomSheet";
+import { HomeStatus } from "./HomeStatus";
+import { SceneChips } from "./SceneChips";
+import { AttentionFeed } from "./AttentionFeed";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
@@ -31,90 +34,6 @@ interface DigestSummary {
   cameras_online: number;
 }
 
-type Tone = "neutral" | "ok" | "danger" | "info" | "sky";
-
-const TONE: Record<Tone, { bg: string; fg: string }> = {
-  neutral: { bg: "bg-[color:var(--raised)]", fg: "text-[color:var(--text-muted)]" },
-  ok: { bg: "bg-emerald-500/15", fg: "text-emerald-400" },
-  danger: { bg: "bg-red-500/15", fg: "text-red-400" },
-  info: { bg: "bg-primary-500/15", fg: "text-primary-400" },
-  sky: { bg: "bg-sky-500/15", fg: "text-sky-400" },
-};
-
-interface StatCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  tone?: Tone;
-  highlight?: boolean;
-}
-
-function StatCard({ icon, label, value, tone = "neutral", highlight }: StatCardProps) {
-  const c = TONE[tone];
-  return (
-    <div
-      className={`card card-hover rounded-2xl px-4 py-3.5 flex items-center gap-3 ${
-        highlight ? "ring-1 ring-red-500/40" : ""
-      }`}
-    >
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${c.bg}`}>
-        <span className={c.fg}>{icon}</span>
-      </div>
-      <div className="min-w-0">
-        <p className="text-xl font-bold font-mono tabular-nums text-[color:var(--text)] leading-none">
-          {value}
-        </p>
-        <p className="text-xs text-[color:var(--text-muted)] mt-1 truncate">{label}</p>
-      </div>
-    </div>
-  );
-}
-
-function InsightsStrip({
-  presenceCount,
-  alertCount,
-}: {
-  presenceCount: number;
-  alertCount: number;
-}) {
-  const { data: digest } = useQuery<DigestSummary>({
-    queryKey: ["digest-summary"],
-    queryFn: () => api.get<DigestSummary>("/api/digest/summary", true),
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-  });
-
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <StatCard
-        icon={<Users size={18} strokeWidth={1.8} />}
-        label="Присутніх"
-        value={presenceCount}
-        tone="ok"
-      />
-      <StatCard
-        icon={<AlertTriangle size={18} strokeWidth={1.8} />}
-        label="Тривог сьогодні"
-        value={digest?.alerts_today ?? alertCount}
-        tone={alertCount > 0 ? "danger" : "neutral"}
-        highlight={alertCount > 0}
-      />
-      <StatCard
-        icon={<Camera size={18} strokeWidth={1.8} />}
-        label="Камери онлайн"
-        value={digest?.cameras_online ?? "—"}
-        tone="info"
-      />
-      <StatCard
-        icon={<Activity size={18} strokeWidth={1.8} />}
-        label="Подій сьогодні"
-        value={digest?.total_events ?? "—"}
-        tone="sky"
-      />
-    </div>
-  );
-}
-
 export default function HomePage() {
   const { data, isLoading, error } = useFloorPlan();
   const { editMode, setEditMode, setDraft } = useFloorPlanStore();
@@ -136,6 +55,14 @@ export default function HomePage() {
     enabled: !!data,
   });
 
+  const { data: digest } = useQuery<DigestSummary>({
+    queryKey: ["digest-summary"],
+    queryFn: () => api.get<DigestSummary>("/api/digest/summary", true),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    enabled: !!data,
+  });
+
   const climate = useMemo<ClimateBySlug>(() => {
     const out: ClimateBySlug = {};
     for (const [slug, c] of Object.entries(latestClimate?.rooms ?? {})) {
@@ -144,13 +71,26 @@ export default function HomePage() {
     return out;
   }, [latestClimate]);
 
-  const alertRooms = useMemo(
-    () => new Set(roomStates?.alert_rooms ?? []),
-    [roomStates?.alert_rooms],
-  );
+  const alertRooms = useMemo(() => new Set(roomStates?.alert_rooms ?? []), [roomStates?.alert_rooms]);
   const presenceRooms = useMemo(
     () => new Set(roomStates?.presence_rooms ?? []),
     [roomStates?.presence_rooms],
+  );
+
+  // Resolve room IDs → display names for the status hero.
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of data?.rooms ?? []) m.set(r.id, r.name);
+    return m;
+  }, [data?.rooms]);
+
+  const alertNames = useMemo(
+    () => [...alertRooms].map((id) => nameById.get(id) ?? id),
+    [alertRooms, nameById],
+  );
+  const presenceNames = useMemo(
+    () => [...presenceRooms].map((id) => nameById.get(id) ?? id),
+    [presenceRooms, nameById],
   );
 
   if (isLoading) {
@@ -181,39 +121,16 @@ export default function HomePage() {
 
   return (
     <div className="space-y-5 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-display font-semibold text-2xl text-[color:var(--text)]">
-            Мій дім
-          </h1>
-          <p className="text-xs font-mono text-[color:var(--text-muted)] mt-1 tracking-wide uppercase">
-            {new Date().toLocaleDateString("uk-UA", {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-            })}
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            setDraft(data);
-            setEditMode(true);
-          }}
-          className="gap-1.5"
-        >
-          <PencilLine size={14} />
-          Редагувати
-        </Button>
-      </div>
-
-      {/* Insights strip */}
-      <InsightsStrip
-        presenceCount={presenceRooms.size}
-        alertCount={alertRooms.size}
+      {/* Status hero — answers "is everything okay?" first */}
+      <HomeStatus
+        alertRooms={alertNames}
+        presenceRooms={presenceNames}
+        camerasOnline={digest?.cameras_online ?? "—"}
+        eventsToday={digest?.total_events ?? "—"}
       />
+
+      {/* One-tap context switching */}
+      <SceneChips />
 
       {/* Floor plan */}
       {data.floor_plans.length === 0 ? (
@@ -232,17 +149,30 @@ export default function HomePage() {
           </Button>
         </div>
       ) : (
-        <>
-          {/* Legend */}
-          <div className="flex items-center gap-4 text-xs text-[color:var(--text-muted)]">
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              присутність
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
-              тривога
-            </span>
+        <section className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-4 text-xs text-[color:var(--text-muted)]">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                присутність
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />
+                тривога
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setDraft(data);
+                setEditMode(true);
+              }}
+              className="gap-1.5"
+            >
+              <PencilLine size={14} />
+              Редагувати
+            </Button>
           </div>
 
           <FloorPlanView
@@ -252,13 +182,12 @@ export default function HomePage() {
             presenceRooms={presenceRooms}
             climate={climate}
           />
-          <RoomSheet
-            room={selectedRoom}
-            data={data}
-            onClose={() => setSelectedRoom(null)}
-          />
-        </>
+          <RoomSheet room={selectedRoom} data={data} onClose={() => setSelectedRoom(null)} />
+        </section>
       )}
+
+      {/* De-noised attention feed */}
+      <AttentionFeed />
     </div>
   );
 }

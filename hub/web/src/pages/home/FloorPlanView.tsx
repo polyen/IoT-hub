@@ -2,10 +2,11 @@ import { useState } from "react";
 import type { FloorPlanData, Room } from "../../lib/types";
 import { deviceMeta } from "../../lib/deviceIcons";
 
+// Theme-aware fills (see tokens.css → --room-*); works in both dark and light.
 const ROOM_COLORS: Record<string, string> = {
-  idle: "#0d1a2e",
-  alert: "#2d0a0a",
-  presence: "#0a1e10",
+  idle: "var(--room-idle)",
+  alert: "var(--room-alert)",
+  presence: "var(--room-presence)",
 };
 
 /** Latest microclimate readings keyed by room slug (from /api/sensors/latest). */
@@ -74,8 +75,8 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms, cl
               <polygon
                 points={pts}
                 fill={roomColor(room)}
-                fillOpacity={isHovered ? 0.9 : 0.7}
-                stroke={isHovered ? "#6366f1" : "#29374e"}
+                fillOpacity={isHovered ? 0.95 : 0.78}
+                stroke={isHovered ? "var(--primary)" : "var(--room-stroke)"}
                 strokeWidth={isHovered ? 0.6 : 0.4}
                 className="cursor-pointer transition-all"
                 onMouseEnter={() => setHovered(room.id)}
@@ -88,7 +89,7 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms, cl
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize="3.5"
-                fill="#c8c4b8"
+                fill="var(--room-label)"
                 className="pointer-events-none select-none"
               >
                 {room.name}
@@ -100,7 +101,7 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms, cl
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fontSize="2.8"
-                  fill="#fbbf77"
+                  fill="var(--room-climate)"
                   className="pointer-events-none select-none font-mono"
                 >
                   {climateLabel}

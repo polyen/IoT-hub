@@ -15,11 +15,11 @@
   --status-error: #ef4444;
   --status-offline: #64748b;
 
-  /* Primary / accent — indigo */
-  --primary: #6366f1;
-  --primary-strong: #4f46e5;
-  --primary-dim: rgba(99, 102, 241, 0.16);
-  --primary-glow: rgba(99, 102, 241, 0.28);
+  /* Primary / accent — warm terracotta (home, not SaaS) */
+  --primary: #d97706;
+  --primary-strong: #b45309;
+  --primary-dim: rgba(217, 119, 6, 0.16);
+  --primary-glow: rgba(217, 119, 6, 0.28);
   --warm: #f97316;
   --warm-dim: rgba(249, 115, 22, 0.15);
 
@@ -55,6 +55,14 @@
   --glass-blur: blur(18px);
 
   --shadow-card: 0 1px 2px rgba(2, 6, 23, 0.4), 0 8px 24px rgba(2, 6, 23, 0.28);
+
+  /* Floor-plan room fills (theme-aware — no longer hard-coded in the SVG) */
+  --room-idle: #0d1a2e;
+  --room-alert: #2d0a0a;
+  --room-presence: #0a1e10;
+  --room-stroke: #29374e;
+  --room-label: #cdd5e3;
+  --room-climate: #f6c9a3;
 }
 
 /* ── Light theme — clean cool slate ── */
@@ -75,4 +83,12 @@
   --glass-blur: blur(14px);
 
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.06);
+
+  /* Floor-plan room fills — light theme (previously broken: hard-coded dark hex) */
+  --room-idle: #eef2f7;
+  --room-alert: #fde4e4;
+  --room-presence: #e4f6ea;
+  --room-stroke: #cbd5e1;
+  --room-label: #334155;
+  --room-climate: #b45309;
 }

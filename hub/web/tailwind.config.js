@@ -16,18 +16,26 @@ export default {
           2: "#f59e0b", // T2 aggregates — amber
           3: "#64748b", // T3 ops — slate
         },
+        // Warm-residential accent (terracotta / amber) — "home", not SaaS admin.
         primary: {
-          50:  "#eef2ff",
-          100: "#e0e7ff",
-          200: "#c7d2fe",
+          50:  "#fdf5ee",
+          100: "#fae6d4",
+          200: "#f4c9a3",
+          300: "#eca873",
+          400: "#e58a4a",
+          500: "#d97706",
+          600: "#c2620a",
+          700: "#9a4d0f",
+          800: "#7c3f12",
+          900: "#653513",
+          950: "#3a1d0a",
+        },
+        // Cool counter-accent retained for operator/admin surfaces.
+        cool: {
           300: "#a5b4fc",
           400: "#818cf8",
           500: "#6366f1",
           600: "#4f46e5",
-          700: "#4338ca",
-          800: "#3730a3",
-          900: "#312e81",
-          950: "#1e1b4b",
         },
         warm: {
           50:  "#fff7ed",
@@ -63,8 +71,8 @@ export default {
         "glass":        "0 8px 32px rgba(2,6,23,0.45), inset 0 1px 0 rgba(255,255,255,0.05)",
         "glass-light":  "0 4px 24px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.9)",
         "card":         "0 1px 2px rgba(2,6,23,0.30), 0 4px 16px rgba(2,6,23,0.20)",
-        "glow-primary": "0 0 0 1px rgba(99,102,241,0.35), 0 6px 20px rgba(99,102,241,0.30)",
-        "gold":         "0 2px 12px rgba(99,102,241,0.25)",
+        "glow-primary": "0 0 0 1px rgba(217,119,6,0.35), 0 6px 20px rgba(217,119,6,0.28)",
+        "gold":         "0 2px 12px rgba(217,119,6,0.25)",
       },
     },
   },
