@@ -15,12 +15,23 @@ SLUG="${1:?room slug (Z2M friendly name is "{slug}/{kind}"), e.g. spalnia}"
 KIND="${2:?device kind (2nd segment of the friendly name), e.g. presence}"
 API="${API_BASE:-https://iot-hub.local}"
 CF="${COMPOSE_FILE:-hub/docker-compose.edge.yml}"
-COMPOSE="docker compose -f $CF"
+ENV_FILE="${ENV_FILE:-.env}"
+COMPOSE="docker compose --env-file $ENV_FILE -f $CF"
 DEVID="zigbee-${SLUG}-${KIND}"
 
 echo "Expecting device_id = $DEVID"
 echo "Friendly name in Z2M must be exactly: ${SLUG}/${KIND}"
 echo "──────────────────────────────────────────────────────────────"
+
+# Preflight: compose must be able to interpolate the stack (loads $ENV_FILE).
+# Without --env-file this fails on :?required vars and would silently produce
+# false negatives below.
+if ! cfg_err="$($COMPOSE config --quiet 2>&1)"; then
+  echo "✗ docker compose can't parse the stack — env not loaded?"
+  echo "$cfg_err" | sed 's/^/    /'
+  echo "    → run from the repo root; ensure $ENV_FILE exists (or ENV_FILE=/path ./scripts/diag_presence.sh …)"
+  exit 1
+fi
 
 echo "[1/3] Bridge level state — listening 10s on home/${SLUG}/${KIND}/state."
 echo "      >>> Trigger the sensor now (walk in front of it) <<<"
