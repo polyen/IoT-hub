@@ -34,13 +34,16 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 # Only flat snake_case field names may reach the dynamic ``payload->>'…'``.
 _FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
-# Range token → (lookback, time_bucket width). Buckets are chosen so each range
-# yields a manageable ~60–170 points regardless of how chatty the sensors are.
-_RANGES: dict[str, tuple[timedelta, str]] = {
-    "1h": (timedelta(hours=1), "1 minute"),
-    "6h": (timedelta(hours=6), "5 minutes"),
-    "24h": (timedelta(hours=24), "15 minutes"),
-    "7d": (timedelta(days=7), "1 hour"),
+# Range token → (lookback, time_bucket width, human label). Buckets are chosen so
+# each range yields a manageable ~60–170 points regardless of how chatty the
+# sensors are.  The width is a timedelta because asyncpg binds it as a Postgres
+# ``interval`` — passing a string like ``'15 minutes'`` instead raises
+# ``'str' object has no attribute 'days'`` when it tries to encode the parameter.
+_RANGES: dict[str, tuple[timedelta, timedelta, str]] = {
+    "1h": (timedelta(hours=1), timedelta(minutes=1), "1 minute"),
+    "6h": (timedelta(hours=6), timedelta(minutes=5), "5 minutes"),
+    "24h": (timedelta(hours=24), timedelta(minutes=15), "15 minutes"),
+    "7d": (timedelta(days=7), timedelta(hours=1), "1 hour"),
 }
 
 
@@ -75,7 +78,7 @@ async def timeseries(
     """Bucketed averages of selected sensor fields for one room."""
     if range not in _RANGES:
         raise HTTPException(status_code=422, detail=f"range must be one of {list(_RANGES)}")
-    lookback, bucket = _RANGES[range]
+    lookback, bucket, bucket_label = _RANGES[range]
 
     field_list = [f.strip() for f in fields.split(",") if f.strip()]
     if not field_list:
@@ -88,12 +91,17 @@ async def timeseries(
 
     since = datetime.now(UTC) - lookback
     # Field names are regex-validated above, so this interpolation is safe; the
-    # bucket width, room and lower bound are passed as bound parameters.
+    # bucket width (a timedelta → interval), room and lower bound are bound params.
+    # The ``jsonb_typeof = 'number'`` guard skips non-numeric values: several
+    # sensors share the ``home/{room}/sensors`` topic, so a field that is text in
+    # one message would otherwise abort the whole query with a cast error.
     aggs = ",\n        ".join(
-        f"avg((payload->>'{f}')::double precision) AS {f}" for f in field_list
+        f"avg(CASE WHEN jsonb_typeof(payload->'{f}') = 'number' "
+        f"THEN (payload->>'{f}')::double precision END) AS {f}"
+        for f in field_list
     )
     stmt = text(f"""
-        SELECT time_bucket(CAST(:bucket AS interval), timestamp) AS t,
+        SELECT time_bucket(:bucket, timestamp) AS t,
         {aggs}
         FROM events
         WHERE type = 'sensors'
@@ -113,4 +121,4 @@ async def timeseries(
             continue
         points.append(TimeseriesPoint(t=row["t"].isoformat(), values=values))
 
-    return TimeseriesOut(room=room, bucket=bucket, fields=field_list, points=points)
+    return TimeseriesOut(room=room, bucket=bucket_label, fields=field_list, points=points)
