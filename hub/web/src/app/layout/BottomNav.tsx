@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Home, Camera, Bot, Activity, LayoutGrid, LucideIcon } from "lucide-react";
+import { Home, LayoutGrid, Sparkles, Camera, Bot, LucideIcon } from "lucide-react";
 import { clsx } from "clsx";
 
 interface NavItem {
@@ -13,10 +13,10 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/", icon: Home, key: "home", exact: true },
+  { to: "/rooms", icon: LayoutGrid, key: "rooms" },
+  { to: "/scenes", icon: Sparkles, key: "scenes" },
   { to: "/cameras", icon: Camera, key: "cameras" },
   { to: "/assistant", icon: Bot, key: "assistant" },
-  { to: "/events", icon: Activity, key: "events" },
-  { to: "/more", icon: LayoutGrid, key: "more" },
 ];
 
 export function BottomNav() {

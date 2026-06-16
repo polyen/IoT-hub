@@ -1,6 +1,8 @@
 {
   "nav": {
     "home": "Home",
+    "rooms": "Rooms",
+    "scenes": "Scenes",
     "cameras": "Cameras",
     "assistant": "Assistant",
     "events": "Events",

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
+  Activity,
   FileText,
   Cpu,
   Shield,
@@ -31,6 +32,13 @@ const SECTIONS: MoreSection[] = [
   {
     label: "Дім",
     items: [
+      {
+        to: "/events",
+        icon: Activity,
+        key: "events",
+        color: "text-sky-400",
+        bgColor: "bg-sky-500/15",
+      },
       {
         to: "/more/digest",
         icon: FileText,

@@ -4,6 +4,8 @@ import { Shell } from "./layout/Shell";
 import { Spinner } from "../components/Spinner";
 
 const HomePage = lazy(() => import("../pages/home/HomePage"));
+const RoomsPage = lazy(() => import("../pages/rooms/RoomsPage"));
+const ScenesPage = lazy(() => import("../pages/scenes/ScenesPage"));
 const CamerasPage = lazy(() => import("../pages/cameras/CamerasPage"));
 const AssistantPage = lazy(() => import("../pages/assistant/AssistantPage"));
 const ConfirmPage = lazy(() => import("../pages/confirm/ConfirmPage"));
@@ -33,6 +35,8 @@ export function AppRouter() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/rooms" element={<RoomsPage />} />
+          <Route path="/scenes" element={<ScenesPage />} />
           <Route path="/cameras" element={<CamerasPage />} />
           <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/events" element={<EventsPage />} />

@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { clsx } from "clsx";
 import {
   Home,
+  LayoutGrid,
+  Sparkles,
   Camera,
   Bot,
   Activity,
@@ -72,12 +74,14 @@ export function Sidebar() {
 
   const primary: NavItem[] = [
     { to: "/", icon: Home, label: t("nav.home"), exact: true },
+    { to: "/rooms", icon: LayoutGrid, label: t("nav.rooms") },
+    { to: "/scenes", icon: Sparkles, label: t("nav.scenes") },
     { to: "/cameras", icon: Camera, label: t("nav.cameras") },
     { to: "/assistant", icon: Bot, label: t("nav.assistant") },
-    { to: "/events", icon: Activity, label: t("nav.events") },
   ];
 
   const home: NavItem[] = [
+    { to: "/events", icon: Activity, label: t("nav.events") },
     { to: "/more/digest", icon: FileText, label: t("more.digest") },
     { to: "/more/climate", icon: Thermometer, label: t("more.climate") },
     { to: "/more/devices", icon: Cpu, label: t("more.devices") },

@@ -7,67 +7,8 @@ import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { relativeTime } from "../../lib/format";
 import type { AgentAuditEntry } from "../../lib/types";
+import { SCENES, type Scene } from "../../features/scenes/scenes";
 import { ACTION_COLORS } from "./shared";
-
-interface Scenario {
-  id: string;
-  icon: string;
-  name: string;
-  description: string;
-  intent: string;
-  color: string;
-}
-
-const SCENARIOS: Scenario[] = [
-  {
-    id: "morning",
-    icon: "☀️",
-    name: "Ранок",
-    description: "Увімкни світло, вимкни охорону",
-    intent: "увімкни світло у всіх кімнатах і вимкни охорону",
-    color: "border-amber-800/60 bg-amber-950/20 hover:bg-amber-950/40",
-  },
-  {
-    id: "evening",
-    icon: "🌆",
-    name: "Вечір",
-    description: "Приглуши світло до 30%",
-    intent: "приглуши яскравість світла до 30 відсотків у вітальні",
-    color: "border-blue-800/60 bg-blue-950/20 hover:bg-blue-950/40",
-  },
-  {
-    id: "night",
-    icon: "🌙",
-    name: "Нічний режим",
-    description: "Вимкни світло, охорона дому",
-    intent: "вимкни все світло і увімкни охорону дому",
-    color: "border-indigo-800/60 bg-indigo-950/20 hover:bg-indigo-950/40",
-  },
-  {
-    id: "leaving",
-    icon: "🚪",
-    name: "Покидаю дім",
-    description: "Вимкни все, охорона від",
-    intent: "вимкни всі пристрої і увімкни охорону відсутній",
-    color: "border-red-800/60 bg-red-950/20 hover:bg-red-950/40",
-  },
-  {
-    id: "returning",
-    icon: "🏠",
-    name: "Повертаюсь додому",
-    description: "Вимкни охорону, увімкни світло",
-    intent: "вимкни охорону і увімкни освітлення у передпокої",
-    color: "border-green-800/60 bg-green-950/20 hover:bg-green-950/40",
-  },
-  {
-    id: "movie",
-    icon: "🎬",
-    name: "Кіно",
-    description: "Мінімальне світло у вітальні",
-    intent: "вимкни яскраве світло, залиш лише підсвічування у вітальні",
-    color: "border-purple-800/60 bg-purple-950/20 hover:bg-purple-950/40",
-  },
-];
 
 function ScenarioCard({
   scenario,
@@ -75,7 +16,7 @@ function ScenarioCard({
   running,
   onRun,
 }: {
-  scenario: Scenario;
+  scenario: Scene;
   lastRun?: AgentAuditEntry;
   running: boolean;
   onRun: () => void;
@@ -209,7 +150,7 @@ export default function ScenariosTab() {
     },
   });
 
-  function handleRun(scenario: Scenario) {
+  function handleRun(scenario: Scene) {
     setRunningId(scenario.id);
     runMutation.mutate(scenario.intent);
   }
@@ -221,7 +162,7 @@ export default function ScenariosTab() {
   }
 
   // Find last run for each scenario by matching intent prefix in audit log
-  function findLastRun(scenario: Scenario): AgentAuditEntry | undefined {
+  function findLastRun(scenario: Scene): AgentAuditEntry | undefined {
     return auditLog?.find((a) =>
       a.intent_text.toLowerCase().includes(scenario.intent.split(" ")[0].toLowerCase())
     );
@@ -235,7 +176,7 @@ export default function ScenariosTab() {
           Готові сценарії
         </h2>
         <div className="space-y-2">
-          {SCENARIOS.map((scenario) => (
+          {SCENES.map((scenario) => (
             <ScenarioCard
               key={scenario.id}
               scenario={scenario}

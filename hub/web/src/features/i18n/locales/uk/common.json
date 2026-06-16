@@ -1,6 +1,8 @@
 {
   "nav": {
     "home": "Дім",
+    "rooms": "Кімнати",
+    "scenes": "Сцени",
     "cameras": "Камери",
     "assistant": "Асистент",
     "events": "Події",
