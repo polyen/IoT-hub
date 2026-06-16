@@ -1,11 +1,12 @@
 import { lazy, Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { Shell } from "./layout/Shell";
 import { Spinner } from "../components/Spinner";
 
 const HomePage = lazy(() => import("../pages/home/HomePage"));
 const RoomsPage = lazy(() => import("../pages/rooms/RoomsPage"));
 const ScenesPage = lazy(() => import("../pages/scenes/ScenesPage"));
+const WallPage = lazy(() => import("../pages/wall/WallPage"));
 const CamerasPage = lazy(() => import("../pages/cameras/CamerasPage"));
 const AssistantPage = lazy(() => import("../pages/assistant/AssistantPage"));
 const ConfirmPage = lazy(() => import("../pages/confirm/ConfirmPage"));
@@ -29,11 +30,23 @@ function PageLoader() {
   );
 }
 
-export function AppRouter() {
+/** Wraps the standard app chrome (sidebar / topbar / bottom-nav) around routed pages. */
+function ShellLayout() {
   return (
     <Shell>
-      <Suspense fallback={<PageLoader />}>
-        <Routes>
+      <Outlet />
+    </Shell>
+  );
+}
+
+export function AppRouter() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        {/* Full-screen wall-mounted kiosk — no app chrome */}
+        <Route path="/wall" element={<WallPage />} />
+
+        <Route element={<ShellLayout />}>
           <Route path="/" element={<HomePage />} />
           <Route path="/rooms" element={<RoomsPage />} />
           <Route path="/scenes" element={<ScenesPage />} />
@@ -57,8 +70,8 @@ export function AppRouter() {
           <Route path="/more/scenarios" element={<Navigate to="/assistant?tab=scenarios" replace />} />
           <Route path="/more/events" element={<Navigate to="/events" replace />} />
           <Route path="/more/about" element={<Navigate to="/more/settings" replace />} />
-        </Routes>
-      </Suspense>
-    </Shell>
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
