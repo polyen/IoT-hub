@@ -100,6 +100,10 @@ function getEventMeta(type: string, payload: Record<string, unknown> | null): Ev
       return { label: "Падіння!", Icon: PersonStanding, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
     if (alertType === "water_leak")
       return { label: "Протікання води", Icon: Droplets, iconBg: "bg-blue-500/20", iconColor: "text-blue-400", significant: true };
+    // Legacy: motion used to ride on `alert` (pre-`presence`-topic split). Keep
+    // rendering it as routine "Рух" so historical/un-migrated events aren't red.
+    if (alertType === "motion" || alertType === "presence" || alertType === "occupancy")
+      return { label: "Рух", Icon: Activity, iconBg: "bg-violet-500/20", iconColor: "text-violet-400" };
     if (alertType === "door_open")
       return { label: "Двері відчинено", Icon: DoorOpen, iconBg: "bg-cyan-500/20", iconColor: "text-cyan-400" };
     if (alertType === "door_close")
@@ -414,8 +418,10 @@ function matchesCategory(e: HubEvent, cat: CategoryFilter): boolean {
   const label = String(e.payload?.label ?? "").toLowerCase();
   const eventType = String(e.payload?.event_type ?? "").toLowerCase();
   const alertType = String(e.payload?.alert_type ?? "").toLowerCase();
-  // Door is the only routine type still on `alert`; motion now lives on `presence`.
-  const isRoutineAlert = alertType === "door_open" || alertType === "door_close";
+  // Motion now lives on `presence`, but legacy events may still be `alert` with
+  // alert_type=motion — treat both as routine (and as "motion" category).
+  const isMotionAlert = ["motion", "presence", "occupancy"].includes(alertType);
+  const isRoutineAlert = isMotionAlert || alertType === "door_open" || alertType === "door_close";
 
   if (cat === "people")
     return (t === "camera/event" && label === "person") || t === "camera/identity";
@@ -428,6 +434,7 @@ function matchesCategory(e: HubEvent, cat: CategoryFilter): boolean {
   if (cat === "motion")
     return (
       t === "presence" ||
+      (t === "alert" && isMotionAlert) ||
       (t === "event/fused" && (eventType === "person" || eventType === "motion")) ||
       t.includes("pir") || t.includes("motion")
     );

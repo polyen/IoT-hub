@@ -47,9 +47,10 @@ function attentionMeta(e: HubEvent): AttnMeta | null {
   if (at === "water_leak")
     return { label: "Протікання води", Icon: Droplets, color: "text-blue-400" };
   if (t === "alert") {
-    // Door is routine — belongs in the full feed, not "needs attention". (Motion
-    // now lives on its own `presence` type, which isn't matched here at all.)
-    if (at === "door_open" || at === "door_close") return null;
+    // Door + legacy motion (pre-`presence`-topic) are routine — full feed only,
+    // not "needs attention". New motion arrives as the `presence` type (not
+    // matched here at all). water_leak/fall/gas/unknown stay significant.
+    if (["motion", "presence", "occupancy", "door_open", "door_close"].includes(at)) return null;
     return { label: "Тривога", Icon: Bell, color: "text-red-400" };
   }
   if (t === "camera/identity") {
