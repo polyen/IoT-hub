@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { Button } from "../../components/Button";
@@ -10,13 +11,26 @@ interface Props {
   onDelete?: () => void;
 }
 
+interface CommandResult {
+  result: string; // "auto_executed" | "confirm_required" | "denied"
+  confirm_id?: string;
+}
+
 export function DeviceQuickControl({ placement, onDelete }: Props) {
   const [loading, setLoading] = useState(false);
 
+  // Backend expects { payload, intent_text } (see routes/devices.py CommandBody),
+  // and may gate the command behind policy → "confirm_required".
   const sendCmd = async (payload: Record<string, unknown>) => {
     setLoading(true);
     try {
-      await api.post(`/api/devices/${placement.device_id}/command`, payload);
+      const res = await api.post<CommandResult>(
+        `/api/devices/${placement.device_id}/command`,
+        { payload, intent_text: "UI command" },
+      );
+      if (res.result === "confirm_required") toast.info("Потрібне підтвердження");
+      else if (res.result === "denied") toast.error("Дію заборонено політикою");
+      else toast.success("Виконано");
     } finally {
       setLoading(false);
     }

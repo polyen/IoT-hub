@@ -1,7 +1,32 @@
 import { toast } from "sonner";
 
 interface ApiError {
-  detail: string;
+  detail?: unknown;
+}
+
+/**
+ * Coerce a FastAPI error `detail` into a displayable string. For 422 responses
+ * `detail` is an array of `{type, loc, msg, input}` objects — rendering that
+ * directly as a toast/React child throws React error #31, so flatten it here.
+ */
+function formatDetail(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) =>
+        d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : String(d),
+      )
+      .filter(Boolean);
+    if (msgs.length) return msgs.join("; ");
+  }
+  if (detail && typeof detail === "object") {
+    try {
+      return JSON.stringify(detail);
+    } catch {
+      /* fall through */
+    }
+  }
+  return "Помилка запиту";
 }
 
 async function apiFetch<T>(
@@ -25,8 +50,9 @@ async function apiFetch<T>(
 
     if (!res.ok) {
       const err: ApiError = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
-      if (!silent) toast.error(err.detail);
-      throw new Error(err.detail);
+      const msg = formatDetail(err.detail);
+      if (!silent) toast.error(msg);
+      throw new Error(msg);
     }
 
     if (res.status === 204) return undefined as T;
