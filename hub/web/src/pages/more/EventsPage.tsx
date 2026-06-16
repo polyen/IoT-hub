@@ -12,6 +12,7 @@ import {
   PersonStanding,
   Thermometer,
   DoorOpen,
+  Droplets,
   Gauge,
   Zap,
   Bell,
@@ -86,10 +87,23 @@ function getEventMeta(type: string, payload: Record<string, unknown> | null): Ev
   }
 
   // ── sensors & alerts ────────────────────────────────────────────────────────
+  // Routine motion/occupancy lives on its own `presence` topic (kept off the
+  // notify-worthy `alert` topic so it doesn't spam the Telegram bot).
+  if (t === "presence")
+    return { label: "Рух", Icon: Activity, iconBg: "bg-violet-500/20", iconColor: "text-violet-400" };
+
   if (t === "alert") {
-    const alertType = payload?.event_type as string | undefined;
-    if (alertType === "fall")
+    // The `alert` topic carries two conventions: CV publishes `event_type`,
+    // while sensors / the Zigbee bridge publish `alert_type` (door_*, water_leak).
+    const alertType = String(payload?.alert_type ?? payload?.event_type ?? "").toLowerCase();
+    if (alertType === "fall" || alertType === "fall_detected")
       return { label: "Падіння!", Icon: PersonStanding, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
+    if (alertType === "water_leak")
+      return { label: "Протікання води", Icon: Droplets, iconBg: "bg-blue-500/20", iconColor: "text-blue-400", significant: true };
+    if (alertType === "door_open")
+      return { label: "Двері відчинено", Icon: DoorOpen, iconBg: "bg-cyan-500/20", iconColor: "text-cyan-400" };
+    if (alertType === "door_close")
+      return { label: "Двері зачинено", Icon: DoorOpen, iconBg: "bg-cyan-500/20", iconColor: "text-cyan-400" };
     return { label: "Тривога", Icon: Bell, iconBg: "bg-red-500/20", iconColor: "text-red-400", significant: true };
   }
   if (t === "gas" || t.includes("mq2"))
@@ -171,7 +185,7 @@ function formatPayloadSummary(type: string, payload: Record<string, unknown> | n
 
   // ── alert (fall / generic) ───────────────────────────────────────────────────
   if (t === "alert") {
-    const alertType = payload.event_type as string | undefined;
+    const alertType = (payload.alert_type ?? payload.event_type) as string | undefined;
     if (alertType === "fall") {
       const trackId = payload.track_id;
       const conf = payload.confidence as number | undefined;
@@ -399,6 +413,9 @@ function matchesCategory(e: HubEvent, cat: CategoryFilter): boolean {
   const t = e.type.toLowerCase();
   const label = String(e.payload?.label ?? "").toLowerCase();
   const eventType = String(e.payload?.event_type ?? "").toLowerCase();
+  const alertType = String(e.payload?.alert_type ?? "").toLowerCase();
+  // Door is the only routine type still on `alert`; motion now lives on `presence`.
+  const isRoutineAlert = alertType === "door_open" || alertType === "door_close";
 
   if (cat === "people")
     return (t === "camera/event" && label === "person") || t === "camera/identity";
@@ -406,10 +423,11 @@ function matchesCategory(e: HubEvent, cat: CategoryFilter): boolean {
     return (
       (t === "camera/event" && (label === "fire" || label === "smoke" || label === "fall")) ||
       (t === "event/fused" && (eventType === "fire" || eventType === "smoke" || eventType === "fall" || eventType === "fall_detected" || eventType === "gas")) ||
-      t === "alert" || t.includes("gas") || t.includes("mq2")
+      (t === "alert" && !isRoutineAlert) || t.includes("gas") || t.includes("mq2")
     );
   if (cat === "motion")
     return (
+      t === "presence" ||
       (t === "event/fused" && (eventType === "person" || eventType === "motion")) ||
       t.includes("pir") || t.includes("motion")
     );

@@ -18,8 +18,10 @@ backend change is required.**
 Mapping is **by payload field**, not by the device name — one combo sensor (e.g.
 mmWave presence + temperature + humidity + illuminance in a single message) fans
 out into several project topics at once, mirroring the mock sensors:
-  * climate fields (temperature/humidity/illuminance/…) → ``home/{slug}/sensors`` tier 1
-  * occupancy|presence (rising edge only)               → ``home/{slug}/alert``   tier 2 (motion)
+  * climate fields (temperature/humidity/illuminance/…) → ``home/{slug}/sensors``   tier 1
+  * occupancy|presence (rising edge only)               → ``home/{slug}/presence`` tier 2 (routine
+        motion — a dedicated topic, *not* ``alert``, and intentionally **not** bridged to the VPS,
+        so it never reaches the Telegram bot which notifies on every ``alert``)
   * occupancy|presence (level, every message)           → ``home/{slug}/{kind}/state`` (drives the
         floor-plan presence glow via ``room_states``; carries ``device_id`` so the backend can
         write ``home:state:{device_id}`` even for read-only devices outside the controllable registry)
@@ -121,12 +123,14 @@ def translate(slug: str, kind: str, src: dict[str, Any]) -> list[tuple[str, dict
         parts.append(("alert", 2, {"alert_type": alert_type, "confidence": 1.0}))
 
     # Presence/occupancy, edge-triggered. Devices vary on the field name
-    # (occupancy on PIR, presence on mmWave) — accept either.
+    # (occupancy on PIR, presence on mmWave) — accept either. Routed to the
+    # dedicated `presence` topic (tier 2, LAN-only) — NOT `alert` — so routine
+    # motion doesn't spam the Telegram bot (which notifies on every `alert`).
     motion = src.get("occupancy")
     if motion is None:
         motion = src.get("presence")
     if isinstance(motion, bool) and _rising_edge(device_id, "motion", motion):
-        parts.append(("alert", 2, {"alert_type": "motion", "confidence": 1.0}))
+        parts.append(("presence", 2, {"confidence": 1.0}))
 
     # Water-leak sensor — a critical alert (tier 2), edge-triggered on dry→wet so
     # an ongoing leak doesn't flood the feed every heartbeat.

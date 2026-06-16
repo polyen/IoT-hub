@@ -68,29 +68,27 @@ def test_unknown_event_type_zero_confidence() -> None:
     assert fused is None or fused["confidence"] == 0.0
 
 
-# ── 6: A motion/presence *alert* (PIR or Zigbee) feeds motion fusion ─────────
+# ── 6: A presence/motion event (PIR or Zigbee) feeds motion fusion ───────────
 
 
-def test_motion_alert_feeds_motion_fusion() -> None:
-    # mock PIR and the Zigbee bridge both publish motion to home/{room}/alert.
+def test_presence_event_feeds_motion_fusion() -> None:
+    # mock PIR and the Zigbee bridge both publish motion to home/{room}/presence.
     eng = make_engine()
-    fused = eng.ingest_alert("bedroom", {"alert_type": "motion", "confidence": 0.9})
+    fused = eng.ingest_presence("bedroom", {"confidence": 0.9})
     assert fused is not None
     assert fused["event_type"] == "motion"
     assert "pir" in fused["sources"]
 
 
-def test_presence_alert_accepted_as_pir() -> None:
-    # Zigbee mmWave uses alert_type values motion/presence/occupancy.
+def test_presence_event_without_confidence_uses_default() -> None:
     eng = make_engine()
-    assert eng.ingest_alert("bedroom", {"alert_type": "presence", "confidence": 1.0}) is not None
-    assert make_engine().ingest_alert("bedroom", {"alert_type": "occupancy"}) is not None
+    assert eng.ingest_presence("bedroom", {}) is not None
 
 
-# ── 7: Presence alert satisfies the person PIR cross-check (§7.2) ─────────────
+# ── 7: Presence satisfies the person PIR cross-check (§7.2) ───────────────────
 
 
-def test_person_penalised_without_presence_alert() -> None:
+def test_person_penalised_without_presence() -> None:
     eng = make_engine()
     results = eng.ingest_detection_frame(
         "bedroom", {"dets": [{"label": "person", "confidence": 0.9}]}
@@ -99,19 +97,13 @@ def test_person_penalised_without_presence_alert() -> None:
     assert person.get("pir_adjusted") is True
 
 
-def test_person_not_penalised_with_presence_alert() -> None:
+def test_person_not_penalised_with_presence() -> None:
     eng = make_engine()
-    # Zigbee presence arrives first (corroborating a real occupant)…
-    eng.ingest_alert("bedroom", {"alert_type": "presence", "confidence": 1.0})
+    # Presence arrives first (corroborating a real occupant)…
+    eng.ingest_presence("bedroom", {"confidence": 1.0})
     # …then the camera sees a person → no glare penalty.
     results = eng.ingest_detection_frame(
         "bedroom", {"dets": [{"label": "person", "confidence": 0.9}]}
     )
     person = next(r for r in results if r["event_type"] == "person")
     assert "pir_adjusted" not in person
-
-
-def test_non_presence_alert_ignored_by_fusion() -> None:
-    eng = make_engine()
-    assert eng.ingest_alert("hall", {"alert_type": "door_open"}) is None
-    assert eng.ingest_alert("kitchen", {"alert_type": "water_leak"}) is None

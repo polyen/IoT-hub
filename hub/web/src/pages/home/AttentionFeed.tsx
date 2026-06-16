@@ -5,6 +5,7 @@ import {
   PersonStanding,
   UserX,
   Gauge,
+  Droplets,
   Bell,
   ShieldCheck,
   ChevronRight,
@@ -31,16 +32,26 @@ function attentionMeta(e: HubEvent): AttnMeta | null {
   const t = e.type.toLowerCase();
   const label = String(e.payload?.label ?? "").toLowerCase();
   const et = String(e.payload?.event_type ?? "").toLowerCase();
+  // `alert` events carry the type in `alert_type` (sensors/Zigbee) or
+  // `event_type` (CV) — see EventsPage.getEventMeta.
+  const at = String(e.payload?.alert_type ?? "").toLowerCase();
 
   if (label === "fire" || et === "fire")
     return { label: "Вогонь", Icon: Flame, color: "text-red-400" };
   if (label === "smoke" || et === "smoke")
     return { label: "Дим", Icon: Wind, color: "text-orange-400" };
-  if (label === "fall" || et === "fall" || et === "fall_detected")
+  if (label === "fall" || et === "fall" || et === "fall_detected" || at === "fall")
     return { label: "Падіння", Icon: PersonStanding, color: "text-red-400" };
-  if (et === "gas" || t.includes("gas") || t.includes("mq2"))
+  if (et === "gas" || at === "gas" || t.includes("gas") || t.includes("mq2"))
     return { label: "Газ / CO", Icon: Gauge, color: "text-yellow-400" };
-  if (t === "alert") return { label: "Тривога", Icon: Bell, color: "text-red-400" };
+  if (at === "water_leak")
+    return { label: "Протікання води", Icon: Droplets, color: "text-blue-400" };
+  if (t === "alert") {
+    // Door is routine — belongs in the full feed, not "needs attention". (Motion
+    // now lives on its own `presence` type, which isn't matched here at all.)
+    if (at === "door_open" || at === "door_close") return null;
+    return { label: "Тривога", Icon: Bell, color: "text-red-400" };
+  }
   if (t === "camera/identity") {
     const id = (e.payload?.identity ?? e.payload?.name ?? e.payload?.face_id) as string | undefined;
     if (!id || id === "unknown")

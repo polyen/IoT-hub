@@ -14,11 +14,11 @@ _NIGHT_RATE = {"living_room": 0.5, "bedroom": 1}
 
 
 class MotionSensor(BaseSensor):
-    """Publishes motion alerts to home/{room}/alert."""
+    """Publishes routine motion to home/{room}/presence (not /alert)."""
 
     def __init__(self, room: str) -> None:
         super().__init__(f"mock-pir-{room}", room)
-        self._topic = f"home/{room}/alert"
+        self._topic = f"home/{room}/presence"
 
     def _inter_arrival_seconds(self) -> float:
         hour = datetime.now(UTC).hour
@@ -35,7 +35,6 @@ class MotionSensor(BaseSensor):
                 self._topic,
                 {
                     "tier": 2,
-                    "alert_type": "motion",
                     "confidence": round(random.uniform(0.78, 0.99), 2),
                     "duration_s": round(random.uniform(0.5, 8.0), 1),
                 },

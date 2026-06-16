@@ -19,6 +19,9 @@ tls_version tlsv1.3
 topic home/+/alert out 1
 topic home/+/sensors out 1
 topic home/+/camera/event out 1
+# NB: home/+/presence (routine motion/occupancy) is intentionally NOT bridged —
+# the VPS Telegram bot notifies on every home/+/alert, and presence ("who is
+# home", tier 2) stays on the LAN. Keep motion off `alert` and out of this list.
 
 # Bridge health
 cleansession false
