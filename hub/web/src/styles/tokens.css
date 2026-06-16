@@ -56,13 +56,17 @@
 
   --shadow-card: 0 1px 2px rgba(2, 6, 23, 0.4), 0 8px 24px rgba(2, 6, 23, 0.28);
 
-  /* Floor-plan room fills (theme-aware — no longer hard-coded in the SVG) */
-  --room-idle: #0d1a2e;
-  --room-alert: #2d0a0a;
-  --room-presence: #0a1e10;
-  --room-stroke: #29374e;
-  --room-label: #cdd5e3;
-  --room-climate: #f6c9a3;
+  /* Floor-plan — glassmorphic rooms (dark). Colour conveys state, not identity. */
+  --room-fill-top: rgba(148, 163, 184, 0.13);
+  --room-fill-bottom: rgba(148, 163, 184, 0.035);
+  --room-stroke: rgba(203, 213, 225, 0.16);
+  --room-sheen: rgba(255, 255, 255, 0.10);
+  --room-grid: rgba(148, 163, 184, 0.06);
+  --room-label: #e6ecf6;
+  --room-climate: #fbbf77;
+  --room-climate-bg: rgba(246, 201, 163, 0.14);
+  --room-chip-bg: rgba(11, 17, 32, 0.55);
+  --room-shadow: rgba(2, 6, 23, 0.55);
 }
 
 /* ── Light theme — clean cool slate ── */
@@ -84,11 +88,15 @@
 
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.06);
 
-  /* Floor-plan room fills — light theme (previously broken: hard-coded dark hex) */
-  --room-idle: #eef2f7;
-  --room-alert: #fde4e4;
-  --room-presence: #e4f6ea;
-  --room-stroke: #cbd5e1;
-  --room-label: #334155;
+  /* Floor-plan — glassmorphic rooms (light). */
+  --room-fill-top: rgba(255, 255, 255, 0.96);
+  --room-fill-bottom: rgba(237, 242, 247, 0.80);
+  --room-stroke: rgba(15, 23, 42, 0.10);
+  --room-sheen: rgba(255, 255, 255, 0.95);
+  --room-grid: rgba(15, 23, 42, 0.05);
+  --room-label: #1e293b;
   --room-climate: #b45309;
+  --room-climate-bg: rgba(180, 83, 9, 0.10);
+  --room-chip-bg: rgba(255, 255, 255, 0.85);
+  --room-shadow: rgba(15, 23, 42, 0.16);
 }
