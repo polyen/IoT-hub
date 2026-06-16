@@ -219,10 +219,20 @@ async def _handle_device_state(
     in ``home:device-state-topics``.
     """
     device_id_raw = await redis_client.hget("home:device-state-topics", topic_str)
-    if device_id_raw is None:
-        logger.debug("Received state on unregistered topic %s — skipping", topic_str)
-        return
-    device_id = device_id_raw.decode() if isinstance(device_id_raw, bytes) else str(device_id_raw)
+    if device_id_raw is not None:
+        device_id = (
+            device_id_raw.decode() if isinstance(device_id_raw, bytes) else str(device_id_raw)
+        )
+    else:
+        # Fallback for self-describing devices (e.g. the Zigbee bridge): the
+        # payload carries its own device_id, so we can record state for read-only
+        # sensors that aren't in the controllable DeviceRegistry. room_states only
+        # needs home:state:{device_id} to exist for a placement of the same id.
+        pid = payload.get("device_id")
+        if not pid:
+            logger.debug("Received state on unregistered topic %s — skipping", topic_str)
+            return
+        device_id = str(pid)
     state_fields = {str(k): str(v) for k, v in payload.items()}
     await redis_client.hset(f"home:state:{device_id}", mapping=state_fields)
     logger.debug("Device state updated: %s → %s", device_id, state_fields)

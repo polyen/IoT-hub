@@ -20,6 +20,9 @@ mmWave presence + temperature + humidity + illuminance in a single message) fans
 out into several project topics at once, mirroring the mock sensors:
   * climate fields (temperature/humidity/illuminance/…) → ``home/{slug}/sensors`` tier 1
   * occupancy|presence (rising edge only)               → ``home/{slug}/alert``   tier 2 (motion)
+  * occupancy|presence (level, every message)           → ``home/{slug}/{kind}/state`` (drives the
+        floor-plan presence glow via ``room_states``; carries ``device_id`` so the backend can
+        write ``home:state:{device_id}`` even for read-only devices outside the controllable registry)
   * water_leak (rising edge only)                       → ``home/{slug}/alert``   tier 2 (water_leak)
   * contact                                             → ``home/{slug}/alert``   tier 2 (door_open/close)
   * power/voltage/current/energy                        → ``home/{slug}/sensors`` tier 0
@@ -155,6 +158,23 @@ def translate(slug: str, kind: str, src: dict[str, Any]) -> list[tuple[str, dict
             if diag in src:
                 payload[diag] = src[diag]
         results.append((subtopic, payload))
+
+    # Level-based presence device-state → home/{slug}/{kind}/state.
+    # The *alert* above is edge-triggered (so the feed doesn't flood), but the
+    # floor-plan presence glow (`room_states` reads the Redis device-state hash)
+    # needs a *level*: an mmWave sensor holds presence=true the whole time the
+    # room is occupied and reports presence=false when it clears, so we mirror
+    # that here on every message. `room_states` compares against the string
+    # "true", hence the explicit lowercase string (not a JSON bool, which would
+    # serialise to "True"). The payload carries its own device_id so the backend
+    # can write state even for read-only devices outside the controllable registry.
+    if isinstance(motion, bool):
+        results.append(
+            (
+                f"{kind}/state",
+                {"device_id": device_id, "presence": "true" if motion else "false"},
+            )
+        )
     return results
 
 

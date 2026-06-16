@@ -36,29 +36,45 @@ def test_combo_sensor_fans_out_climate_and_motion():
             {"presence": True, "temperature": 22.9, "humidity": 48, "illuminance": 1514},
         )
     )
-    assert set(out) == {"sensors", "alert"}
+    assert set(out) == {"sensors", "alert", "motion/state"}
     assert out["sensors"]["tier"] == 1
     assert out["sensors"]["temperature"] == 22.9
     assert out["sensors"]["illuminance"] == 1514
     assert out["alert"]["tier"] == 2
     assert out["alert"]["alert_type"] == "motion"
+    # Level presence state drives the floor-plan glow.
+    assert out["motion/state"]["presence"] == "true"
+    assert out["motion/state"]["device_id"] == "zigbee-vitalnia-motion"
 
 
 def test_presence_is_edge_triggered():
-    # presence=false → climate only, no alert.
+    # presence=false → climate only, no alert; state reports "false".
     first = _by_subtopic(translate("vitalnia", "motion", {"presence": False, "temperature": 22.0}))
     assert "alert" not in first
-    # rising edge → alert emitted.
+    assert first["motion/state"]["presence"] == "false"
+    # rising edge → alert emitted, state "true".
     rise = _by_subtopic(translate("vitalnia", "motion", {"presence": True, "temperature": 22.0}))
     assert "alert" in rise
-    # held high → no repeat alert (only climate keeps flowing).
+    assert rise["motion/state"]["presence"] == "true"
+    # held high → no repeat alert, but state stays "true" (level, not edge).
     held = _by_subtopic(translate("vitalnia", "motion", {"presence": True, "temperature": 22.0}))
     assert "alert" not in held
+    assert held["motion/state"]["presence"] == "true"
+
+
+def test_presence_state_clears_on_falling_edge():
+    # Occupied, then room clears: no new alert on the way down, but the level
+    # state flips to "false" so room_states stops lighting the room.
+    translate("vitalnia", "motion", {"presence": True})
+    cleared = _by_subtopic(translate("vitalnia", "motion", {"presence": False}))
+    assert "alert" not in cleared
+    assert cleared["motion/state"]["presence"] == "false"
 
 
 def test_occupancy_field_also_accepted():
     out = _by_subtopic(translate("kitchen", "motion", {"occupancy": True}))
     assert out["alert"]["alert_type"] == "motion"
+    assert out["motion/state"]["presence"] == "true"
 
 
 def test_water_leak_is_tier2_alert_edge_triggered():

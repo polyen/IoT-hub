@@ -30,6 +30,10 @@ FUSED_ESCALATION_DELTA: float = 0.05
 # but no PIR trigger exists for that room in the fusion window.  A PIR-less
 # person detection is a possible glare / false-positive (see §7.2).
 PERSON_NO_PIR_FACTOR: float = 0.7
+# Alert types (home/{room}/alert) that act as a passive-presence (PIR-equivalent)
+# signal. Both the mock PIR and the Zigbee bridge publish motion/presence as an
+# *alert*, not a /sensors message — see ingest_alert.
+_PRESENCE_ALERT_TYPES = frozenset({"motion", "presence", "occupancy"})
 
 
 @dataclass
@@ -169,6 +173,28 @@ class FusionEngine:
         self._prune(room)
         return self._maybe_fuse(room, payload.get("event_type", ""))
 
+    def ingest_alert(self, room: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Map a presence/motion *alert* into a PIR-equivalent sensor event.
+
+        Both the mock PIR (``mock_sensors/sensors/motion.py``) and the Zigbee
+        bridge publish motion/presence to ``home/{room}/alert`` — *not* to
+        ``/sensors`` — so without this the passive-IR signal never reaches motion
+        fusion nor the person cross-check (``_person_pir_factor``). Non-presence
+        alerts (door / water-leak / fall) have their own paths or none and are
+        ignored here.
+        """
+        if payload.get("alert_type") not in _PRESENCE_ALERT_TYPES:
+            return None
+        return self.ingest_sensor(
+            room,
+            {
+                "event_type": "motion",
+                "sensor_type": "pir",
+                "value": 1,
+                "confidence": float(payload.get("confidence", FUSION_WEIGHTS["motion"]["pir"])),
+            },
+        )
+
     def _maybe_fuse(self, room: str, event_type: str) -> dict[str, Any] | None:
         if not event_type:
             return None
@@ -225,6 +251,7 @@ class FusionEngine:
                 async with aiomqtt.Client(mqtt_host, mqtt_port) as client:
                     await client.subscribe("home/+/camera/event")
                     await client.subscribe("home/+/sensors")
+                    await client.subscribe("home/+/alert")
                     _retry_delay = 5  # reset on successful connect
                     async for message in client.messages:
                         topic_str = str(message.topic)
@@ -244,6 +271,12 @@ class FusionEngine:
                             if fused_sensor is not None:
                                 await client.publish(
                                     f"home/{room}/event/fused", json.dumps(fused_sensor)
+                                )
+                        elif topic_str.endswith("/alert"):
+                            fused_alert = self.ingest_alert(room, payload)
+                            if fused_alert is not None:
+                                await client.publish(
+                                    f"home/{room}/event/fused", json.dumps(fused_alert)
                                 )
             except aiomqtt.MqttError as exc:
                 logger.warning("Fusion MQTT error (%s) — retrying in %ds", exc, _retry_delay)
