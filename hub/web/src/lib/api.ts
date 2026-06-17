@@ -1,13 +1,31 @@
 import { toast } from "sonner";
 
-interface ApiError {
+interface RawApiError {
   detail?: unknown;
+}
+
+/**
+ * Typed error thrown by `apiFetch` for non-2xx responses.
+ * Callers can inspect `status` and `detail` to render structured error UX.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly detail: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
 }
 
 /**
  * Coerce a FastAPI error `detail` into a displayable string. For 422 responses
  * `detail` is an array of `{type, loc, msg, input}` objects — rendering that
  * directly as a toast/React child throws React error #31, so flatten it here.
+ *
+ * Structured detail objects (e.g. {failure_kind, message, cta}) render their
+ * `message` field directly so Ukrainian natural-language errors surface cleanly.
  */
 function formatDetail(detail: unknown): string {
   if (typeof detail === "string") return detail;
@@ -20,6 +38,8 @@ function formatDetail(detail: unknown): string {
     if (msgs.length) return msgs.join("; ");
   }
   if (detail && typeof detail === "object") {
+    const maybeStructured = detail as Record<string, unknown>;
+    if (typeof maybeStructured.message === "string") return maybeStructured.message;
     try {
       return JSON.stringify(detail);
     } catch {
@@ -49,10 +69,10 @@ async function apiFetch<T>(
     });
 
     if (!res.ok) {
-      const err: ApiError = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      const err: RawApiError = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
       const msg = formatDetail(err.detail);
       if (!silent) toast.error(msg);
-      throw new Error(msg);
+      throw new ApiError(msg, res.status, err.detail);
     }
 
     if (res.status === 204) return undefined as T;
@@ -62,7 +82,8 @@ async function apiFetch<T>(
       if (!silent) toast.error("Запит перевищив час очікування");
       throw new Error("Request timeout");
     }
-    if (!silent && !(e instanceof Error && e.message.startsWith("HTTP"))) {
+    // ApiError was already toasted above; only toast for genuine network errors.
+    if (!silent && !(e instanceof ApiError) && !(e instanceof Error && e.message.startsWith("HTTP"))) {
       toast.error("Мережева помилка");
     }
     throw e;

@@ -48,7 +48,7 @@
   --border-subtle: #1b2538;
   --text: #e8edf6;
   --text-muted: #94a3b8;         /* slate-400 */
-  --text-faint: #56688a;
+  --text-faint: #7888a0;         /* WCAG AA on bg (5.2:1) & card (4.7:1) — was #56688a (3.0:1) */
 
   --glass-bg: rgba(15, 23, 42, 0.72);
   --glass-border: rgba(148, 163, 184, 0.10);
@@ -80,7 +80,7 @@
   --border-subtle: #eef2f7;
   --text: #0f172a;               /* slate-900 */
   --text-muted: #475569;         /* slate-600 */
-  --text-faint: #94a3b8;
+  --text-faint: #5b6878;         /* WCAG AA on bg (5.2:1) & card (5.7:1) — was #94a3b8 (2.3:1) */
 
   --glass-bg: rgba(255, 255, 255, 0.78);
   --glass-border: rgba(15, 23, 42, 0.07);

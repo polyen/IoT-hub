@@ -7,6 +7,7 @@ import { FloorPlanView, type ClimateBySlug } from "../home/FloorPlanView";
 import { SCENES, useRunScene } from "../../features/scenes/scenes";
 import { useOnlineStatus } from "../../hooks/useOnlineStatus";
 import { Spinner } from "../../components/Spinner";
+import { useWebSocket } from "../../hooks/useWebSocket";
 
 interface RoomStates {
   presence_rooms: string[];
@@ -34,12 +35,34 @@ export default function WallPage() {
   const { data, isLoading } = useFloorPlan();
   const isOnline = useOnlineStatus();
   const { run, runningId } = useRunScene();
+  const { events } = useWebSocket();
   const [now, setNow] = useState(() => new Date());
+  const [lastMotionTs, setLastMotionTs] = useState<number | null>(null);
+
+  const WAKE_WINDOW_MS = 90_000;
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 10_000);
     return () => clearInterval(id);
   }, []);
+
+  // Update lastMotionTs whenever a new presence/motion event arrives via WebSocket.
+  useEffect(() => {
+    const newest = events[0];
+    if (!newest) return;
+    const isPresence =
+      newest.type === "presence" ||
+      (newest.type === "alert" &&
+        ["motion", "presence", "occupancy"].includes(
+          String(newest.payload?.alert_type ?? "").toLowerCase(),
+        ));
+    if (isPresence) {
+      const ts = Date.parse(newest.timestamp);
+      if (!isNaN(ts)) {
+        setLastMotionTs((prev) => (prev === null || ts > prev ? ts : prev));
+      }
+    }
+  }, [events]);
 
   const { data: roomStates } = useQuery<RoomStates>({
     queryKey: ["room_states"],
@@ -86,7 +109,11 @@ export default function WallPage() {
     [data?.rooms, climate],
   );
 
-  const dim = nightDim(now.getHours());
+  const motionRecently =
+    presenceRooms.size > 0 ||
+    (lastMotionTs !== null && now.getTime() - lastMotionTs < WAKE_WINDOW_MS);
+  const baseDim = nightDim(now.getHours());
+  const dim = motionRecently || mood === "alarm" ? 0 : baseDim;
   const quickScenes = SCENES.filter((s) => s.quick);
 
   if (isLoading || !data) {
@@ -113,10 +140,11 @@ export default function WallPage() {
 
   return (
     <div className="relative flex h-screen flex-col gap-5 overflow-hidden bg-[color:var(--bg)] p-7">
-      {/* Night dimming overlay */}
-      {dim > 0 && (
-        <div className="pointer-events-none fixed inset-0 z-50 bg-black" style={{ opacity: dim }} />
-      )}
+      {/* Night dimming overlay — always mounted so opacity transition fires smoothly */}
+      <div
+        className="pointer-events-none fixed inset-0 z-50 bg-black transition-opacity duration-1000"
+        style={{ opacity: dim }}
+      />
 
       {/* Header */}
       <header className="flex shrink-0 items-end justify-between">

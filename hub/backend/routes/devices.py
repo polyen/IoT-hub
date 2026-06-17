@@ -1,4 +1,16 @@
-"""Device state read and command dispatch with policy enforcement."""
+"""Device state read and command dispatch with policy enforcement.
+
+Structured-detail contract for command failures
+------------------------------------------------
+Failed commands raise HTTPException with a dict ``detail``:
+  {
+    "failure_kind": str,          # "device_not_found" | "denied"
+    "message":      str,          # Ukrainian natural-language explanation
+    "cta":          dict | None,  # {"label": str, "to": str} or None
+  }
+HTTP status codes are preserved (404 / 403).  CONFIRM and AUTO paths are
+unchanged and always return a ``CommandResult`` JSON body.
+"""
 
 from __future__ import annotations
 
@@ -160,7 +172,14 @@ async def device_command(device_id: str, body: CommandBody, session: SessionDep)
     )
     placement = res.scalar_one_or_none()
     if not placement:
-        raise HTTPException(status_code=404, detail="Device not found in floor plan")
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "failure_kind": "device_not_found",
+                "message": "Пристрій не зареєстровано у плані. Додайте його на сторінці «Пристрої».",
+                "cta": {"label": "Пристрої", "to": "/more/devices"},
+            },
+        )
 
     cfg: dict[str, object] = placement.config or {}
     topic = cfg.get("mqtt_topic", f"home/{device_id}/cmd")
@@ -172,7 +191,14 @@ async def device_command(device_id: str, body: CommandBody, session: SessionDep)
     )
 
     if sim["class"] == "DENY":
-        raise HTTPException(status_code=403, detail=f"Action denied by policy: {sim['reason']}")
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "failure_kind": "denied",
+                "message": "Цю дію заборонено політикою безпеки.",
+                "cta": None,
+            },
+        )
 
     if sim["class"] == "CONFIRM":
         from datetime import UTC, datetime, timedelta  # noqa: PLC0415

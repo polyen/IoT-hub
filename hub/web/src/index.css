@@ -86,6 +86,96 @@
     flex-shrink: 0;
   }
 
+  /* ── Range slider — cross-browser styled native <input type="range"> ── */
+  .range-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    /* Minimum tap height — thumb is visually centred within this space */
+    min-height: 44px;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    outline: none;
+  }
+
+  /* Track — WebKit / Blink */
+  .range-slider::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 9999px;
+    /* Filled portion: gradient clipped to --range-pct, then fades to --raised */
+    background-image: var(--range-grad);
+    background-size: var(--range-pct) 100%;
+    background-repeat: no-repeat;
+    background-color: var(--raised);
+  }
+
+  /* Track — Firefox */
+  .range-slider::-moz-range-track {
+    height: 8px;
+    border-radius: 9999px;
+    background-color: var(--raised);
+  }
+  .range-slider::-moz-range-progress {
+    height: 8px;
+    border-radius: 9999px;
+    background-image: var(--range-grad);
+  }
+
+  /* Thumb — WebKit / Blink */
+  .range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2.5px solid var(--primary);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28), 0 0 0 0 var(--primary-glow);
+    margin-top: -7px; /* centre on track (22px thumb − 8px track) / 2 */
+    transition: box-shadow 0.15s, transform 0.15s;
+  }
+  .range-slider::-webkit-slider-thumb:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 4px var(--primary-dim);
+    transform: scale(1.08);
+  }
+
+  /* Thumb — Firefox */
+  .range-slider::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2.5px solid var(--primary);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+    transition: box-shadow 0.15s, transform 0.15s;
+  }
+  .range-slider::-moz-range-thumb:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 4px var(--primary-dim);
+    transform: scale(1.08);
+  }
+
+  /* Focus ring */
+  .range-slider:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--primary);
+  }
+  .range-slider:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--primary);
+  }
+
+  /* Disabled state */
+  .range-slider:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .range-slider::-webkit-slider-thumb,
+    .range-slider::-moz-range-thumb {
+      transition: none;
+    }
+  }
+
   /* Nav link base */
   .nav-item {
     display: flex;

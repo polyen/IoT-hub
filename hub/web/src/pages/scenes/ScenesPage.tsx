@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Play, Sparkles, ChevronRight } from "lucide-react";
-import { SCENES, useRunScene } from "../../features/scenes/scenes";
+import { SCENES, useRunScene, type Scene } from "../../features/scenes/scenes";
 import { Spinner } from "../../components/Spinner";
+import { ScenePreviewDialog } from "./ScenePreviewDialog";
 
 export default function ScenesPage() {
   const { run, runningId } = useRunScene();
+  const [preview, setPreview] = useState<Scene | null>(null);
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -20,7 +23,7 @@ export default function ScenesPage() {
             <button
               key={scene.id}
               disabled={busy}
-              onClick={() => run(scene)}
+              onClick={() => setPreview(scene)}
               className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition-colors disabled:opacity-50 ${scene.color}`}
             >
               <span className="select-none text-3xl">{scene.icon}</span>
@@ -47,6 +50,15 @@ export default function ScenesPage() {
         </span>
         <ChevronRight size={15} className="text-[color:var(--text-faint)]" />
       </Link>
+
+      <ScenePreviewDialog
+        scene={preview}
+        onClose={() => setPreview(null)}
+        running={runningId === preview?.id}
+        onConfirm={(s) => {
+          run(s);
+        }}
+      />
     </div>
   );
 }
