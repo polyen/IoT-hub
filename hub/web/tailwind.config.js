@@ -16,15 +16,17 @@ export default {
           2: "#f59e0b", // T2 aggregates — amber
           3: "#64748b", // T3 ops — slate
         },
-        // Warm-residential accent (terracotta / amber) — "home", not SaaS admin.
+        // Warm-residential accent — shades 300-600 are CSS-var-driven so palette
+        // themes swap the accent without touching surfaces or tier colours.
+        // Alpha modifiers (primary-500/40 etc.) work via the <alpha-value> placeholder.
         primary: {
           50:  "#fdf5ee",
           100: "#fae6d4",
           200: "#f4c9a3",
-          300: "#eca873",
-          400: "#e58a4a",
-          500: "#d97706",
-          600: "#c2620a",
+          300: "rgb(var(--primary-300) / <alpha-value>)",
+          400: "rgb(var(--primary-400) / <alpha-value>)",
+          500: "rgb(var(--primary-500) / <alpha-value>)",
+          600: "rgb(var(--primary-600) / <alpha-value>)",
           700: "#9a4d0f",
           800: "#7c3f12",
           900: "#653513",

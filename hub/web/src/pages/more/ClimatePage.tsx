@@ -229,7 +229,7 @@ function LatestChips({ climate }: { climate: RoomClimate | undefined }) {
               {climate.values[f].toFixed(m.digits)}
             </span>
             <span className="text-xs text-[color:var(--text-muted)]">{m.unit}</span>
-            <span className="ml-1 text-[10px] uppercase tracking-wide text-[color:var(--text-faint)]">{m.label}</span>
+            <span className="ml-1 text-xs uppercase tracking-wide text-[color:var(--text-faint)]">{m.label}</span>
           </div>
         );
       })}

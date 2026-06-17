@@ -13,8 +13,7 @@ export interface Scene {
   description: string;
   /** Natural-language intent dispatched to the agent (passes through policy). */
   intent: string;
-  /** Tailwind border/bg classes for the card surface. */
-  color: string;
+  // Identity is conveyed by `icon`, not colour — colour is reserved for state (idle/presence/alert).
   /** Surfaced as a quick chip on the Home screen. */
   quick?: boolean;
 }
@@ -33,7 +32,6 @@ export const SCENES: Scene[] = [
     short: "Я пішов",
     description: "Вимкни все, охорона «відсутній»",
     intent: "вимкни всі пристрої і увімкни охорону відсутній",
-    color: "border-red-800/60 bg-red-950/20 hover:bg-red-950/40",
     quick: true,
   },
   {
@@ -43,7 +41,6 @@ export const SCENES: Scene[] = [
     short: "Ніч",
     description: "Вимкни світло, охорона дому",
     intent: "вимкни все світло і увімкни охорону дому",
-    color: "border-indigo-800/60 bg-indigo-950/20 hover:bg-indigo-950/40",
     quick: true,
   },
   {
@@ -52,7 +49,6 @@ export const SCENES: Scene[] = [
     name: "Ранок",
     description: "Увімкни світло, вимкни охорону",
     intent: "увімкни світло у всіх кімнатах і вимкни охорону",
-    color: "border-amber-800/60 bg-amber-950/20 hover:bg-amber-950/40",
     quick: true,
   },
   {
@@ -61,7 +57,6 @@ export const SCENES: Scene[] = [
     name: "Кіно",
     description: "Мінімальне світло у вітальні",
     intent: "вимкни яскраве світло, залиш лише підсвічування у вітальні",
-    color: "border-purple-800/60 bg-purple-950/20 hover:bg-purple-950/40",
     quick: true,
   },
   {
@@ -70,7 +65,6 @@ export const SCENES: Scene[] = [
     name: "Вечір",
     description: "Приглуши світло до 30%",
     intent: "приглуши яскравість світла до 30 відсотків у вітальні",
-    color: "border-blue-800/60 bg-blue-950/20 hover:bg-blue-950/40",
   },
   {
     id: "returning",
@@ -78,7 +72,6 @@ export const SCENES: Scene[] = [
     name: "Повертаюсь додому",
     description: "Вимкни охорону, увімкни світло",
     intent: "вимкни охорону і увімкни освітлення у передпокої",
-    color: "border-green-800/60 bg-green-950/20 hover:bg-green-950/40",
   },
 ];
 

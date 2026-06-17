@@ -52,13 +52,13 @@ export function AmbiguityResolver({ intentText, candidates, onResolved }: Ambigu
 
   if (resolved) {
     return (
-      <p className="mt-2 text-[10px] text-green-400/80">✅ Команду уточнено</p>
+      <p className="mt-2 text-xs text-green-400/80">✅ Команду уточнено</p>
     );
   }
 
   return (
     <div className="mt-2 space-y-1">
-      <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+      <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">
         Оберіть пристрій:
       </p>
       {candidates.map((c) => (
@@ -76,7 +76,7 @@ export function AmbiguityResolver({ intentText, candidates, onResolved }: Ambigu
             <span>{KIND_ICON[c.kind] ?? "📦"}</span>
             <span>{c.label ?? c.device_id}</span>
           </span>
-          <span className="text-slate-500 text-[10px]">{c.room}</span>
+          <span className="text-slate-500 text-xs">{c.room}</span>
         </button>
       ))}
     </div>

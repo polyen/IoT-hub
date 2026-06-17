@@ -100,7 +100,7 @@ export function RoomSheet({ room, data, onClose }: Props) {
   }
 
   return (
-    <Sheet open={!!room} onOpenChange={(o) => !o && onClose()} title={room.name}>
+    <Sheet glass open={!!room} onOpenChange={(o) => !o && onClose()} title={room.name}>
       <p className="text-xs text-[color:var(--text-muted)] -mt-1 mb-3">
         {ROOM_TYPE_LABEL[room.type] ?? room.type} · {roomPlacements.length} пристроїв
       </p>
@@ -150,7 +150,7 @@ export function RoomSheet({ room, data, onClose }: Props) {
                 ].join(" ")}
               >
                 <DeviceIcon kind={k} size={17} className={deviceMeta(k).text} />
-                <span className="text-[9px] leading-tight">{deviceMeta(k).label}</span>
+                <span className="text-xs leading-tight">{deviceMeta(k).label}</span>
               </button>
             ))}
           </div>
@@ -158,7 +158,7 @@ export function RoomSheet({ room, data, onClose }: Props) {
           {/* Discovered MQTT devices */}
           {discovered && discovered.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-[9px] font-mono uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+              <p className="text-xs font-mono uppercase tracking-wider text-[color:var(--text-faint)]">
                 Виявлені (MQTT)
               </p>
               <div className="flex flex-wrap gap-1.5">

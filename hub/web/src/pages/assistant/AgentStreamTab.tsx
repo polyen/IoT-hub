@@ -86,7 +86,7 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-semibold text-white/80">{resultLabel}</span>
             {badge && (
-              <span className={`rounded px-1.5 py-px text-[10px] font-bold ${CLASS_BADGE[badge] ?? "bg-slate-700 text-slate-300"}`}>
+              <span className={`rounded px-1.5 py-px text-xs font-bold ${CLASS_BADGE[badge] ?? "bg-slate-700 text-slate-300"}`}>
                 {badge}
               </span>
             )}
@@ -123,7 +123,7 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
             </button>
           )}
           {reasonExpanded && hasReasoning && (
-            <p className="mt-1 rounded bg-black/30 p-2 text-[10px] text-slate-300 leading-relaxed">
+            <p className="mt-1 rounded bg-black/30 p-2 text-xs text-slate-300 leading-relaxed">
               {ev.reasoning}
             </p>
           )}
@@ -138,7 +138,7 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
             </button>
           )}
           {expanded && hasPayload && (
-            <pre className="mt-1 rounded bg-black/30 p-2 text-[10px] text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
+            <pre className="mt-1 rounded bg-black/30 p-2 text-xs text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
               {JSON.stringify(ev.payload, null, 2)}
             </pre>
           )}

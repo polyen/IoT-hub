@@ -33,7 +33,7 @@ export function RoomAliasesPanel({ room, onUpdate }: Props) {
       className="rounded-xl p-3 space-y-2 animate-fade-in"
       style={{ border: "1px solid var(--border-subtle)", background: "var(--card)" }}
     >
-      <p className="text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+      <p className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
         Голосові аліаси кімнати «{room.name}»
       </p>
       <div className="flex flex-wrap gap-1 min-h-6">
@@ -75,7 +75,7 @@ export function RoomAliasesPanel({ room, onUpdate }: Props) {
           +
         </Button>
       </div>
-      <p className="text-[9px] font-mono text-[color:var(--text-faint)]">
+      <p className="text-xs font-mono text-[color:var(--text-faint)]">
         Слова, якими можна назвати кімнату голосом. Натисніть Enter або «+» щоб додати.
         Зберігаються разом із планом.
       </p>

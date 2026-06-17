@@ -29,7 +29,7 @@ export function ConfirmBell({ className }: Props) {
       >
         <Bell size={18} className={count > 0 ? "text-amber-400" : undefined} />
         {count > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white px-1 pointer-events-none animate-pulse">
+          <span className="absolute -top-0.5 -right-0.5 min-w-[20px] h-[20px] flex items-center justify-center rounded-full bg-red-600 text-[11px] font-bold text-white px-1 pointer-events-none animate-pulse">
             {count > 9 ? "9+" : count}
           </span>
         )}

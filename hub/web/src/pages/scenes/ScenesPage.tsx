@@ -24,7 +24,7 @@ export default function ScenesPage() {
               key={scene.id}
               disabled={busy}
               onClick={() => setPreview(scene)}
-              className={`flex items-center gap-4 rounded-2xl border p-4 text-left transition-colors disabled:opacity-50 ${scene.color}`}
+              className="card card-hover flex items-center gap-4 rounded-2xl p-4 text-left disabled:opacity-50"
             >
               <span className="select-none text-3xl">{scene.icon}</span>
               <div className="min-w-0 flex-1">
@@ -33,7 +33,7 @@ export default function ScenesPage() {
                   {scene.description}
                 </p>
               </div>
-              <span className="shrink-0 text-[color:var(--text-muted)]">
+              <span className="shrink-0 text-primary-400">
                 {busy ? <Spinner className="h-4 w-4" /> : <Play size={16} />}
               </span>
             </button>

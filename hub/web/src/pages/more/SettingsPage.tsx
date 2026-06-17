@@ -1,11 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { useTheme } from "../../app/providers/ThemeProvider";
+import { useTheme, PALETTES } from "../../app/providers/ThemeProvider";
 import i18n from "i18next";
 import { AudioSettings } from "../../features/audio/AudioSettings";
 
 export default function SettingsPage() {
   const { t } = useTranslation("common");
-  const { theme, toggle } = useTheme();
+  const { theme, toggle, palette, setPalette } = useTheme();
 
   return (
     <div>
@@ -21,6 +21,37 @@ export default function SettingsPage() {
               {theme === "dark" ? "🌙 Темна" : "☀ Світла"}
             </button>
           </div>
+
+          {/* Colour palette picker */}
+          <div className="px-4 py-3 space-y-2">
+            <span className="text-sm">Колірна тема</span>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {PALETTES.map((p) => {
+                const isActive = palette === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => setPalette(p.id)}
+                    aria-pressed={isActive}
+                    aria-label={p.label}
+                    className={[
+                      "flex items-center gap-2 min-h-[44px] px-3 py-2 rounded-lg border text-sm transition-colors",
+                      isActive
+                        ? "border-primary-500/40 ring-2 ring-offset-1 ring-offset-slate-800 ring-primary-500 bg-primary-500/10 text-[var(--primary)]"
+                        : "border-slate-600 light:border-slate-300 text-[var(--text-muted)] hover:border-slate-400 light:hover:border-slate-400",
+                    ].join(" ")}
+                  >
+                    <span
+                      className="inline-block w-[28px] h-[28px] rounded-full flex-shrink-0 border border-black/10"
+                      style={{ backgroundColor: p.swatch }}
+                    />
+                    <span>{p.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex items-center justify-between px-4 py-3">
             <span className="text-sm">Мова / Language</span>
             <div className="flex gap-2">

@@ -82,7 +82,7 @@ export function AudioSettings() {
         </select>
       </div>
 
-      <p className="text-[11px] text-slate-500 flex items-center gap-1">
+      <p className="text-xs text-slate-500 flex items-center gap-1">
         <RefreshCw size={10} />
         Зміна застосовується без перезапуску — voice pipeline переключається автоматично
       </p>

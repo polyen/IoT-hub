@@ -279,10 +279,10 @@ function FeedbackRow({
       choice === "tp" ? "✓ Реальна" : choice === "fp" ? "✗ Хибна" : "? Не впевнений";
     return (
       <div className="mt-2.5 pt-2.5 border-t border-[color:var(--border)] flex items-center gap-2">
-        <span className="text-[11px] text-blue-400">{labelText}</span>
+        <span className="text-xs text-blue-400">{labelText}</span>
         <button
           onClick={() => { setSent(false); setChoice(null); }}
-          className="text-[10px] text-[color:var(--text-faint)] hover:text-[color:var(--text-muted)] transition-colors"
+          className="text-xs text-[color:var(--text-faint)] hover:text-[color:var(--text-muted)] transition-colors"
         >
           змінити
         </button>
@@ -298,7 +298,7 @@ function FeedbackRow({
             key={l}
             onClick={() => submit(l)}
             disabled={sending}
-            className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+            className={`text-xs px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
               choice === l
                 ? "border-blue-500 bg-blue-900/60 text-blue-200"
                 : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:border-slate-400"
@@ -313,7 +313,7 @@ function FeedbackRow({
           <button
             key={t}
             onClick={() => setTag((prev) => (prev === t ? "" : t))}
-            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+            className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
               tag === t
                 ? "border-blue-500 bg-blue-900/40 text-blue-300"
                 : "border-[color:var(--border)] text-[color:var(--text-faint)] hover:border-slate-500"
@@ -375,17 +375,17 @@ function EventCard({ event }: { event: HubEvent }) {
           {/* Footer: room + tier */}
           <div className="flex items-center gap-2 mt-1.5">
             {event.room && (
-              <span className="text-[11px] font-medium text-[color:var(--text-faint)]">
+              <span className="text-xs font-medium text-[color:var(--text-faint)]">
                 {event.room}
               </span>
             )}
             <span
-              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-semibold ${tierBgClass(event.tier)}`}
+              className={`text-xs px-1.5 py-0.5 rounded font-mono font-semibold ${tierBgClass(event.tier)}`}
             >
               T{event.tier}
             </span>
             {event.model_version && (
-              <span className="text-[10px] text-[color:var(--text-faint)] font-mono truncate">
+              <span className="text-xs text-[color:var(--text-faint)] font-mono truncate">
                 {event.model_version}
               </span>
             )}

@@ -462,7 +462,7 @@ export function FloorPlanEditor() {
           className="flex flex-wrap items-center gap-3 rounded-xl p-3 animate-fade-in"
           style={{ border: "1px solid var(--border)", background: "var(--card)" }}
         >
-          <span className="text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+          <span className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
             Форма кімнати
           </span>
           <div className="flex gap-1 rounded-lg p-1" style={{ background: "var(--raised)" }}>
@@ -498,7 +498,7 @@ export function FloorPlanEditor() {
             className="rounded-xl p-3 space-y-2"
             style={{ border: "1px solid var(--border)", background: "var(--card)" }}
           >
-            <p className="text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+            <p className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
               Тип пристрою
             </p>
             <div className="grid grid-cols-4 gap-1 sm:grid-cols-6">
@@ -515,7 +515,7 @@ export function FloorPlanEditor() {
                   style={pendingDeviceKind === k && !pendingDeviceId ? { border: "1px solid rgba(99,102,241,0.35)" } : { border: "1px solid transparent" }}
                 >
                   <DeviceIcon kind={k} size={18} className={deviceMeta(k).text} />
-                  <span className="text-[9px] leading-tight">{deviceMeta(k).label}</span>
+                  <span className="text-xs leading-tight">{deviceMeta(k).label}</span>
                 </button>
               ))}
             </div>
@@ -527,7 +527,7 @@ export function FloorPlanEditor() {
               className="rounded-xl p-3 space-y-2"
               style={{ border: "1px solid var(--border-subtle)", background: "var(--card)" }}
             >
-              <p className="text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+              <p className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
                 Виявлені пристрої (MQTT)
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -898,7 +898,7 @@ export function FloorPlanEditor() {
 
               <div className="space-y-3">
                 <label className="block space-y-1.5">
-                  <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                  <span className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
                     Мітка
                   </span>
                   <input
@@ -917,7 +917,7 @@ export function FloorPlanEditor() {
                 </label>
 
                 <label className="block space-y-1.5">
-                  <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                  <span className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
                     Device ID
                   </span>
                   <input
@@ -932,7 +932,7 @@ export function FloorPlanEditor() {
                     onChange={(e) => setEditPlacement({ ...editPlacement, device_id: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
                   />
-                  <p className="text-[10px] font-mono text-[color:var(--text-faint)]">
+                  <p className="text-xs font-mono text-[color:var(--text-faint)]">
                     Має збігатися з MQTT-топіком · <code>mosquitto_sub -t 'home/#' -v</code>
                   </p>
                 </label>
@@ -940,7 +940,7 @@ export function FloorPlanEditor() {
                 {p?.kind === "camera" && (
                   <>
                     <label className="block space-y-1.5">
-                      <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                      <span className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
                         RTSP URL (субпотік — CV + мікрофон)
                       </span>
                       <input
@@ -955,13 +955,13 @@ export function FloorPlanEditor() {
                         onChange={(e) => setEditPlacement({ ...editPlacement, rtsp_url: e.target.value })}
                         onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
                       />
-                      <p className="text-[10px] font-mono text-[color:var(--text-faint)]">
+                      <p className="text-xs font-mono text-[color:var(--text-faint)]">
                         Низька роздільна здатність · CV обробка + мікрофон
                       </p>
                     </label>
 
                     <label className="block space-y-1.5">
-                      <span className="text-[10px] font-mono font-medium uppercase tracking-widest text-[color:var(--text-faint)]">
+                      <span className="text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
                         RTSP HD URL (основний потік — перегляд)
                       </span>
                       <input
@@ -976,7 +976,7 @@ export function FloorPlanEditor() {
                         onChange={(e) => setEditPlacement({ ...editPlacement, rtsp_hd_url: e.target.value })}
                         onKeyDown={(e) => { if (e.key === "Enter") saveEditPlacement(); if (e.key === "Escape") setEditPlacement(null); }}
                       />
-                      <p className="text-[10px] font-mono text-[color:var(--text-faint)]">
+                      <p className="text-xs font-mono text-[color:var(--text-faint)]">
                         Висока роздільна здатність · HLS/WebRTC для перегляду у браузері
                       </p>
                     </label>

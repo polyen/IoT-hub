@@ -15,13 +15,18 @@
   --status-error: #ef4444;
   --status-offline: #64748b;
 
-  /* Primary / accent — warm terracotta (home, not SaaS) */
-  --primary: #d97706;
-  --primary-strong: #b45309;
-  --primary-dim: rgba(217, 119, 6, 0.16);
-  --primary-glow: rgba(217, 119, 6, 0.28);
-  --warm: #f97316;
-  --warm-dim: rgba(249, 115, 22, 0.15);
+  /* Accent ramp — themeable (consumed by Tailwind primary-300..600). Default = Terracotta Hearth. */
+  --primary-300: 235 171 133;
+  --primary-400: 230 146 98;
+  --primary-500: 224 122 63;
+  --primary-600: 203 95 33;
+  /* hex mirrors used by index.css/tokens (nav, focus rings, room hover) */
+  --primary: #e07a3f;
+  --primary-strong: #cb5f21;
+  --primary-dim: rgba(224, 122, 63, 0.16);
+  --primary-glow: rgba(224, 122, 63, 0.30);
+  --warm: #f9883f;
+  --warm-dim: rgba(249, 136, 63, 0.15);
 
   /* Layout */
   --sidebar-w: 240px;
@@ -35,6 +40,36 @@
 
   /* Radii */
   --radius-card: 1rem;
+}
+
+/* ── Colour palette themes — accent-only, mode-independent ── */
+
+/* Terracotta (explicit reset = same as :root default) */
+[data-palette="terracotta"] {
+  --primary-300: 235 171 133; --primary-400: 230 146 98; --primary-500: 224 122 63; --primary-600: 203 95 33;
+  --primary: #e07a3f; --primary-strong: #cb5f21;
+  --primary-dim: rgba(224,122,63,0.16); --primary-glow: rgba(224,122,63,0.30); --warm: #f9883f;
+}
+
+/* Digital Nature (clay) */
+[data-palette="nature"] {
+  --primary-300: 233 187 161; --primary-400: 225 163 128; --primary-500: 217 139 95; --primary-600: 207 109 54;
+  --primary: #d98b5f; --primary-strong: #cf6d36;
+  --primary-dim: rgba(217,139,95,0.16); --primary-glow: rgba(217,139,95,0.30); --warm: #e0975f;
+}
+
+/* Warm Sand + Teal */
+[data-palette="sand"] {
+  --primary-300: 97 214 202; --primary-400: 64 206 191; --primary-500: 47 182 168; --primary-600: 37 141 131;
+  --primary: #2fb6a8; --primary-strong: #258d83;
+  --primary-dim: rgba(47,182,168,0.16); --primary-glow: rgba(47,182,168,0.30); --warm: #e0b24a;
+}
+
+/* Aubergine + Gold */
+[data-palette="aubergine"] {
+  --primary-300: 253 191 40; --primary-400: 249 178 2; --primary-500: 209 149 2; --primary-600: 158 113 2;
+  --primary: #d19502; --primary-strong: #9e7102;
+  --primary-dim: rgba(209,149,2,0.16); --primary-glow: rgba(209,149,2,0.30); --warm: #d1a502;
 }
 
 /* ── Dark theme — refined slate ink (matches hard-coded slate-* surfaces) ── */

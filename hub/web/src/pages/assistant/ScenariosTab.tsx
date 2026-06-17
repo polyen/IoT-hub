@@ -23,7 +23,7 @@ function ScenarioCard({
 }) {
   return (
     <div
-      className={`rounded-xl border p-4 transition-colors ${scenario.color} flex items-center gap-4`}
+      className="rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 p-4 transition-colors flex items-center gap-4"
     >
       <span className="text-3xl select-none">{scenario.icon}</span>
       <div className="flex-1 min-w-0">

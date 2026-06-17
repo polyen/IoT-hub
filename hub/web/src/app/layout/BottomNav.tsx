@@ -51,7 +51,7 @@ export function BottomNav() {
                   </span>
                   <span
                     className={clsx(
-                      "text-[10px] font-medium leading-none",
+                      "text-xs font-medium leading-none",
                       isActive ? "text-primary-400" : "text-[color:var(--text-muted)]",
                     )}
                   >

@@ -63,7 +63,7 @@ function NavItemLink({ item }: { item: NavItem }) {
 
 function SectionLabel({ label }: { label: string }) {
   return (
-    <p className="px-3 pt-5 pb-1 text-[9px] font-mono font-medium uppercase tracking-[0.18em] text-[color:var(--text-faint)]">
+    <p className="px-3 pt-5 pb-1 text-xs font-mono font-medium uppercase tracking-wider text-[color:var(--text-faint)]">
       {label}
     </p>
   );
@@ -120,7 +120,7 @@ export function Sidebar() {
           <p className="font-display font-semibold text-sm leading-none tracking-wide text-[color:var(--text)]">
             IoT Hub
           </p>
-          <p className="text-[9px] font-mono uppercase tracking-[0.2em] text-[color:var(--text-faint)] mt-0.5">
+          <p className="text-xs font-mono uppercase tracking-wider text-[color:var(--text-faint)] mt-0.5">
             Smart Home
           </p>
         </div>
