@@ -50,6 +50,7 @@ _CLIMATE_KEY_PREFIX = "home:climate:"
 # from showing a frozen value forever.  Long enough to survive the slowest
 # (60 s) sensor cycle plus jitter.
 _CLIMATE_TTL_SEC = 300
+_ALERT_STATE_TTL_SEC = 300  # room stays red for 5 min after last alert
 
 _DEAD_LETTER_KEY = "mqtt:dead-letter"
 _DEAD_LETTER_MAX = 1000
@@ -195,6 +196,17 @@ async def _handle(
     # live overlay must reflect every reading even when the feed suppresses it.
     if type_ == "sensors" and room is not None:
         await _cache_climate(redis_client, room, payload)
+
+    # Alert events must also update the device state so room_states can light
+    # the room red on the floor plan.  _handle_device_state only runs on /state
+    # topics, so alert payloads never reach it — we mirror the state here with a
+    # TTL so the room returns to idle automatically after the alert window.
+    if type_ == "alert":
+        device_id = payload.get("device_id")
+        if device_id:
+            key = f"home:state:{device_id}"
+            await redis_client.hset(key, mapping={"alert": "true"})
+            await redis_client.expire(key, _ALERT_STATE_TTL_SEC)
 
     # Deduplicate repetitive non-alert event types (sensors, fused) so the
     # events feed doesn't flood.  Alerts always bypass this check.
