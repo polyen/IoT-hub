@@ -24,7 +24,9 @@ type RefusalDetail = {
   cta?: { label: string; to: string } | null;
 };
 
-const BRIGHTNESS_GRADIENT = "linear-gradient(90deg, #3a2a14, #d97706)";
+// Brightness tracks the themeable accent (was hard-coded amber #d97706);
+// temperature stays on the fixed cool→warm→hot scale (semantic, theme-independent).
+const BRIGHTNESS_GRADIENT = "linear-gradient(90deg, var(--primary-dim), var(--primary))";
 const TEMP_GRADIENT = "linear-gradient(90deg, #38bdf8, #f59e0b, #ef4444)";
 
 export function DeviceQuickControl({ placement, onDelete }: Props) {

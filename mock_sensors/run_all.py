@@ -15,6 +15,7 @@ Env overrides:
 """
 
 import asyncio
+import json
 import logging
 import ssl
 import sys
@@ -24,6 +25,7 @@ import aiomqtt
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from base import Actuator
 from config import (
     INTERVAL_SCALE,
     MQTT_HOST,
@@ -36,9 +38,11 @@ from config import (
 from sensors.air_quality import AirQualitySensor
 from sensors.camera import CameraEventSensor
 from sensors.door import DoorSensor
+from sensors.light import LightActuator
 from sensors.motion import MotionSensor
 from sensors.power import PowerSensor
 from sensors.temperature import TempHumiditySensor
+from sensors.thermostat import ThermostatActuator
 
 logging.basicConfig(
     level=logging.INFO,
@@ -104,6 +108,49 @@ def _build_sensors() -> list:
     return sensors
 
 
+def _build_actuators() -> list[Actuator]:
+    """Controllable devices that listen for commands (UI sliders / scenes / voice).
+
+    Add a matching DevicePlacement in the floor-plan editor with the same
+    ``device_id`` (e.g. ``mock-light-living_room``) to drive these from the UI.
+    """
+    return [
+        LightActuator("living_room"),
+        LightActuator("bedroom"),
+        ThermostatActuator("living_room"),
+        ThermostatActuator("bedroom"),
+    ]
+
+
+async def _dispatch_commands(client: aiomqtt.Client, actuators: list[Actuator]) -> None:
+    """Single consumer of incoming MQTT messages — routes commands to actuators.
+
+    aiomqtt exposes one shared ``client.messages`` iterator, so all command
+    handling funnels through here while the publish loops run independently.
+    """
+    routes: dict[str, Actuator] = {}
+    for a in actuators:
+        for topic in a.command_topics:
+            routes[topic] = a
+
+    async for message in client.messages:
+        actuator = routes.get(str(message.topic))
+        if actuator is None:
+            continue
+        raw = message.payload
+        try:
+            payload = json.loads(raw if isinstance(raw, str | bytes | bytearray) else b"{}")
+        except (json.JSONDecodeError, ValueError) as exc:
+            log.warning("[%s] bad command payload: %s", actuator.device_id, exc)
+            continue
+        if not isinstance(payload, dict):
+            continue
+        try:
+            await actuator.handle_command(client, payload)
+        except Exception as exc:  # noqa: BLE001 - keep dispatcher alive
+            log.error("[%s] command failed: %s", actuator.device_id, exc)
+
+
 async def _safe_loop(sensor, client: aiomqtt.Client) -> None:
     while True:
         try:
@@ -117,13 +164,15 @@ async def _safe_loop(sensor, client: aiomqtt.Client) -> None:
 
 async def main() -> None:
     sensors = _build_sensors()
+    actuators = _build_actuators()
     tls = _tls_context()
 
     log.info(
-        "Connecting to %s:%d  |  %d sensors  |  TLS=%s  |  INTERVAL_SCALE=%.2f",
+        "Connecting to %s:%d  |  %d sensors + %d actuators  |  TLS=%s  |  INTERVAL_SCALE=%.2f",
         MQTT_HOST,
         MQTT_PORT,
         len(sensors),
+        len(actuators),
         tls is not None,
         INTERVAL_SCALE,
     )
@@ -131,8 +180,12 @@ async def main() -> None:
     while True:
         try:
             async with aiomqtt.Client(MQTT_HOST, MQTT_PORT, tls_context=tls) as client:
-                log.info("Connected. Publishing… (Ctrl+C to stop)")
-                await asyncio.gather(*[_safe_loop(s, client) for s in sensors])
+                for a in actuators:
+                    for topic in a.command_topics:
+                        await client.subscribe(topic, qos=1)
+                log.info("Connected. Publishing + listening for commands… (Ctrl+C to stop)")
+                loops = [_safe_loop(s, client) for s in (*sensors, *actuators)]
+                await asyncio.gather(*loops, _dispatch_commands(client, actuators))
         except aiomqtt.MqttError as exc:
             log.warning("MQTT disconnected: %s — retrying in 5s", exc)
             await asyncio.sleep(5)
