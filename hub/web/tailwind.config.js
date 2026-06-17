@@ -32,7 +32,10 @@ export default {
           900: "#653513",
           950: "#3a1d0a",
         },
-        // Cool counter-accent retained for operator/admin surfaces.
+        // FROZEN — operator/admin surfaces only. Single-accent discipline: do NOT
+        // use cool-* in resident-facing UI (Home/Rooms/Scenes/Cameras/Assistant).
+        // The one accent is `primary` (palette-themeable); `warm` is a fixed
+        // residential tint. Keep this scale static (not CSS-var-driven).
         cool: {
           300: "#a5b4fc",
           400: "#818cf8",
@@ -73,8 +76,10 @@ export default {
         "glass":        "0 8px 32px rgba(2,6,23,0.45), inset 0 1px 0 rgba(255,255,255,0.05)",
         "glass-light":  "0 4px 24px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.9)",
         "card":         "0 1px 2px rgba(2,6,23,0.30), 0 4px 16px rgba(2,6,23,0.20)",
-        "glow-primary": "0 0 0 1px rgba(217,119,6,0.35), 0 6px 20px rgba(217,119,6,0.28)",
-        "gold":         "0 2px 12px rgba(217,119,6,0.25)",
+        // Palette-themeable: track --primary-glow so the accent shadow follows the
+        // selected theme (was hard-coded amber rgba(217,119,6,…) — desynced after multi-theme).
+        "glow-primary": "0 0 0 1px var(--primary-glow), 0 6px 20px var(--primary-glow)",
+        "gold":         "0 2px 12px var(--primary-glow)",
       },
     },
   },

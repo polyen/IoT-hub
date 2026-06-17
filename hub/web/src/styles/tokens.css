@@ -38,6 +38,18 @@
   --font-sans: "DM Sans", system-ui, sans-serif;
   --font-mono: "DM Mono", "Courier New", monospace;
 
+  /* Type scale (canonical) — H1 24 / H2 20 / H3 16 / body 14 / caption 12.
+     Drives default h1/h2/h3 sizing + the .t-* utilities; Tailwind text-* utilities
+     still override per-instance. 12px is the enforced minimum (WCAG/legibility). */
+  --fs-h1: 1.5rem;    --lh-h1: 1.2;
+  --fs-h2: 1.25rem;   --lh-h2: 1.25;
+  --fs-h3: 1rem;      --lh-h3: 1.35;
+  --fs-body: 0.875rem; --lh-body: 1.5;
+  --fs-caption: 0.75rem; --lh-caption: 1.4;
+
+  /* Icon stroke — single source of truth (see .lucide rule in index.css). */
+  --icon-stroke: 1.75;
+
   /* Radii */
   --radius-card: 1rem;
 }

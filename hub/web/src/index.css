@@ -16,10 +16,23 @@
     transition: background-color 0.2s, color 0.2s;
   }
 
-  /* Headings use the geometric display face for a modern, glanceable feel */
+  /* Headings use the geometric display face for a modern, glanceable feel.
+     Default sizes come from the canonical type scale (tokens.css); Tailwind
+     text-* utilities still win per-instance (class > element specificity). */
   h1, h2, h3, .font-display {
     font-family: var(--font-display);
     letter-spacing: -0.01em;
+  }
+  h1 { font-size: var(--fs-h1); line-height: var(--lh-h1); }
+  h2 { font-size: var(--fs-h2); line-height: var(--lh-h2); }
+  h3 { font-size: var(--fs-h3); line-height: var(--lh-h3); }
+
+  /* Icon stroke — single source of truth. lucide-react sets stroke-width as a
+     presentation attribute (lowest cascade priority), so this author rule wins
+     and standardises every <Icon/> regardless of per-icon strokeWidth props.
+     Raw floor-plan SVG strokes have no .lucide class and stay untouched. */
+  .lucide {
+    stroke-width: var(--icon-stroke);
   }
 
   /* Consistent, accessible focus ring across the app */
@@ -206,6 +219,14 @@
   .safe-pt {
     padding-top: max(0px, env(safe-area-inset-top));
   }
+
+  /* Canonical type-scale utilities (tokens.css). Use for new semantic text;
+     pairs with the default h1/h2/h3 sizing. */
+  .t-h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: var(--lh-h1); letter-spacing: -0.01em; font-weight: 600; }
+  .t-h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: var(--lh-h2); letter-spacing: -0.01em; font-weight: 600; }
+  .t-h3 { font-family: var(--font-display); font-size: var(--fs-h3); line-height: var(--lh-h3); font-weight: 600; }
+  .t-body { font-size: var(--fs-body); line-height: var(--lh-body); }
+  .t-caption { font-size: var(--fs-caption); line-height: var(--lh-caption); }
 
   /* Text using CSS vars */
   .text-token {
