@@ -12,7 +12,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/", icon: Home, key: "home", exact: true },
+  { to: "/home", icon: Home, key: "home", exact: true },
   { to: "/rooms", icon: LayoutGrid, key: "rooms" },
   { to: "/scenes", icon: Sparkles, key: "scenes" },
   { to: "/cameras", icon: Camera, key: "cameras" },

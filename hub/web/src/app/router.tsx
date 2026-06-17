@@ -46,8 +46,11 @@ export function AppRouter() {
         {/* Full-screen wall-mounted kiosk — no app chrome */}
         <Route path="/wall" element={<WallPage />} />
 
+        {/* Default: open wall/kiosk mode */}
+        <Route path="/" element={<Navigate to="/wall" replace />} />
+
         <Route element={<ShellLayout />}>
-          <Route path="/" element={<HomePage />} />
+          <Route path="/home" element={<HomePage />} />
           <Route path="/rooms" element={<RoomsPage />} />
           <Route path="/scenes" element={<ScenesPage />} />
           <Route path="/cameras" element={<CamerasPage />} />

@@ -166,7 +166,7 @@ export default function WallPage() {
             {isOnline ? <Wifi size={22} /> : <WifiOff size={22} />}
           </span>
           <Link
-            to="/"
+            to="/home"
             aria-label="Вийти з кіоску"
             className="rounded-xl p-2 text-[color:var(--text-faint)] transition-colors hover:text-[color:var(--text)]"
           >

@@ -1,5 +1,6 @@
 import React from "react";
-import { Sun, Moon, WifiOff } from "lucide-react";
+import { Sun, Moon, WifiOff, Maximize2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useTheme } from "../providers/ThemeProvider";
 import { useOnlineStatus } from "../../hooks/useOnlineStatus";
 import { ConfirmBell } from "./ConfirmBell";
@@ -46,6 +47,14 @@ export function TopBar() {
         <Clock />
 
         <ConfirmBell />
+
+        <Link
+          to="/wall"
+          title="Режим кіоску"
+          className="p-2 rounded-lg text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)] transition-colors"
+        >
+          <Maximize2 size={16} />
+        </Link>
 
         <button
           onClick={toggle}

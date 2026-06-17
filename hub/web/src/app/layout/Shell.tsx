@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Settings } from "lucide-react";
+import { Settings, Maximize2 } from "lucide-react";
 import { OfflineBanner } from "./OfflineBanner";
 import { BottomNav } from "./BottomNav";
 import { Sidebar } from "./Sidebar";
@@ -35,6 +35,13 @@ export function Shell({ children }: ShellProps) {
           style={{ paddingTop: "max(0px, env(safe-area-inset-top))" }}
         >
           <ConfirmBell />
+          <Link
+            to="/wall"
+            aria-label="Режим кіоску"
+            className="p-2 rounded-lg text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--raised)] transition-colors"
+          >
+            <Maximize2 size={18} />
+          </Link>
           <Link
             to="/more"
             aria-label="Налаштування"

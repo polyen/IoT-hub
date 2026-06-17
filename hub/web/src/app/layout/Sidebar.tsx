@@ -17,6 +17,7 @@ import {
   Settings,
   Brain,
   Thermometer,
+  Maximize2,
   LucideIcon,
 } from "lucide-react";
 
@@ -73,11 +74,12 @@ export function Sidebar() {
   const { t } = useTranslation("common");
 
   const primary: NavItem[] = [
-    { to: "/", icon: Home, label: t("nav.home"), exact: true },
+    { to: "/home", icon: Home, label: t("nav.home"), exact: true },
     { to: "/rooms", icon: LayoutGrid, label: t("nav.rooms") },
     { to: "/scenes", icon: Sparkles, label: t("nav.scenes") },
     { to: "/cameras", icon: Camera, label: t("nav.cameras") },
     { to: "/assistant", icon: Bot, label: t("nav.assistant") },
+    { to: "/wall", icon: Maximize2, label: "Кіоск" },
   ];
 
   const home: NavItem[] = [
