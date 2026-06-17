@@ -84,6 +84,47 @@
   --primary-dim: rgba(209,149,2,0.16); --primary-glow: rgba(209,149,2,0.30); --warm: #d1a502;
 }
 
+/* ── Per-theme NEUTRAL retint (surfaces only; text stays fixed) ──────────────
+   Each surface is the slate value tinted toward the accent hue at low
+   saturation, but with relative luminance preserved (binary-searched), so
+   every text-on-surface contrast pair is identical to the verified slate
+   baseline — all AA. Specificity (.dark/.light + [data-palette]) beats the
+   plain .dark/.light blocks below regardless of order. Warm surfaces for the
+   warm palettes, sandy for sand (+ teal accent), aubergine-charcoal for the
+   gold palette. Glass + floor-plan room tokens are intentionally left cool. */
+.dark[data-palette="terracotta"] {
+  --bg: #14110e; --bg-secondary: #1b1713; --card: #221c17; --card-hover: #2a231d;
+  --raised: #2f2721; --border: #423428; --border-subtle: #2c231b;
+}
+.dark[data-palette="nature"] {
+  --bg: #14110d; --bg-secondary: #1b1712; --card: #211c16; --card-hover: #29231b;
+  --raised: #2e281f; --border: #403526; --border-subtle: #2b241a;
+}
+.dark[data-palette="sand"] {
+  --bg: #13110c; --bg-secondary: #1a1710; --card: #201d14; --card-hover: #282418;
+  --raised: #2d281b; --border: #3d3621; --border-subtle: #292516;
+}
+.dark[data-palette="aubergine"] {
+  --bg: #141016; --bg-secondary: #1b151e; --card: #221b25; --card-hover: #29212e;
+  --raised: #2f2533; --border: #42304b; --border-subtle: #2d2033;
+}
+.light[data-palette="terracotta"] {
+  --bg: #f5f4f3; --bg-secondary: #efedec; --card: #ffffff; --card-hover: #fafaf9;
+  --raised: #f5f4f3; --border: #eae7e4; --border-subtle: #f3f1f0;
+}
+.light[data-palette="nature"] {
+  --bg: #f5f4f3; --bg-secondary: #efedeb; --card: #ffffff; --card-hover: #fafaf9;
+  --raised: #f5f4f3; --border: #eae7e3; --border-subtle: #f3f1ef;
+}
+.light[data-palette="sand"] {
+  --bg: #f5f4f2; --bg-secondary: #efedea; --card: #ffffff; --card-hover: #fafaf9;
+  --raised: #f5f4f2; --border: #e9e7e1; --border-subtle: #f3f2ee;
+}
+.light[data-palette="aubergine"] {
+  --bg: #f5f4f6; --bg-secondary: #efedf0; --card: #ffffff; --card-hover: #fafafa;
+  --raised: #f5f4f6; --border: #eae6ec; --border-subtle: #f3f1f4;
+}
+
 /* ── Dark theme — refined slate ink (matches hard-coded slate-* surfaces) ── */
 .dark {
   --bg: #0b1120;

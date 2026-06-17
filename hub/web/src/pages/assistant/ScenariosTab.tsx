@@ -23,14 +23,14 @@ function ScenarioCard({
 }) {
   return (
     <div
-      className="rounded-xl border border-slate-700 bg-slate-800/60 hover:bg-slate-800 p-4 transition-colors flex items-center gap-4"
+      className="rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] hover:bg-[color:var(--card-hover)] p-4 transition-colors flex items-center gap-4"
     >
       <span className="text-3xl select-none">{scenario.icon}</span>
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-sm text-white">{scenario.name}</p>
-        <p className="text-xs text-slate-400 mt-0.5 truncate">{scenario.description}</p>
+        <p className="font-semibold text-sm text-[color:var(--text)]">{scenario.name}</p>
+        <p className="text-xs text-[color:var(--text-muted)] mt-0.5 truncate">{scenario.description}</p>
         {lastRun && (
-          <p className="text-xs text-slate-600 mt-1 flex items-center gap-1">
+          <p className="text-xs text-[color:var(--text-faint)] mt-1 flex items-center gap-1">
             <Clock size={10} />
             {relativeTime(lastRun.timestamp)}
           </p>
@@ -76,8 +76,8 @@ function PolicySimulator() {
   }
 
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 space-y-3">
-      <p className="text-xs text-slate-400">
+    <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 space-y-3">
+      <p className="text-xs text-[color:var(--text-muted)]">
         Перевір, як намір буде класифіковано політикою безпеки — без виконання.
       </p>
       <form onSubmit={handleSubmit} className="space-y-3">
@@ -86,13 +86,13 @@ function PolicySimulator() {
           onChange={(e) => setIntentText(e.target.value)}
           rows={2}
           placeholder="напр. «Вимкни всі лампи в будинку»"
-          className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          className="w-full rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] px-3 py-2 text-sm text-[color:var(--text)] placeholder-[color:var(--text-faint)] focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
         />
         <input
           value={tool}
           onChange={(e) => setTool(e.target.value)}
           placeholder="Інструмент (необов'язково), напр. mqtt_publish"
-          className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] px-3 py-2 text-sm text-[color:var(--text)] placeholder-[color:var(--text-faint)] focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
         <Button
           type="submit"
@@ -105,20 +105,20 @@ function PolicySimulator() {
       </form>
 
       {result && (
-        <div className="rounded-lg border border-slate-700 bg-slate-900 p-4 space-y-2 text-sm">
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-secondary)] p-4 space-y-2 text-sm">
           <div className="flex items-center gap-3">
-            <span className={`rounded px-2 py-0.5 text-xs font-bold ${ACTION_COLORS[result.action_class] ?? "bg-slate-700 text-slate-300"}`}>
+            <span className={`rounded px-2 py-0.5 text-xs font-bold ${ACTION_COLORS[result.action_class] ?? "bg-[color:var(--card-hover)] text-[color:var(--text-muted)]"}`}>
               {result.action_class}
             </span>
-            <span className="text-slate-400">{result.latency_ms} мс</span>
+            <span className="text-[color:var(--text-muted)]">{result.latency_ms} мс</span>
             {result.inferred_tool && (
-              <span className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
+              <span className="rounded bg-[color:var(--card-hover)] px-2 py-0.5 text-xs text-[color:var(--text-muted)]">
                 ↳ <span className="font-mono">{result.inferred_tool}</span> (інференс)
               </span>
             )}
           </div>
-          <p className="text-slate-300"><span className="text-slate-500">Правило: </span>{result.matched_rule}</p>
-          <p className="text-slate-400 text-xs">{result.reason}</p>
+          <p className="text-[color:var(--text-muted)]"><span className="text-[color:var(--text-faint)]">Правило: </span>{result.matched_rule}</p>
+          <p className="text-[color:var(--text-muted)] text-xs">{result.reason}</p>
         </div>
       )}
     </div>
@@ -172,7 +172,7 @@ export default function ScenariosTab() {
     <div className="space-y-6">
       {/* Scenario cards */}
       <section className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[color:var(--text-muted)]">
           Готові сценарії
         </h2>
         <div className="space-y-2">
@@ -190,11 +190,11 @@ export default function ScenariosTab() {
 
       {/* Custom intent */}
       <section className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[color:var(--text-muted)]">
           Довільна команда
         </h2>
-        <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 space-y-3">
-          <p className="text-xs text-slate-400">
+        <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 space-y-3">
+          <p className="text-xs text-[color:var(--text-muted)]">
             Введи команду природною мовою — агент інтерпретує та виконає через policy
           </p>
           <textarea
@@ -205,10 +205,10 @@ export default function ScenariosTab() {
             }}
             rows={2}
             placeholder="напр. увімкни лампу в спальні та закрий замок на вході…"
-            className="w-full rounded-lg border border-slate-600 bg-slate-700/60 px-3 py-2 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
+            className="w-full rounded-lg border border-[color:var(--border)] bg-[color:var(--card)] px-3 py-2 text-sm text-[color:var(--text)] placeholder-[color:var(--text-faint)] resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-600">Ctrl+Enter для надсилання</p>
+            <p className="text-xs text-[color:var(--text-faint)]">Ctrl+Enter для надсилання</p>
             <Button
               variant="primary"
               size="sm"
@@ -225,7 +225,7 @@ export default function ScenariosTab() {
 
       {/* Policy simulator (dry-run) */}
       <section className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-[color:var(--text-muted)]">
           Симулятор політики
         </h2>
         <PolicySimulator />

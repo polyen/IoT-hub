@@ -13,13 +13,13 @@ const CLASS_BADGE: Record<string, string> = {
   DETERMINISTIC:"bg-blue-900/70 text-blue-300",
   STRUCTURED:   "bg-purple-900/70 text-purple-300",
   CREATIVE:     "bg-pink-900/70 text-pink-300",
-  UNKNOWN:      "bg-slate-800 text-slate-400",
+  UNKNOWN:      "bg-[color:var(--raised)] text-[color:var(--text-muted)]",
 };
 
 const TYPE_CONFIG: Record<string, { icon: string; border: string; bg: string; label: string }> = {
   intent:    { icon: "💬", border: "border-blue-800/60",   bg: "bg-blue-950/30",  label: "Намір" },
   tool_call: { icon: "⚙️",  border: "border-amber-800/60", bg: "bg-amber-950/30", label: "Виклик" },
-  result:    { icon: "✓",  border: "border-slate-700",    bg: "bg-slate-800/40", label: "Результат" },
+  result:    { icon: "✓",  border: "border-[color:var(--border)]", bg: "bg-[color:var(--raised)]", label: "Результат" },
 };
 
 const RESULT_BORDER: Record<string, string> = {
@@ -64,8 +64,8 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
 
   const isResult = ev.type === "result";
   const ac = ev.action_class as ActionClass | undefined;
-  const borderBg = isResult && ac ? (RESULT_BORDER[ac] ?? "border-slate-700 bg-slate-800/40") : undefined;
-  const cfg = TYPE_CONFIG[ev.type] ?? { icon: "•", border: "border-slate-700", bg: "bg-slate-800/60", label: ev.type };
+  const borderBg = isResult && ac ? (RESULT_BORDER[ac] ?? "border-[color:var(--border)] bg-[color:var(--raised)]") : undefined;
+  const cfg = TYPE_CONFIG[ev.type] ?? { icon: "•", border: "border-[color:var(--border)]", bg: "bg-[color:var(--raised)]", label: ev.type };
 
   const badge = !isResult ? (ev.class_ ?? undefined) : undefined;
   const hasPayload = ev.payload != null && typeof ev.payload === "object" && Object.keys(ev.payload as object).length > 0;
@@ -86,15 +86,15 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="font-semibold text-white/80">{resultLabel}</span>
             {badge && (
-              <span className={`rounded px-1.5 py-px text-xs font-bold ${CLASS_BADGE[badge] ?? "bg-slate-700 text-slate-300"}`}>
+              <span className={`rounded px-1.5 py-px text-xs font-bold ${CLASS_BADGE[badge] ?? "bg-[color:var(--card-hover)] text-[color:var(--text-muted)]"}`}>
                 {badge}
               </span>
             )}
             {ev.prototype && (
-              <span className="text-slate-500 font-mono">{ev.prototype}</span>
+              <span className="text-[color:var(--text-faint)] font-mono">{ev.prototype}</span>
             )}
             {ev.score != null && (
-              <span className="text-slate-600">{(ev.score * 100).toFixed(0)}%</span>
+              <span className="text-[color:var(--text-faint)]">{(ev.score * 100).toFixed(0)}%</span>
             )}
           </div>
 
@@ -117,13 +117,13 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
           {hasReasoning && (
             <button
               onClick={() => setReasonExpanded((v) => !v)}
-              className="text-slate-500 hover:text-slate-300 mt-0.5"
+              className="text-[color:var(--text-faint)] hover:text-[color:var(--text)] mt-0.5"
             >
               {reasonExpanded ? "▲ скрити причину" : "▼ Чому?"}
             </button>
           )}
           {reasonExpanded && hasReasoning && (
-            <p className="mt-1 rounded bg-black/30 p-2 text-xs text-slate-300 leading-relaxed">
+            <p className="mt-1 rounded bg-black/30 p-2 text-xs text-[color:var(--text-muted)] leading-relaxed">
               {ev.reasoning}
             </p>
           )}
@@ -132,20 +132,20 @@ function EventCard({ ev }: { ev: AgentTurnEvent }) {
           {hasPayload && (
             <button
               onClick={() => setExpanded((v) => !v)}
-              className="text-slate-500 hover:text-slate-300 mt-0.5"
+              className="text-[color:var(--text-faint)] hover:text-[color:var(--text)] mt-0.5"
             >
               {expanded ? "▲ скрити" : "▼ payload"}
             </button>
           )}
           {expanded && hasPayload && (
-            <pre className="mt-1 rounded bg-black/30 p-2 text-xs text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
+            <pre className="mt-1 rounded bg-black/30 p-2 text-xs text-[color:var(--text-muted)] overflow-x-auto whitespace-pre-wrap break-all">
               {JSON.stringify(ev.payload, null, 2)}
             </pre>
           )}
         </div>
 
         {ev.ts && (
-          <span className="shrink-0 text-slate-600 font-mono tabular-nums">
+          <span className="shrink-0 text-[color:var(--text-faint)] font-mono tabular-nums">
             {new Date(ev.ts).toLocaleTimeString("uk", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </span>
         )}
@@ -216,15 +216,15 @@ export default function AgentStreamTab() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
-          <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-slate-500"}`} />
-          <span className="text-slate-400">{connected ? "Агент підключений" : "Очікування агента…"}</span>
+          <span className={`h-2 w-2 rounded-full ${connected ? "bg-green-500 animate-pulse" : "bg-[color:var(--text-faint)]"}`} />
+          <span className="text-[color:var(--text-muted)]">{connected ? "Агент підключений" : "Очікування агента…"}</span>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={loadHistory} className="text-xs text-slate-500 hover:text-slate-300">
+          <button onClick={loadHistory} className="text-xs text-[color:var(--text-faint)] hover:text-[color:var(--text)]">
             ↺ Оновити
           </button>
           {events.length > 0 && (
-            <button onClick={() => setEvents([])} className="text-xs text-slate-500 hover:text-slate-300">
+            <button onClick={() => setEvents([])} className="text-xs text-[color:var(--text-faint)] hover:text-[color:var(--text)]">
               Очистити
             </button>
           )}
@@ -240,10 +240,10 @@ export default function AgentStreamTab() {
         }}
       >
         {events.length === 0 ? (
-          <div className="py-14 text-center text-slate-500">
+          <div className="py-14 text-center text-[color:var(--text-faint)]">
             <p className="text-3xl mb-3">🤖</p>
             <p className="text-sm">Агент очікує команди</p>
-            <p className="text-xs mt-1 text-slate-600">
+            <p className="text-xs mt-1 text-[color:var(--text-faint)]">
               Скажи команду або відправ через «Сценарії» — тут з'явиться хід обробки
             </p>
           </div>
