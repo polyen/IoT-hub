@@ -100,10 +100,10 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms, cl
             <stop offset="0%" stopColor="rgba(239,68,68,0.30)" />
             <stop offset="100%" stopColor="rgba(239,68,68,0.08)" />
           </linearGradient>
-          {/* Top sheen overlay */}
+          {/* Top sheen overlay — concentrated in top 30% for natural specular highlight */}
           <linearGradient id="fpSheen" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--room-sheen)" />
-            <stop offset="45%" stopColor="rgba(255,255,255,0)" />
+            <stop offset="30%" stopColor="rgba(255,255,255,0)" />
           </linearGradient>
 
           {/* Soft drop shadow → floating-panel depth */}
@@ -137,11 +137,11 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms, cl
           const cl = climate?.[room.slug];
           const climateLabel = cl
             ? [
-                cl.temperature != null ? `${cl.temperature.toFixed(1)}°` : null,
-                cl.humidity != null ? `${Math.round(cl.humidity)}%` : null,
-              ]
-                .filter(Boolean)
-                .join("  ")
+              cl.temperature != null ? `${cl.temperature.toFixed(1)}°` : null,
+              cl.humidity != null ? `${Math.round(cl.humidity)}%` : null,
+            ]
+              .filter(Boolean)
+              .join("  ")
             : null;
 
           const hasExtras = climateLabel != null || roomPlacements.length > 0;
@@ -161,11 +161,11 @@ export function FloorPlanView({ data, onRoomClick, alertRooms, presenceRooms, cl
                 d={d}
                 fill={FILL[status]}
                 stroke="var(--room-stroke)"
-                strokeWidth={0.4}
+                strokeWidth={0.22}
                 filter={FILTER[status]}
               />
-              {/* Sheen highlight */}
-              <path d={d} fill="url(#fpSheen)" fillOpacity={0.6} className="pointer-events-none" />
+              {/* Sheen highlight — specular top reflection, key to glass look */}
+              <path d={d} fill="url(#fpSheen)" fillOpacity={0.9} className="pointer-events-none" />
 
               {/* Room name */}
               <text
