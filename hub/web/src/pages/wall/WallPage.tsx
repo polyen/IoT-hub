@@ -177,9 +177,8 @@ export default function WallPage() {
 
       {/* Status banner */}
       <div
-        className={`flex shrink-0 items-center gap-5 rounded-3xl bg-[color:var(--card)] px-7 py-5 ${statusStyle.ring} ${
-          mood === "alarm" ? "animate-pulse-slow" : ""
-        }`}
+        className={`flex shrink-0 items-center gap-5 rounded-3xl bg-[color:var(--card)] px-7 py-5 ${statusStyle.ring} ${mood === "alarm" ? "animate-pulse-slow" : ""
+          }`}
       >
         <div className={`grid h-16 w-16 shrink-0 place-items-center rounded-2xl ${statusStyle.bg}`}>
           <StatusIcon size={32} strokeWidth={1.8} className={statusStyle.fg} />
@@ -190,12 +189,19 @@ export default function WallPage() {
       {/* Main: floor plan + side column */}
       <main className="grid min-h-0 flex-1 grid-cols-3 gap-5">
         {/* Floor plan */}
-        <div className="col-span-2 grid min-h-0 place-items-center overflow-hidden rounded-3xl bg-[color:var(--card)] p-4">
+        <div className="col-span-2 flex min-h-0 items-center justify-center overflow-hidden rounded-3xl bg-[color:var(--card)] p-4">
           {data.floor_plans.length > 0 ? (
-            <div className="max-h-full w-full">
+            <div
+              className="max-w-full"
+              style={{
+                height: "100%",
+                width: "auto",
+                aspectRatio: `${data.floor_plans[0].width} / ${data.floor_plans[0].height}`,
+              }}
+            >
               <FloorPlanView
                 data={data}
-                onRoomClick={() => {}}
+                onRoomClick={() => { }}
                 alertRooms={alertRooms}
                 presenceRooms={presenceRooms}
                 climate={climate}
