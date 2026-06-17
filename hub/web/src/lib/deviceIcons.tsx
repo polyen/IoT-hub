@@ -11,6 +11,7 @@ import {
   Gauge,
   Speaker,
   Settings2,
+  WavesArrowUp,
   type LucideIcon,
 } from "lucide-react";
 import type { DeviceKind } from "./types";
@@ -32,17 +33,18 @@ export interface DeviceMeta {
  * used to live in FloorPlanView / FloorPlanEditor / DevicesListPage / DeviceQuickControl.
  */
 export const DEVICE_META: Record<DeviceKind, DeviceMeta> = {
-  camera:       { Icon: Cctv,        label: "Камера",       hex: "#818cf8", text: "text-primary-400", bg: "bg-primary-500/15" },
-  light:        { Icon: Lightbulb,   label: "Лампа",        hex: "#fbbf24", text: "text-amber-400",   bg: "bg-amber-500/15" },
-  lock:         { Icon: Lock,        label: "Замок",        hex: "#34d399", text: "text-emerald-400", bg: "bg-emerald-500/15" },
-  thermostat:   { Icon: Thermometer, label: "Термостат",    hex: "#fb923c", text: "text-orange-400",  bg: "bg-orange-500/15" },
-  relay:        { Icon: Power,       label: "Реле",         hex: "#818cf8", text: "text-primary-400", bg: "bg-primary-500/15" },
-  sensor_pir:   { Icon: Radar,       label: "Рух (PIR)",    hex: "#38bdf8", text: "text-sky-400",     bg: "bg-sky-500/15" },
-  sensor_door:  { Icon: DoorOpen,    label: "Двері",        hex: "#38bdf8", text: "text-sky-400",     bg: "bg-sky-500/15" },
-  sensor_dht:   { Icon: Droplets,    label: "Темп/Волога",  hex: "#38bdf8", text: "text-sky-400",     bg: "bg-sky-500/15" },
-  sensor_mq2:   { Icon: Wind,        label: "Газ MQ-2",     hex: "#fbbf24", text: "text-amber-400",   bg: "bg-amber-500/15" },
-  sensor_power: { Icon: Gauge,       label: "Лічильник",    hex: "#94a3b8", text: "text-slate-400",   bg: "bg-slate-500/15" },
-  speaker:      { Icon: Speaker,     label: "Динамік",      hex: "#a78bfa", text: "text-violet-400",  bg: "bg-violet-500/15" },
+  camera: { Icon: Cctv, label: "Камера", hex: "#818cf8", text: "text-primary-400", bg: "bg-primary-500/15" },
+  light: { Icon: Lightbulb, label: "Лампа", hex: "#fbbf24", text: "text-amber-400", bg: "bg-amber-500/15" },
+  lock: { Icon: Lock, label: "Замок", hex: "#34d399", text: "text-emerald-400", bg: "bg-emerald-500/15" },
+  thermostat: { Icon: Thermometer, label: "Термостат", hex: "#fb923c", text: "text-orange-400", bg: "bg-orange-500/15" },
+  relay: { Icon: Power, label: "Реле", hex: "#818cf8", text: "text-primary-400", bg: "bg-primary-500/15" },
+  sensor_pir: { Icon: Radar, label: "Рух (PIR)", hex: "#38bdf8", text: "text-sky-400", bg: "bg-sky-500/15" },
+  sensor_door: { Icon: DoorOpen, label: "Двері", hex: "#38bdf8", text: "text-sky-400", bg: "bg-sky-500/15" },
+  sensor_dht: { Icon: Droplets, label: "Темп/Волога", hex: "#38bdf8", text: "text-sky-400", bg: "bg-sky-500/15" },
+  sensor_mq2: { Icon: Wind, label: "Газ MQ-2", hex: "#fbbf24", text: "text-amber-400", bg: "bg-amber-500/15" },
+  sensor_power: { Icon: Gauge, label: "Лічильник", hex: "#94a3b8", text: "text-slate-400", bg: "bg-slate-500/15" },
+  speaker: { Icon: Speaker, label: "Динамік", hex: "#a78bfa", text: "text-violet-400", bg: "bg-violet-500/15" },
+  sensor_water: { Icon: WavesArrowUp, label: "Витік води", hex: "#3b82f6", text: "text-blue-400", bg: "bg-blue-500/15" },
 };
 
 const FALLBACK: DeviceMeta = {

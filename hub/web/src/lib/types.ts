@@ -21,7 +21,7 @@ export interface FeedbackPayload {
 export type RoomType = "bedroom" | "kitchen" | "living" | "bath" | "hall" | "outdoor" | "other";
 export type DeviceKind =
   | "camera" | "light" | "lock" | "thermostat" | "relay"
-  | "sensor_pir" | "sensor_door" | "sensor_dht" | "sensor_mq2" | "sensor_power" | "speaker";
+  | "sensor_pir" | "sensor_door" | "sensor_dht" | "sensor_mq2" | "sensor_power" | "speaker" | "sensor_water";
 
 export type DeviceAction = "on" | "off" | "toggle" | "brightness_set" | "temp_set";
 
