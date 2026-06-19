@@ -71,7 +71,7 @@ _seen_events: dict[str, float] = {}
 
 # Per-room {track_id: (base_name, confident, last-seen ts)} for camera/identity.
 # The CV side already smooths its publishes, but it emits once per *resolved
-# label change*, and a new track_id (or a Vlad↔Vlad? upgrade) is a change — so
+# label change*, and a new track_id (or a name→confident upgrade) is a change — so
 # without this the events feed gets one identity row per change instead of one
 # per person per appearance. We persist a row only on a NEW base identity for a
 # track, plus one "?"→confident upgrade, mirroring _seen_tracks for camera/event.
@@ -80,9 +80,9 @@ _seen_events: dict[str, float] = {}
 _IDENTITY_PERSIST_TTL_SEC = 300.0
 _persisted_identities: dict[str, dict[Any, tuple[str, bool, float]]] = {}
 
-# Uncertain ("Vlad?") matches are noise in the persisted feed: at surveillance
+# Uncertain ("name?") matches are noise in the persisted feed: at surveillance
 # distance the per-frame winner flaps between *different* enrolled names
-# (Vlad?→mark?→Anita?→…) at borderline sims, so each is a new base name and
+# (name1?→name2?→name3?→…) at borderline sims, so each is a new base name and
 # defeats name-based dedup. Best practice (à la Frigate) is to surface a named
 # event only when the recognition is *confident* — the "?" tier stays in Redis
 # for the live amber overlay but never becomes a feed row. Set
@@ -366,8 +366,8 @@ def _should_persist_identity(room: str, track_id: Any, identity: str) -> bool:
     """One identity row per (track, person) — dedup base name, allow one upgrade.
 
     Persists when: the track is new, OR its base identity changed, OR it upgrades
-    from uncertain ("Vlad?") to confident ("Vlad"). A confident match is "sticky"
-    so a later dip back to "Vlad?" doesn't re-emit. Mirrors ``_new_tracks``.
+    from uncertain ("name?") to confident ("name"). A confident match is "sticky"
+    so a later dip back to "name?" doesn't re-emit. Mirrors ``_new_tracks``.
     """
     confident = not identity.endswith("?")
     # Uncertain matches don't reach the feed (and don't disturb dedup state) —
@@ -463,7 +463,7 @@ async def _handle_camera_event(
     cv_frame = json.dumps({"ts": datetime.now(UTC).isoformat(), "room": room, "dets": enriched})
     await redis_client.publish(f"cv:detections:{room}", cv_frame)
 
-    # 2. Persist one DB event per newly-appeared track.
+    # 3. Persist one DB event per newly-appeared track.
     for det in _new_tracks(room, dets):
         det_payload: dict[str, Any] = {
             "room": room,

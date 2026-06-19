@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PencilLine } from "lucide-react";
 import { useFloorPlan } from "../../features/floorplan/useFloorPlan";
 import { useFloorPlanStore } from "../../features/floorplan/floorplan-store";
@@ -12,6 +12,7 @@ import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
 import { api } from "../../lib/api";
+import { useWebSocket } from "../../hooks/useWebSocket";
 import type { Room } from "../../lib/types";
 
 const FloorPlanEditor = lazy(() =>
@@ -38,6 +39,21 @@ export default function HomePage() {
   const { data, isLoading, error } = useFloorPlan();
   const { editMode, setEditMode, setDraft } = useFloorPlanStore();
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const qc = useQueryClient();
+  const { events } = useWebSocket();
+
+  // Immediately refresh room states when an alert, presence or detection event
+  // arrives via WebSocket, without waiting for the next polling interval.
+  useEffect(() => {
+    const newest = events[0];
+    if (!newest) return;
+    if (
+      newest.type === "alert" ||
+      newest.type === "presence"
+    ) {
+      qc.invalidateQueries({ queryKey: ["room_states"] });
+    }
+  }, [events, qc]);
 
   const { data: roomStates } = useQuery<RoomStates>({
     queryKey: ["room_states"],

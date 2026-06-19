@@ -252,7 +252,7 @@ async def _capture_frames(rtsp_url: str, target_fps: int = 15) -> AsyncGenerator
 # How often (seconds) the pipeline re-checks its model symlinks for an
 # out-of-band swap by ModelStore.promote(). This is the reload path for the
 # host systemd deployment, where `docker kill --signal=SIGHUP cv` can't reach
-# the pipeline (see CLAUDE.md prod gotcha). SIGHUP still works for the
+# the pipeline (symlink polling is used instead). SIGHUP still works for the
 # containerised deployment.
 MODEL_POLL_INTERVAL_SEC = 5.0
 
@@ -274,9 +274,9 @@ ENROLL_BUFFER_TTL_SEC = 90
 IDENTITY_VOTE_WINDOW = 7
 
 # Hysteresis band for the known/uncertain tier decision. The vote above damps
-# *which name* wins, but the confidence tier (Vlad vs Vlad?) was decided by a
+# *which name* wins, but the confidence tier (known vs uncertain) was decided by a
 # single threshold (COSINE_KNOWN_THRESHOLD=0.6), so a track whose mean_sim sits
-# right at ~0.6 flaps Vlad↔Vlad? every frame and floods camera/identity even
+# right at ~0.6 flaps between tiers every frame and floods camera/identity even
 # though the person never changed. With hysteresis a tier upgrades at the
 # *enter* threshold (0.6 known / 0.4 uncertain) but only downgrades once sim
 # falls below a lower *exit* threshold — so a borderline-confidence track
@@ -692,7 +692,7 @@ class CVPipeline:
 
         The tier only *upgrades* when sim reaches the enter threshold but
         *downgrades* only once sim drops below the lower exit threshold, so a
-        borderline track stops toggling Vlad↔Vlad?. Hysteresis is reset when the
+        borderline track stops toggling between known and uncertain. Hysteresis is reset when the
         winning name changes (a genuinely new identity gets no sticky carryover).
         """
         prev_winner, prev_tier = self._identity_tier.get(track_id, ("", "unknown"))

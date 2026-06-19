@@ -42,8 +42,8 @@ except ImportError:
 # Conservative by design — only confident matches are emitted as "known". The
 # defaults sit higher than the naive 0.6 because at surveillance distance the
 # intra-person and inter-person cosine distributions overlap around 0.6, which
-# is what produced confident *false* matches (e.g. "Anita" at 0.65 on a Vlad
-# track). Both are env-tunable (mirrors Frigate's recognition_threshold /
+# is what produced confident *false* matches (e.g. person A matched as person B
+# at sim 0.65). Both are env-tunable (mirrors Frigate's recognition_threshold /
 # unknown_score) so they can be calibrated against a given enrollment gallery.
 COSINE_KNOWN_THRESHOLD = float(os.environ.get("FACE_KNOWN_THRESHOLD", "0.65"))
 COSINE_UNKNOWN_THRESHOLD = float(os.environ.get("FACE_UNKNOWN_THRESHOLD", "0.45"))

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ShieldCheck, Users, AlertTriangle, Minimize2, Wifi, WifiOff } from "lucide-react";
 import { useFloorPlan } from "../../features/floorplan/useFloorPlan";
@@ -36,6 +36,7 @@ export default function WallPage() {
   const isOnline = useOnlineStatus();
   const { run, runningId } = useRunScene();
   const { events } = useWebSocket();
+  const qc = useQueryClient();
   const [now, setNow] = useState(() => new Date());
   const [lastMotionTs, setLastMotionTs] = useState<number | null>(null);
 
@@ -45,6 +46,19 @@ export default function WallPage() {
     const id = setInterval(() => setNow(new Date()), 10_000);
     return () => clearInterval(id);
   }, []);
+
+  // Immediately refresh room states when an alert, presence or detection event
+  // arrives via WebSocket, without waiting for the next polling interval.
+  useEffect(() => {
+    const newest = events[0];
+    if (!newest) return;
+    if (
+      newest.type === "alert" ||
+      newest.type === "presence"
+    ) {
+      qc.invalidateQueries({ queryKey: ["room_states"] });
+    }
+  }, [events, qc]);
 
   // Update lastMotionTs whenever a new presence/motion event arrives via WebSocket.
   useEffect(() => {
