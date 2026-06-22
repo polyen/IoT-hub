@@ -520,6 +520,27 @@ services:
     networks:
       - iot-internal
 
+  # ---------------------------------------------------------------------------
+  # CA distribution server (dev profile only)
+  # ---------------------------------------------------------------------------
+  # Serves rootCA.pem so any device on the LAN can install the local CA in
+  # one tap — activated only via `--profile dev` (make up-edge-dev).
+  # Run scripts/gen-web-cert.sh once to populate CERTS_HOST_DIR/rootCA.pem.
+  ca-server:
+    image: nginx:alpine
+    container_name: ca-server
+    restart: unless-stopped
+    profiles: [dev]
+    ports:
+      - "${CA_SERVE_PORT:-8888}:80"
+    volumes:
+      - ${CERTS_HOST_DIR:-/opt/iot-hub/certs}:/usr/share/nginx/html:ro
+    configs:
+      - source: ca_nginx_conf
+        target: /etc/nginx/conf.d/default.conf
+    networks:
+      - iot-internal
+
 # -----------------------------------------------------------------------------
 # Volumes
 # -----------------------------------------------------------------------------
@@ -538,6 +559,23 @@ volumes:
   piper-models:
   hf-cache:
   whisper-cache:
+
+# -----------------------------------------------------------------------------
+# Configs (dev profile)
+# -----------------------------------------------------------------------------
+configs:
+  ca_nginx_conf:
+    content: |
+      server {
+          listen 80;
+          root /usr/share/nginx/html;
+          # Serve only rootCA.pem; all other paths (including hub.key) return 404.
+          location = /rootCA.pem {
+              add_header Content-Disposition 'attachment; filename="IoT-Hub-CA.pem"';
+              add_header Content-Type "application/x-pem-file";
+          }
+          location / { return 404; }
+      }
   t0-frames:
   annotation-dataset:
 
