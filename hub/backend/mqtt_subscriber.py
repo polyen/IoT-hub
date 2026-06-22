@@ -39,6 +39,14 @@ SUBSCRIPTIONS = [
 # How long a face recognition result is cached in Redis for overlay enrichment.
 _IDENTITY_TTL_SEC = 10
 
+# Broker-liveness heartbeat for the System dashboard (see services/system_metrics.py).
+_HEARTBEAT_TTL = 30
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 # Latest microclimate reading per room is cached in Redis ``home:climate:{room}``
 # (a hash of numeric sensor fields + ``ts``) so the floor-plan overlay and
 # ``/api/sensors/latest`` can read the freshest value without a hypertable scan.
@@ -98,7 +106,12 @@ async def run(redis_client: _RedisClient) -> None:
             async with aiomqtt.Client(settings.mqtt_host, settings.mqtt_port) as client:
                 for topic in SUBSCRIPTIONS:
                     await client.subscribe(topic)
+                # Liveness for the System dashboard: broker reachable on connect,
+                # refreshed per message (home traffic is frequent enough to keep
+                # the 30 s TTL alive). See services/system_metrics.py.
+                await redis_client.setex("heartbeat:mqtt", _HEARTBEAT_TTL, _now_iso())
                 async for message in client.messages:
+                    await redis_client.setex("heartbeat:mqtt", _HEARTBEAT_TTL, _now_iso())
                     await _handle(message, redis_client)
         except aiomqtt.MqttError as exc:
             logger.warning("MQTT connection lost: %s — reconnecting in 5s", exc)

@@ -175,11 +175,19 @@ module = ["prometheus_client.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["psutil.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["jsonschema.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["optimum.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["transformers.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

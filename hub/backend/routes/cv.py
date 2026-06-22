@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -165,13 +165,21 @@ async def snapshot(camera_id: str, session: SessionDep) -> dict[str, Any]:
 
 
 @router.get("/api/cv/pipeline-config")
-async def pipeline_config(session: SessionDep) -> dict[str, Any]:
+async def pipeline_config(request: Request, session: SessionDep) -> dict[str, Any]:
     """CV pipeline self-config: which room slug to publish detections under.
 
     The edge CV pipeline polls this so moving the camera between rooms in the
     floor-plan editor re-targets its MQTT room with no env change or restart.
     Single-camera assumption — returns the first camera placement.
+
+    This poll (~every 5 s) doubles as the CV liveness signal for the System
+    dashboard — see services/system_metrics.py.
     """
+    try:
+        await request.app.state.redis.setex("heartbeat:cv", 30, datetime.now(UTC).isoformat())
+    except Exception:  # pragma: no cover - heartbeat is best-effort
+        logger.debug("heartbeat:cv write failed", exc_info=True)
+
     res = await session.execute(
         select(DevicePlacement)
         .options(selectinload(DevicePlacement.room))

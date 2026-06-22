@@ -313,6 +313,10 @@ async def run_pipeline_with_ptt(
 
     logger.info("Voice pipeline (mic+PTT+TTS) ready — backend=%s", type(stt).__name__)
 
+    # Liveness for the System dashboard — independent of MQTT, so it sits
+    # outside the reconnect loop. See hub/backend/services/system_metrics.py.
+    asyncio.create_task(_voice_heartbeat_loop(redis_url), name="voice-heartbeat")
+
     while True:
         try:
             async with aiomqtt.Client(mqtt_host, mqtt_port) as mqtt:
@@ -341,6 +345,29 @@ async def run_pipeline_with_ptt(
         except aiomqtt.MqttError as exc:
             logger.warning("Voice MQTT lost: %s — reconnecting in 5s", exc)
             await asyncio.sleep(5)
+
+
+async def _voice_heartbeat_loop(redis_url: str, interval: int = 10) -> None:
+    """Write ``heartbeat:voice`` to Redis every ``interval`` s (TTL 30 s).
+
+    The System dashboard reads ``heartbeat:voice`` to show the voice service as
+    online; the backend producer can't probe this out-of-process service, so it
+    self-reports here. Best-effort — failures never disrupt the pipeline.
+    """
+    import datetime as _dt
+
+    import redis.asyncio as aioredis
+
+    client = await aioredis.from_url(redis_url, decode_responses=True)
+    try:
+        while True:
+            try:
+                await client.setex("heartbeat:voice", 30, _dt.datetime.now(_dt.UTC).isoformat())
+            except Exception:
+                logger.debug("heartbeat:voice write failed", exc_info=True)
+            await asyncio.sleep(interval)
+    finally:
+        await client.aclose()
 
 
 async def _audio_stream_for_device(
