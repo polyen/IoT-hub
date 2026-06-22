@@ -43,6 +43,10 @@ RUN pip download --no-deps "silero-vad==6.2.1" -d /tmp/sv-dl && \
     chown -R appuser:appuser /app/.silero_vad && \
     rm -rf /tmp/sv-dl
 
+# Whisper asset cache — owned by appuser so the named volume gets correct perms.
+# Must run as root (before USER appuser), since /app is root-owned.
+RUN mkdir -p /app/.whisper_cache && chown -R appuser:appuser /app/.whisper_cache
+
 USER appuser
 
 ENV WAKE_WORD_MODEL_PATH="" \
@@ -59,8 +63,5 @@ ENV WAKE_WORD_MODEL_PATH="" \
     PIPER_MODEL_DIR="/home/appuser/.local/share/piper" \
     SILERO_VAD_ONNX_PATH="/app/.silero_vad/silero_vad.onnx" \
     HF_HOME="/app/.hf_cache"
-
-# Whisper asset cache — owned by appuser so the named volume gets correct perms.
-RUN mkdir -p /app/.whisper_cache && chown -R appuser:appuser /app/.whisper_cache
 
 CMD ["python", "-m", "hub.edge.voice.pipeline"]
