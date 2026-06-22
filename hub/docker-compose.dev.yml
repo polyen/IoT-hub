@@ -1,6 +1,9 @@
 name: iot-hub-edge
-# Dev override: exposes plain MQTT port 1883 on the host so mock_sensors
-# running on the dev machine can publish without mTLS.
+# Dev override:
+#   - Exposes plain MQTT port 1883 on the host so mock_sensors can publish without mTLS.
+#   - Adds `ca-server` on port 8888 — serves rootCA.pem for one-tap CA install on any device.
+#     Scan the QR code printed by scripts/gen-web-cert.sh or open:
+#       http://<hub-ip>:8888/rootCA.pem
 # Usage:
 #   docker compose -f hub/docker-compose.edge.yml -f hub/docker-compose.dev.yml up -d
 # Never use in production — 1883 has no auth outside the Docker network.
@@ -8,3 +11,30 @@ services:
   mosquitto:
     ports:
       - "1883:1883"
+
+  # Temporary CA distribution server — serves rootCA.pem for device onboarding.
+  # Run scripts/gen-web-cert.sh once to populate CERTS_HOST_DIR with rootCA.pem.
+  ca-server:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${CA_SERVE_PORT:-8888}:80"
+    volumes:
+      - ${CERTS_HOST_DIR:-/opt/iot-hub/certs}:/usr/share/nginx/html:ro
+    configs:
+      - source: ca_nginx_conf
+        target: /etc/nginx/conf.d/default.conf
+
+configs:
+  ca_nginx_conf:
+    content: |
+      server {
+          listen 80;
+          root /usr/share/nginx/html;
+          # Serve only rootCA.pem; block access to hub.key
+          location = /rootCA.pem {
+              add_header Content-Disposition 'attachment; filename="IoT-Hub-CA.pem"';
+              add_header Content-Type "application/x-pem-file";
+          }
+          location / { return 404; }
+      }
