@@ -559,6 +559,8 @@ volumes:
   piper-models:
   hf-cache:
   whisper-cache:
+  t0-frames:
+  annotation-dataset:
 
 # -----------------------------------------------------------------------------
 # Configs (dev profile)
@@ -576,8 +578,6 @@ configs:
           }
           location / { return 404; }
       }
-  t0-frames:
-  annotation-dataset:
 
 # -----------------------------------------------------------------------------
 # Networks
