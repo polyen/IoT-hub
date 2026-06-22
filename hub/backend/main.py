@@ -230,9 +230,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if os.environ.get("ENABLE_T0_CLEANUP", "true").lower() == "true":
         tasks.append(asyncio.create_task(_t0_cleanup_loop(), name="t0-cleanup"))
     if os.environ.get("ENABLE_SYSTEM_METRICS", "true").lower() == "true":
-        from hub.backend.services.system_metrics import metrics_loop  # noqa: PLC0415
+        # Best-effort: the System dashboard producer must never take down the
+        # backend (e.g. if psutil is somehow missing from the image).
+        try:
+            from hub.backend.services.system_metrics import metrics_loop  # noqa: PLC0415
 
-        tasks.append(asyncio.create_task(metrics_loop(app.state.redis), name="system-metrics"))
+            tasks.append(asyncio.create_task(metrics_loop(app.state.redis), name="system-metrics"))
+        except Exception as exc:
+            logger.warning("system-metrics producer not started: %s", exc)
     if os.environ.get("ENABLE_FEEDBACK_MINING", "true").lower() == "true":
         tasks.append(
             asyncio.create_task(

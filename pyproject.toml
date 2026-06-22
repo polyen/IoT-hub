@@ -19,6 +19,7 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "aiomqtt>=2.3.0",
     "prometheus-client>=0.20.0",
+    "psutil>=7.0.0",
     "jsonschema>=4.22.0",
     "httpx>=0.27.0",
     "pyyaml>=6.0.0",
